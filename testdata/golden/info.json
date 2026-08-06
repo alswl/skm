@@ -1,0 +1,1 @@
+{"type":"command","path":"$ROOT/commands/github/cmd-a","version":"1.2.0","frontmatter":{"description":"A remote command","name":"cmd-a","version":"1.2.0"},"files":["command.md","meta.json"]}

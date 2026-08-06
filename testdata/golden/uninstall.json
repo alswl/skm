@@ -1,0 +1,1 @@
+{"action":"uninstall","name":"skill-a","dry_run":false,"results":[{"target":"t","status":"absent","changed":true}],"success":true}

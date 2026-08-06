@@ -1,0 +1,22 @@
+[
+  {
+    "name": "scan",
+    "elapsed_ns": 32959083
+  },
+  {
+    "name": "origin-lookup",
+    "elapsed_ns": 2145
+  },
+  {
+    "name": "content-hash",
+    "elapsed_ns": 39579
+  },
+  {
+    "name": "install-state",
+    "elapsed_ns": 1249
+  },
+  {
+    "name": "origin-lookup-entry",
+    "elapsed_ns": 1948
+  }
+]

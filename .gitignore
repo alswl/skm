@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Built binary (make build produces ./bin/skm)
+/bin/
+
 # Editor/IDE
 # .idea/
 # .vscode/

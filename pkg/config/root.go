@@ -1,0 +1,58 @@
+package config
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+
+	"github.com/alswl/skm/skm/pkg/common"
+)
+
+// DiscoverRoot resolves the repository root. When rootFlag is non-empty it is
+// normalized (accepting either the repo root or a skills/ directory); when
+// empty, the tool walks upward from cwd for an ancestor containing skills/ or
+// commands/ (FR-002).
+func DiscoverRoot(rootFlag string) (string, error) {
+	if rootFlag != "" {
+		return NormalizeRoot(rootFlag)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", common.Errf("cannot determine working directory: %w", err)
+	}
+	dir := cwd
+	for {
+		if hasRepoMarkers(dir) {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", errors.New("no repository found: no skills/ or commands/ directory upward from the current directory (use --root)")
+}
+
+// NormalizeRoot converts a --root value into the repository root: a path
+// pointing directly at a skills/ directory is normalized to its parent.
+func NormalizeRoot(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", common.Errf("cannot resolve --root %q: %w", p, err)
+	}
+	if base := filepath.Base(abs); base == "skills" || base == "commands" {
+		return filepath.Dir(abs), nil
+	}
+	return abs, nil
+}
+
+// hasRepoMarkers reports whether dir contains a skills/ or commands/ tree.
+func hasRepoMarkers(dir string) bool {
+	for _, sub := range []string{"skills", "commands"} {
+		if fi, err := os.Stat(filepath.Join(dir, sub)); err == nil && fi.IsDir() {
+			return true
+		}
+	}
+	return false
+}

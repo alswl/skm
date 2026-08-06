@@ -1,0 +1,1 @@
+{"action":"install","name":"skill-a","dry_run":true,"results":[{"target":"t","status":"installed","changed":true}],"success":true}
