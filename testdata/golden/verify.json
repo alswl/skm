@@ -1,1 +1,1 @@
-{"total":6,"active":4,"archived":1,"errors":1,"consistent":false,"inconsistencies":[{"name":"bad-marker","issue":"frontmatter missing required field: name"}],"name_conflicts":[]}
+{"total":6,"active":4,"archived":1,"errors":1,"non_standard":0,"consistent":false,"inconsistencies":[{"name":"bad-marker","issue":"frontmatter missing required field: name"}],"name_conflicts":[]}

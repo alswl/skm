@@ -2,6 +2,7 @@ package common
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -45,6 +46,11 @@ const (
 	StatusActive   Status = "active"
 	StatusArchived Status = "archived"
 	StatusError    Status = "error"
+	// StatusNonStandard marks a skill/command marker found outside the
+	// managed skills/commands/archived trees (e.g. loose in the repo root).
+	// It is scanned and reported so it's visible, but never installable —
+	// only StatusActive entries can be installed/updated.
+	StatusNonStandard Status = "non_standard"
 )
 
 // InstallState is the derived health of an entry within a target. It is never
@@ -60,18 +66,103 @@ const (
 
 // Origin records the provenance of a remote-fetched entry, stored in
 // <entry>/meta.json. It is present only for remote imports/updates (I3).
+// Address is the source url, ModeID the provider that fetched it, and Path the
+// entry's location relative to the repository root — together they let an
+// installed skill's meta.json track url / provider / path.
 type Origin struct {
 	Address string  `json:"address"`
 	ModeID  *string `json:"mode_id,omitempty"`
+	Path    string  `json:"path,omitempty"`
+}
+
+// InstallStrategy is the on-disk shape a target uses to place an asset
+// (data-model.md). These are the three shapes the installer already produces;
+// naming them lets a target *declare* which one it uses instead of the
+// installer hardcoding it by tool name (002-open-provider-target FR-013).
+type InstallStrategy string
+
+const (
+	StrategySkillSymlink   InstallStrategy = "skill-symlink"
+	StrategyCommandMarker  InstallStrategy = "command-marker"
+	StrategyCommandAdapter InstallStrategy = "command-adapter"
+)
+
+// CompatibleWith reports whether a strategy is a valid on-disk shape for kind
+// (target-config.md: skill→skill-symlink; command→command-marker|command-adapter).
+func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
+	switch kind {
+	case KindSkill:
+		return s == StrategySkillSymlink
+	case KindCommand:
+		return s == StrategyCommandMarker || s == StrategyCommandAdapter
+	}
+	return false
 }
 
 // InstallTarget is a destination directory for installs, from targets.json or
-// built-in defaults.
+// built-in defaults. Accepts/Strategies declare which kinds it receives and
+// how (002-open-provider-target FR-012); Kind is the legacy single-kind field,
+// kept for v1 targets.json backward compatibility during migration.
 type InstallTarget struct {
-	Name    string    `json:"name"`
-	Path    string    `json:"path"`
-	Builtin bool      `json:"builtin"`
-	Kind    EntryKind `json:"kind"`
+	Name       string                        `json:"name"`
+	Platform   string                        `json:"platform,omitempty"`
+	Path       string                        `json:"path"`
+	Builtin    bool                          `json:"builtin"`
+	Kind       EntryKind                     `json:"kind,omitempty"`
+	Accepts    []EntryKind                   `json:"accepts,omitempty"`
+	Strategies map[EntryKind]InstallStrategy `json:"strategies,omitempty"`
+}
+
+// AcceptsKind reports whether the target receives installs of kind, per
+// EffectiveAccepts.
+func (t InstallTarget) AcceptsKind(kind EntryKind) bool {
+	return slices.Contains(t.EffectiveAccepts(), kind)
+}
+
+// EffectiveAccepts returns Accepts when set (v2), or the accepts derived from
+// the legacy Kind field (data-model.md Migration Mapping, research R6) when
+// not. This is the single source of truth for v1→v2 kind semantics: a
+// Kind:"skill" target accepts both skill (its own kind) and command (via a
+// command-adapter); a Kind:"command" target accepts only command.
+func (t InstallTarget) EffectiveAccepts() []EntryKind {
+	if len(t.Accepts) > 0 {
+		return t.Accepts
+	}
+	accepts, _ := legacyKindDefaults(t.Kind)
+	return accepts
+}
+
+// EffectiveStrategy returns the strategy Strategies[kind] declares when set
+// (v2), or the strategy the legacy Kind field implies for kind (research R6)
+// when not. ok is false when kind isn't accepted at all.
+func (t InstallTarget) EffectiveStrategy(kind EntryKind) (strategy InstallStrategy, ok bool) {
+	if len(t.Strategies) > 0 {
+		strategy, ok = t.Strategies[kind]
+		return strategy, ok
+	}
+	_, strategies := legacyKindDefaults(t.Kind)
+	strategy, ok = strategies[kind]
+	return strategy, ok
+}
+
+// legacyKindDefaults maps a v1 targets.json {kind} value to its v2
+// accepts/strategies, reproducing 001's installer.go dispatch exactly
+// (data-model.md Migration Mapping): a skill-kind target also receives
+// commands via a command-adapter; a command-kind target receives only
+// commands, as a command-marker.
+func legacyKindDefaults(kind EntryKind) ([]EntryKind, map[EntryKind]InstallStrategy) {
+	switch kind {
+	case KindSkill:
+		return []EntryKind{KindSkill, KindCommand}, map[EntryKind]InstallStrategy{
+			KindSkill:   StrategySkillSymlink,
+			KindCommand: StrategyCommandAdapter,
+		}
+	case KindCommand:
+		return []EntryKind{KindCommand}, map[EntryKind]InstallStrategy{
+			KindCommand: StrategyCommandMarker,
+		}
+	}
+	return nil, nil
 }
 
 // Entry is the central asset — a managed skill or command.

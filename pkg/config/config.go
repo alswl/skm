@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +17,10 @@ type Config struct {
 	ConfigDir string
 	// Targets is the install-target list (from targets.json or built-ins).
 	Targets []common.InstallTarget
+	// InvalidTargets are targets.json entries that could not be interpreted,
+	// each with its own reason (002-open-provider-target FR-016) — the
+	// interpretable entries in Targets still load.
+	InvalidTargets []InvalidTarget
 	// PluginDirs are provider plugin directories scanned at startup.
 	PluginDirs []string
 }
@@ -30,6 +33,13 @@ const (
 	PluginDirName   = ".config/skm/plugins"
 	EnvPluginsDir   = "SKM_PLUGINS_DIR"
 	targetsFileName = "targets.json"
+	// LegacyConfigDirName is the original skmgr config directory
+	// (docs/req.md: `--config` 默认 `~/.config/skill-manager`). It is
+	// consulted only as a fallback when the caller didn't pass --config and
+	// the new-style ~/.config/skm/targets.json doesn't exist, so an upgrading
+	// user's existing config (incl. CodeFuse) loads without manual migration
+	// (002-open-provider-target FR-015, research R6).
+	LegacyConfigDirName = ".config/skill-manager"
 )
 
 // DefaultConfigDir returns the default config directory
@@ -43,6 +53,17 @@ func DefaultConfigDir() string {
 	return filepath.Join(home, ConfigDirName)
 }
 
+// DefaultLegacyConfigDir returns the original skmgr config directory
+// (~/.config/skill-manager), falling back to the literal value if HOME is
+// unset.
+func DefaultLegacyConfigDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "~/.config/skill-manager"
+	}
+	return filepath.Join(home, LegacyConfigDirName)
+}
+
 // DefaultPluginDirs returns the default plugin directory
 // (~/.config/skm/plugins).
 func DefaultPluginDirs() []string {
@@ -54,24 +75,39 @@ func DefaultPluginDirs() []string {
 }
 
 // defaultTargets returns the built-in targets restored when targets.json is
-// missing or invalid (FR-003). Codex/CodeFuse receive only skills; Claude has
-// distinct skill and command targets.
+// missing or has zero interpretable entries (FR-003). Each declares its own
+// accepts/strategies (FR-012/FR-013, data-model.md); codex/codefuse receive
+// skills directly and commands via a command-adapter, exactly as before —
+// nothing in the installer branches on their names.
 func defaultTargets() []common.InstallTarget {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "~"
 	}
+	skillAndCommandAdapter := func() map[common.EntryKind]common.InstallStrategy {
+		return map[common.EntryKind]common.InstallStrategy{
+			common.KindSkill:   common.StrategySkillSymlink,
+			common.KindCommand: common.StrategyCommandAdapter,
+		}
+	}
 	return []common.InstallTarget{
-		{Name: "claude-skills", Path: filepath.Join(home, ".claude", "skills"), Builtin: true, Kind: common.KindSkill},
-		{Name: "claude-commands", Path: filepath.Join(home, ".claude", "commands"), Builtin: true, Kind: common.KindCommand},
-		{Name: "codex", Path: filepath.Join(home, ".codex", "skills"), Builtin: true, Kind: common.KindSkill},
-		{Name: "codefuse", Path: filepath.Join(home, ".codefuse", "skills"), Builtin: true, Kind: common.KindSkill},
+		{Name: "claude-skills", Platform: "claude", Path: filepath.Join(home, ".claude", "skills"), Builtin: true,
+			Accepts:    []common.EntryKind{common.KindSkill},
+			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
+		{Name: "claude-commands", Platform: "claude", Path: filepath.Join(home, ".claude", "commands"), Builtin: true,
+			Accepts:    []common.EntryKind{common.KindCommand},
+			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindCommand: common.StrategyCommandMarker}},
+		{Name: "codex", Platform: "codex", Path: filepath.Join(home, ".codex", "skills"), Builtin: true,
+			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: skillAndCommandAdapter()},
+		{Name: "codefuse", Platform: "codefuse", Path: filepath.Join(home, ".codefuse", "skills"), Builtin: true,
+			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: skillAndCommandAdapter()},
 	}
 }
 
 // Load builds a Config. configDir defaults to ~/.config/skm when
 // empty; root is normalized/discovered by DiscoverRoot.
 func Load(rootFlag, configDir string) (*Config, error) {
+	explicit := configDir != ""
 	if configDir == "" {
 		configDir = DefaultConfigDir()
 	}
@@ -79,13 +115,14 @@ func Load(rootFlag, configDir string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	targets := loadTargets(configDir)
+	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
 	plugins := loadPluginDirs()
 	return &Config{
-		Root:       root,
-		ConfigDir:  configDir,
-		Targets:    targets,
-		PluginDirs: plugins,
+		Root:           root,
+		ConfigDir:      resolvedDir,
+		Targets:        targets,
+		InvalidTargets: invalid,
+		PluginDirs:     plugins,
 	}, nil
 }
 
@@ -93,44 +130,65 @@ func Load(rootFlag, configDir string) (*Config, error) {
 // deploy command operates on its --repo source (which may not exist yet on the
 // target machine), so no local repository is needed.
 func LoadForDeploy(configDir string) *Config {
+	explicit := configDir != ""
 	if configDir == "" {
 		configDir = DefaultConfigDir()
 	}
+	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
 	return &Config{
-		ConfigDir:  configDir,
-		Targets:    loadTargets(configDir),
-		PluginDirs: loadPluginDirs(),
+		ConfigDir:      resolvedDir,
+		Targets:        targets,
+		InvalidTargets: invalid,
+		PluginDirs:     loadPluginDirs(),
 	}
 }
 
-// loadTargets reads <configDir>/targets.json and restores built-in defaults
-// when missing or invalid (FR-003). Tilde in target paths is expanded to the
-// user's home directory.
-func loadTargets(configDir string) []common.InstallTarget {
-	path := filepath.Join(configDir, targetsFileName)
-	data, err := os.ReadFile(path)
+// loadTargetsWithLegacyFallback loads configDir/targets.json; when the
+// caller didn't pass --config (explicit is false) and no file exists there,
+// it falls back to the legacy skmgr config directory before restoring
+// built-in defaults, so an upgrading user's existing config is found without
+// manual migration (FR-015). The resolved directory is returned too, so
+// Config.ConfigDir points at wherever the targets actually came from — a
+// subsequent target add/update/remove writes back to that same file instead
+// of silently forking into a fresh new-style config.
+func loadTargetsWithLegacyFallback(configDir string, explicit bool) (resolvedDir string, valid []common.InstallTarget, invalid []InvalidTarget) {
+	if explicit {
+		valid, invalid = loadTargets(configDir)
+		return configDir, valid, invalid
+	}
+	if _, err := os.Stat(filepath.Join(configDir, targetsFileName)); err == nil {
+		valid, invalid = loadTargets(configDir)
+		return configDir, valid, invalid
+	}
+	legacyDir := DefaultLegacyConfigDir()
+	if _, err := os.Stat(filepath.Join(legacyDir, targetsFileName)); err != nil {
+		valid, invalid = loadTargets(configDir) // neither exists: defaults
+		return configDir, valid, invalid
+	}
+	valid, invalid = loadTargets(legacyDir)
+	return legacyDir, valid, invalid
+}
+
+// loadTargets reads <configDir>/targets.json, migrating v1 (legacy Kind-only)
+// entries and validating v2 entries independently (research R6): a
+// per-entry problem is reported in invalid, not a fallback to defaults, and
+// readable entries still load (FR-016). Built-in defaults are restored only
+// when the file is missing or has zero interpretable entries (FR-003).
+func loadTargets(configDir string) (valid []common.InstallTarget, invalid []InvalidTarget) {
+	data, err := os.ReadFile(filepath.Join(configDir, targetsFileName))
 	if err != nil {
-		return defaultTargets()
+		return defaultTargets(), nil
 	}
-	var targets []common.InstallTarget
-	if err := json.Unmarshal(data, &targets); err != nil {
-		return defaultTargets()
-	}
-	// Validate each entry; drop malformed ones, expand ~.
-	valid := make([]common.InstallTarget, 0, len(targets))
-	for _, t := range targets {
-		if t.Name == "" || t.Path == "" {
-			continue
-		}
-		if t.Kind != common.KindSkill && t.Kind != common.KindCommand {
-			continue
-		}
-		valid = append(valid, expandTarget(t))
+	valid, invalid, err = ParseTargets(data)
+	if err != nil {
+		// The document itself isn't a JSON array: nothing to report
+		// per-entry: restore defaults.
+		return defaultTargets(), nil
 	}
 	if len(valid) == 0 {
-		return defaultTargets()
+		return defaultTargets(), invalid
 	}
-	return valid
+	return valid, invalid
 }
 
 func expandTarget(t common.InstallTarget) common.InstallTarget {

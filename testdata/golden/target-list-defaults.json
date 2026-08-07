@@ -1,0 +1,50 @@
+{
+  "config_dir": "$CFG",
+  "targets": [
+    {
+      "name": "claude-skills",
+      "platform": "claude",
+      "path": "$HOME/.claude/skills",
+      "accepts": ["skill"],
+      "strategies": { "skill": "skill-symlink" },
+      "builtin": true,
+      "valid": true,
+      "path_state": "not_writable",
+      "error": null
+    },
+    {
+      "name": "claude-commands",
+      "platform": "claude",
+      "path": "$HOME/.claude/commands",
+      "accepts": ["command"],
+      "strategies": { "command": "command-marker" },
+      "builtin": true,
+      "valid": true,
+      "path_state": "not_writable",
+      "error": null
+    },
+    {
+      "name": "codex",
+      "platform": "codex",
+      "path": "$HOME/.codex/skills",
+      "accepts": ["skill", "command"],
+      "strategies": { "skill": "skill-symlink", "command": "command-adapter" },
+      "builtin": true,
+      "valid": true,
+      "path_state": "not_writable",
+      "error": null
+    },
+    {
+      "name": "codefuse",
+      "platform": "codefuse",
+      "path": "$HOME/.codefuse/skills",
+      "accepts": ["skill", "command"],
+      "strategies": { "skill": "skill-symlink", "command": "command-adapter" },
+      "builtin": true,
+      "valid": true,
+      "path_state": "not_writable",
+      "error": null
+    }
+  ],
+  "invalid": []
+}

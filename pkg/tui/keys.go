@@ -17,6 +17,8 @@ type keyMap struct {
 	Search       key.Binding
 	ClearSearch  key.Binding
 	ShowArchived key.Binding
+	TabNext      key.Binding
+	TabPrev      key.Binding
 
 	Install     key.Binding
 	Uninstall   key.Binding
@@ -26,6 +28,9 @@ type keyMap struct {
 	Delete      key.Binding
 	Discover    key.Binding
 	Import      key.Binding
+	Targets     key.Binding
+	TargetAdd   key.Binding
+	Normalize   key.Binding
 
 	Queue  key.Binding
 	Cancel key.Binding
@@ -59,6 +64,8 @@ func defaultKeys() keyMap {
 		Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 		ClearSearch:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "clear search")),
 		ShowArchived: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "toggle archived")),
+		TabNext:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next provider tab")),
+		TabPrev:      key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev provider tab")),
 		Install:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "install")),
 		Uninstall:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "uninstall")),
 		Update:       key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "update")),
@@ -67,6 +74,9 @@ func defaultKeys() keyMap {
 		Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		Discover:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "discover")),
 		Import:       key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import")),
+		Targets:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "targets")),
+		TargetAdd:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add target")),
+		Normalize:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to standard location")),
 		Queue:        key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "job queue")),
 		Cancel:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel task")),
 		Detail:       key.NewBinding(key.WithKeys("enter", "v"), key.WithHelp("enter", "detail")),
@@ -94,8 +104,8 @@ func (k keyMap) ShortHelp() []key.Binding {
 // FullHelp returns the grouped full-key table shown on `?`.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.MoveDown, k.MoveUp, k.PagePrev, k.PageNext, k.First, k.Last, k.Search, k.ClearSearch, k.ShowArchived},
-		{k.Detail, k.Install, k.Uninstall, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import},
+		{k.MoveDown, k.MoveUp, k.PagePrev, k.PageNext, k.First, k.Last, k.Search, k.ClearSearch, k.ShowArchived, k.TabNext, k.TabPrev},
+		{k.Detail, k.Install, k.Uninstall, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize},
 		{k.Queue, k.Cancel, k.Help, k.Quit},
 	}
 }

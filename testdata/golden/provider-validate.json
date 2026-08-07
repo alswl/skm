@@ -1,0 +1,9 @@
+{
+  "results": [
+    { "id": "local", "ok": true, "error": null },
+    { "id": "github", "ok": true, "error": null },
+    { "id": "gitlab", "ok": true, "error": null },
+    { "id": "skills-sh", "ok": true, "error": null }
+  ],
+  "success": true
+}

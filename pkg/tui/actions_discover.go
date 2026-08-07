@@ -21,7 +21,7 @@ func (m *model) discoverExternal() {
 	}
 	m.picker = &picker{
 		title:     "discover external skills",
-		hint:      "[space] toggle  [enter] adopt  [d] delete  [esc] cancel",
+		hint:      "[space] toggle  [enter] adopt  [d] delete  [esc/q] cancel",
 		items:     items,
 		onConfirm: m.adoptExternal,
 		onDelete:  m.confirmDeleteExternal,

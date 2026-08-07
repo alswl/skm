@@ -15,6 +15,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
+	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/pagination"
 	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func newTestModel(t *testing.T) model {
 	m.pageSize = 20
 	m.help.Width = m.width
 	m.refreshFiltered()
-	return m
+	return *m // a value copy for direct model tests; the program runs the pointer
 }
 
 func TestModelRendersListAndOpensDetail(t *testing.T) {
@@ -110,6 +111,31 @@ func TestModelInstallActionRefreshesStatus(t *testing.T) {
 	}
 	// After the scan, the install-status column reflects the managed target.
 	require.Contains(t, m.View(), "t", "install column shows the target")
+}
+
+// TestListShowsInstallStatusForNonStandardEntries: computeInstallCols evaluates
+// every entry (not just active ones), so a non-standard entry's install state
+// is visible in the list ("安装状态无法在 list 页面看到" fix).
+func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/flat-skill/SKILL.md", "---\nname: flat-skill\ndescription: misplaced\n---\nbody\n")
+	m.entries = m.svc.Scan()
+	m.computeInstallCols()
+	require.Equal(t, "—", m.installCol["flat-skill"], "absent install shows the dash, not silently skipped")
+
+	// Install flat-skill into the skill-accepting target via the installer.
+	entry := m.svc.FindEntry("flat-skill")
+	require.NotNil(t, entry)
+	target := m.svc.Cfg.Targets[0]
+	tx := &dal.FileTransaction{}
+	_, err := m.svc.Installer.Install(tx, entry, target, false)
+	require.NoError(t, err)
+	tx.Commit()
+
+	m.entries = m.svc.Scan()
+	m.computeInstallCols()
+	require.Equal(t, "t", m.installCol["flat-skill"], "a non-standard entry's install state is now visible in the list")
+	require.Contains(t, m.View(), "t", "the install column renders")
 }
 
 // drainJob waits for one queued job result and applies it.
@@ -288,16 +314,17 @@ func TestPaginationCursorTracksPageAcrossMovesAndResize(t *testing.T) {
 	requireCursorVisible(t, m)
 
 	// Shrinking the terminal shrinks pageSize; the selection stays visible.
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12}) // pageSize -> 6
-	m = updated.(model)
-	require.Equal(t, 6, m.pageSize)
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12}) // pageSize -> 5
+	m = *updated.(*model)
+	require.Equal(t, 5, m.pageSize)
 	require.Equal(t, 49, m.cursor, "resize keeps the selection")
 	requireCursorVisible(t, m)
 }
 
-// TestListShowsGroupHeaders: entries are divided by source with a section header
-// (mode_id / group) and clustered under it, in source order.
-func TestListShowsGroupHeaders(t *testing.T) {
+// TestListIsFlatWithoutSectionHeaders: the list is a single flat list — no
+// per-source section headers (provider context comes from the tabs, the status
+// line, and the detail page). Entries stay sorted by source.
+func TestListIsFlatWithoutSectionHeaders(t *testing.T) {
 	mk := func(name, mid, grp string) *common.Entry {
 		e := &common.Entry{Name: name, Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid}
 		if grp != "" {
@@ -314,14 +341,13 @@ func TestListShowsGroupHeaders(t *testing.T) {
 	m.refreshFiltered()
 
 	view := m.View()
-	require.Contains(t, view, "github / anthropics-skills")
-	require.Contains(t, view, "github / mattpocock-skills")
 	require.Contains(t, view, "pdf")
 	require.Contains(t, view, "effect")
 	require.Contains(t, view, "mine")
+	require.NotContains(t, view, "▸", "no section-header rows divide the list (the status line still shows the cursor's source)")
 	// Sorted by source: anthropics < mattpocock (both github) < local block.
-	require.Less(t, strings.Index(view, "anthropics-skills"), strings.Index(view, "mattpocock-skills"))
-	require.Less(t, strings.Index(view, "mattpocock-skills"), strings.Index(view, "mine"))
+	require.Less(t, strings.Index(view, "pdf"), strings.Index(view, "effect"))
+	require.Less(t, strings.Index(view, "effect"), strings.Index(view, "mine"))
 }
 
 // TestArchivedHiddenUntilToggled: archived entries are excluded from the list

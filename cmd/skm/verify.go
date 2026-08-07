@@ -25,6 +25,7 @@ type verifyReport struct {
 	Active          int             `json:"active"`
 	Archived        int             `json:"archived"`
 	Errors          int             `json:"errors"`
+	NonStandard     int             `json:"non_standard"`
 	Consistent      bool            `json:"consistent"`
 	Inconsistencies []inconsistency `json:"inconsistencies"`
 	NameConflicts   []nameConflict  `json:"name_conflicts"`
@@ -52,8 +53,8 @@ var verifyCmd = &cobra.Command{
 			}
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(),
-				"total=%d active=%d archived=%d errors=%d consistent=%v name_conflicts=%d\n",
-				rep.Total, rep.Active, rep.Archived, rep.Errors, rep.Consistent, len(rep.NameConflicts))
+				"total=%d active=%d archived=%d errors=%d non_standard=%d consistent=%v name_conflicts=%d\n",
+				rep.Total, rep.Active, rep.Archived, rep.Errors, rep.NonStandard, rep.Consistent, len(rep.NameConflicts))
 			for _, inc := range rep.Inconsistencies {
 				fmt.Fprintf(cmd.OutOrStdout(), "  ! %s: %s\n", inc.Name, inc.Issue)
 			}
@@ -63,7 +64,7 @@ var verifyCmd = &cobra.Command{
 		}
 		// Strict mode: inconsistency is an object problem -> exit 1 (FR-032).
 		return common.WithExitCode(
-			fmt.Errorf("verify: %d error(s), %d name conflict(s)", rep.Errors, len(rep.NameConflicts)),
+			fmt.Errorf("verify: %d error(s), %d non-standard, %d name conflict(s)", rep.Errors, rep.NonStandard, len(rep.NameConflicts)),
 			common.ExitObject)
 	},
 }
@@ -90,6 +91,9 @@ func buildVerifyReport(svc *services.Services) *verifyReport {
 			rep.Archived++
 		case common.StatusError:
 			rep.Errors++
+			rep.Inconsistencies = append(rep.Inconsistencies, inconsistency{Name: e.Name, Issue: orEmpty(e.Error)})
+		case common.StatusNonStandard:
+			rep.NonStandard++
 			rep.Inconsistencies = append(rep.Inconsistencies, inconsistency{Name: e.Name, Issue: orEmpty(e.Error)})
 		}
 		seen[e.Name] = append(seen[e.Name], e)

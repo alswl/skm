@@ -153,6 +153,42 @@ func (r *Repository) ConvertDest(entry *common.Entry, newKind common.EntryKind) 
 	return filepath.Join(r.root, newKind.TopDir(), filepath.Join(rest...)), nil
 }
 
+// Normalize moves a StatusNonStandard entry into the default "local"
+// provider location for its kind (skills/local/<name>/,
+// commands/local/<name>/ or commands/local/<name>.md), restoring it to the
+// managed tree. Refuses if the destination already exists rather than
+// silently overwriting.
+func (r *Repository) Normalize(ctx context.Context, entry *common.Entry, provider string, opts LifecycleOptions) (string, error) {
+	if entry.Status != common.StatusNonStandard {
+		return "", common.WithExitCode(fmt.Errorf("normalize: entry %q is %s; only non-standard entries can be normalized", entry.Name, entry.Status), common.ExitObject)
+	}
+	if provider == "" {
+		provider = "local"
+	}
+	dest := r.normalizeDest(entry, provider)
+	if dal.PathExists(dest) {
+		return "", common.WithExitCode(fmt.Errorf("normalize: destination %q already exists; resolve the conflict manually", dest), common.ExitObject)
+	}
+	if opts.DryRun {
+		return dest, nil
+	}
+	if err := r.moveUnderLock(ctx, entry.Path, dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+// normalizeDest computes the given provider's location a non-standard entry
+// would move to (provider defaults to "local" in Normalize when empty): a
+// directory marker keeps its directory shape; a single-file command (Path
+// ends in .md, no wrapping directory) keeps its file shape.
+func (r *Repository) normalizeDest(entry *common.Entry, provider string) string {
+	if entry.IsDirectory() {
+		return filepath.Join(r.root, entry.Kind.TopDir(), provider, entry.Name)
+	}
+	return filepath.Join(r.root, entry.Kind.TopDir(), provider, entry.Name+".md")
+}
+
 // archivedPath maps an active entry path into the archived tree preserving the
 // provider/group layout.
 func (r *Repository) archivedPath(entry *common.Entry) string {

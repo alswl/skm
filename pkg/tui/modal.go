@@ -94,7 +94,7 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 			m.picker = nil
 			onDelete(sel)
 		}
-	case key.Matches(msg, m.keys.Esc):
+	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Quit):
 		m.picker = nil
 	}
 	return nil
@@ -109,7 +109,7 @@ func (m *model) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 		if onYes != nil {
 			onYes()
 		}
-	case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Esc):
+	case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Quit):
 		m.confirm = nil
 	}
 	return nil
@@ -143,7 +143,7 @@ func (m model) pickerView() string {
 // confirmView renders the active confirmation as a full-screen framed page.
 func (m model) confirmView() string {
 	body := stylePrompt.Render(m.confirm.prompt)
-	return m.framedPage(" skm · confirm ", body, "[y] yes   [n/esc] no")
+	return m.framedPage(" skm · confirm ", body, "[y] yes   [n/esc/q] no")
 }
 
 // framedPage renders title/body/hint inside the box-drawing frame, matching the

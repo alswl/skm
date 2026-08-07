@@ -30,7 +30,11 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 	}
 	m.entries = m.svc.Scan()
 	m.computeInstallCols()
+	m.computeProviderTabs()
 	m.refreshFiltered()
+	if m.showDetail && m.cursor < len(m.filtered) {
+		m.refreshDetail() // the entry may have moved/installed; show the new state
+	}
 	return waitForResult(m.queue)
 }
 

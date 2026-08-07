@@ -5,10 +5,12 @@ import (
 	"github.com/alswl/skm/skm/pkg/dal"
 )
 
-// Installer manages installs into kind-matching targets: skill directory
-// symlinks, Claude command marker symlinks, and Codex/CodeFuse command
-// adapters. Install state is derived from the filesystem, never stored
-// (FR-019).
+// Installer manages installs into kind-matching targets, dispatching on each
+// target's declared InstallStrategy per kind — skill directory symlinks,
+// command marker symlinks, or command adapters (002-open-provider-target
+// FR-013: no tool name drives this, only the target's own declaration; see
+// common.InstallTarget.EffectiveStrategy for legacy-Kind compatibility).
+// Install state is derived from the filesystem, never stored (FR-019).
 type Installer struct {
 	targets []common.InstallTarget
 }
@@ -39,17 +41,10 @@ func (i *Installer) TargetByName(name string) (common.InstallTarget, bool) {
 	return common.InstallTarget{}, false
 }
 
-// Matches reports whether a target can receive an entry: a skill goes to
-// skill targets; a command goes to command (Claude) AND skill (Codex/CodeFuse
-// adapter) targets.
+// Matches reports whether a target can receive an entry's kind, per the
+// target's declared (or legacy-derived) Accepts.
 func (i *Installer) Matches(entry *common.Entry, t common.InstallTarget) bool {
-	switch entry.Kind {
-	case common.KindSkill:
-		return t.Kind == common.KindSkill
-	case common.KindCommand:
-		return true
-	}
-	return false
+	return t.AcceptsKind(entry.Kind)
 }
 
 // matches is kept as an unexported alias for internal callers.
@@ -59,18 +54,19 @@ func (i *Installer) matches(entry *common.Entry, t common.InstallTarget) bool {
 
 // Install installs entry into target idempotently, returning whether anything
 // changed. Conflicts/dangling links are refused unless force is set
-// (FR-014..FR-018).
+// (FR-014..FR-018). Dispatch is entirely by the target's declared strategy
+// for entry.Kind — no tool name is consulted.
 func (i *Installer) Install(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
-	switch entry.Kind {
-	case common.KindSkill:
-		if target.Kind != common.KindSkill {
-			return false, nil
-		}
+	strategy, ok := target.EffectiveStrategy(entry.Kind)
+	if !ok {
+		return false, nil
+	}
+	switch strategy {
+	case common.StrategySkillSymlink:
 		return i.installSkill(tx, entry, target, force)
-	case common.KindCommand:
-		if target.Kind == common.KindCommand {
-			return i.installClaudeMarkdown(tx, entry, target, force)
-		}
+	case common.StrategyCommandMarker:
+		return i.installClaudeMarkdown(tx, entry, target, force)
+	case common.StrategyCommandAdapter:
 		return i.installAdapter(tx, entry, target, force)
 	}
 	return false, nil
@@ -79,16 +75,16 @@ func (i *Installer) Install(tx *dal.FileTransaction, entry *common.Entry, target
 // Uninstall removes only managed installs of entry from target, never a
 // user's same-named real file/directory (FR-017).
 func (i *Installer) Uninstall(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget) (bool, error) {
-	switch entry.Kind {
-	case common.KindSkill:
-		if target.Kind != common.KindSkill {
-			return false, nil
-		}
+	strategy, ok := target.EffectiveStrategy(entry.Kind)
+	if !ok {
+		return false, nil
+	}
+	switch strategy {
+	case common.StrategySkillSymlink:
 		return i.uninstallSkill(tx, entry, target)
-	case common.KindCommand:
-		if target.Kind == common.KindCommand {
-			return i.uninstallClaudeMarkdown(tx, entry, target)
-		}
+	case common.StrategyCommandMarker:
+		return i.uninstallClaudeMarkdown(tx, entry, target)
+	case common.StrategyCommandAdapter:
 		return i.uninstallAdapter(tx, entry, target)
 	}
 	return false, nil

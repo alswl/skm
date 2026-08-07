@@ -75,7 +75,7 @@ func (s *Services) DeleteExternal(path string) error {
 func (s *Services) targetContaining(path string) (common.InstallTarget, error) {
 	parent := filepath.Dir(filepath.Clean(path))
 	for _, t := range s.Cfg.Targets {
-		if t.Kind == common.KindSkill && filepath.Clean(t.Path) == parent {
+		if t.AcceptsKind(common.KindSkill) && filepath.Clean(t.Path) == parent {
 			return t, nil
 		}
 	}

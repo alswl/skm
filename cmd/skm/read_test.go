@@ -73,6 +73,28 @@ func TestVerifyCleanRepoExitsZero(t *testing.T) {
 	require.NoError(t, err, "clean repo verify exits 0")
 }
 
+// TestListAndVerifyFlagNonStandardLocation: a skill marker placed outside
+// skills/commands/archived is scanned (not invisible) and shows up in both
+// `list --json` (status: non_standard) and `verify repo --json` (counted and
+// listed as an inconsistency, failing strict verify).
+func TestListAndVerifyFlagNonStandardLocation(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "skills/local/ok/SKILL.md", "---\nname: ok\ndescription: fine\n---\nbody\n")
+	writeTestFile(t, root, "stray-skill/SKILL.md", "---\nname: stray\ndescription: misplaced\n---\nbody\n")
+	cfgDir := t.TempDir()
+	writeTestFile(t, cfgDir, "targets.json", "[]")
+
+	out, err := runCmd(t, "list", "--root", root, "--config", cfgDir, "--json")
+	require.NoError(t, err)
+	require.Contains(t, out, `"status":"non_standard"`)
+
+	out, err = runCmd(t, "verify", "repo", "--root", root, "--config", cfgDir, "--json")
+	require.Error(t, err, "a non-standard entry fails strict verify")
+	require.Equal(t, common.ExitObject, common.ExitCodeOf(err, 0))
+	require.Contains(t, out, `"non_standard":1`)
+	require.Contains(t, out, `"name":"stray"`)
+}
+
 func TestReadCommandStdoutIsJSONOnly(t *testing.T) {
 	root, cfgDir := readFixture(t)
 	out, err := runCmd(t, "list", "--root", root, "--config", cfgDir, "--json", "--timing")

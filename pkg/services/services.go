@@ -19,15 +19,19 @@ type Services struct {
 }
 
 // New wires a Services instance from resolved config. Built-in providers
-// (Local, GitHub) are registered first in a stable order (FR-035), then
-// subprocess plugins from the configured plugin dirs (US8).
+// (Local, GitHub, then the four internal sources) are registered first in a
+// stable order (FR-035, FR-009), then subprocess plugins from the configured
+// plugin dirs (US8).
 func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	reg := providers.NewRegistry()
-	if err := reg.Register(providers.NewLocal()); err != nil {
-		return nil, err
+	builtins := []providers.Provider{
+		providers.NewLocal(), providers.NewGitHub(),
+		providers.NewGitLab(), providers.NewSkillsSh(),
 	}
-	if err := reg.Register(providers.NewGitHub()); err != nil {
-		return nil, err
+	for _, p := range builtins {
+		if err := reg.Register(p); err != nil {
+			return nil, err
+		}
 	}
 	svc := &Services{
 		Cfg:       cfg,
@@ -37,17 +41,31 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 		Installer: installer.New(cfg.Targets),
 	}
 	svc.loadPlugins()
+	svc.logInvalidTargets()
 	return svc, nil
 }
 
+// logInvalidTargets warns (stderr) about each targets.json entry that could
+// not be interpreted, without blocking startup — the readable entries in
+// Cfg.Targets still load (FR-016).
+func (s *Services) logInvalidTargets() {
+	for _, inv := range s.Cfg.InvalidTargets {
+		s.Logger.Warn("invalid targets.json entry (isolated)", "reason", inv.Reason, "raw", string(inv.Raw))
+	}
+}
+
 // loadPlugins registers subprocess plugins after the built-ins in a stable
-// order, isolating failures and rejecting duplicate ids (FR-035).
+// order, isolating failures and rejecting duplicate ids (FR-035). Load
+// failures are retained on the registry so `provider list/validate` can
+// report the specific reason (002-open-provider-target FR-006).
 func (s *Services) loadPlugins() {
-	for _, p := range providers.DiscoverPlugins(s.Cfg.PluginDirs, s.Logger) {
+	loaded, failures := providers.DiscoverPlugins(s.Cfg.PluginDirs, s.Logger)
+	for _, p := range loaded {
 		if err := s.Registry.Register(p); err != nil {
 			s.Logger.Warn("plugin registration skipped", "id", p.ID(), "err", err.Error())
 		}
 	}
+	s.Registry.SetLoadFailures(failures)
 }
 
 // Scan returns the current entry list.

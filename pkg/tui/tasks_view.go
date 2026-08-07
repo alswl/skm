@@ -45,10 +45,8 @@ func (m *model) handleTasksKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.ClearDone):
 		m.queue.ClearCompleted()
 		m.tasksCursor = 0
-	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Queue):
+	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Queue), key.Matches(msg, m.keys.Quit):
 		m.showTasks = false
-	case key.Matches(msg, m.keys.Quit):
-		return tea.Quit
 	}
 	return nil
 }
@@ -69,6 +67,6 @@ func (m model) tasksView() string {
 			body.WriteString(fitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
-	hint := "[c] cancel  [C] cancel all  [x] clear done  [j/k] move  [esc/J] back  [q] quit"
+	hint := "[c] cancel  [C] cancel all  [x] clear done  [j/k] move  [esc/J/q] back"
 	return m.framedPage(" skm · tasks ", strings.TrimRight(body.String(), "\n"), hint)
 }

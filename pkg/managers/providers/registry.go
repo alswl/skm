@@ -5,15 +5,21 @@ import (
 	"fmt"
 )
 
-// Provider is an acquisition adapter (data-model.md). Built-ins are Local and
-// GitHub; external plugins implement the same interface via a subprocess
-// protocol (US8).
+// Provider is an acquisition adapter (data-model.md). Built-ins are Local,
+// GitHub, and the four internal sources; external plugins implement the same
+// interface via a subprocess protocol (US8, 002-open-provider-target FR-004).
 type Provider interface {
 	// ID is a non-empty unique identifier (duplicates are rejected in favor
 	// of the first registered).
 	ID() string
 	// Label is a non-empty human-readable name.
 	Label() string
+	// Capability describes what this provider handles, without fetching
+	// anything (FR-002).
+	Capability() Capability
+	// Normalize canonicalizes address for matching/fetch/provenance. A
+	// provider that has nothing to canonicalize returns address unchanged.
+	Normalize(address string) (string, error)
 	// CanHandle reports whether this provider can acquire the address.
 	CanHandle(address string) bool
 	// Fetch retrieves the asset at address into a fresh temp directory and
@@ -24,7 +30,8 @@ type Provider interface {
 // Registry holds providers in registration order. Auto-import uses the first
 // provider that CanHandle an address (FR-020); --provider selects by id.
 type Registry struct {
-	order []Provider
+	order    []Provider
+	failures []ProviderLoadFailure
 }
 
 // NewRegistry creates an empty registry.
@@ -70,3 +77,12 @@ func (r *Registry) Get(id string) Provider {
 	}
 	return nil
 }
+
+// SetLoadFailures records why plugins failed to load during discovery, so
+// `provider list`/`validate` can report the specific reason (FR-006).
+func (r *Registry) SetLoadFailures(failures []ProviderLoadFailure) {
+	r.failures = failures
+}
+
+// LoadFailures returns the recorded plugin load failures.
+func (r *Registry) LoadFailures() []ProviderLoadFailure { return r.failures }

@@ -18,7 +18,7 @@ func (s *Services) Discover(sourceDir string) *DiscoverResult {
 	src := sourceDir
 	if src == "" {
 		for _, t := range s.Cfg.Targets {
-			if t.Kind == common.KindSkill {
+			if t.AcceptsKind(common.KindSkill) {
 				src = t.Path
 				break
 			}

@@ -51,7 +51,7 @@ func (m *model) openProviderPicker(addr string) {
 	}
 	m.picker = &picker{
 		title:  "import provider",
-		hint:   "[j/k] move  [enter] choose  [esc] cancel",
+		hint:   "[j/k] move  [enter] choose  [esc/q] cancel",
 		items:  items,
 		single: true,
 		onConfirm: func(sel []pickerItem) {
@@ -69,7 +69,7 @@ func (m *model) openProviderPicker(addr string) {
 func (m *model) openKindPicker(addr, provider string) {
 	m.picker = &picker{
 		title:  "import kind",
-		hint:   "[j/k] move  [enter] choose  [esc] cancel",
+		hint:   "[j/k] move  [enter] choose  [esc/q] cancel",
 		single: true,
 		items: []pickerItem{
 			{label: "auto (detect from marker)", value: "auto"},

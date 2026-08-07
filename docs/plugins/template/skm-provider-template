@@ -1,0 +1,62 @@
+#!/bin/sh
+# Reference skm Provider plugin. Copy this file, rename it, and replace the
+# logic in each case branch. See ../README.md for the full protocol.
+#
+# skm sends one JSON request on stdin and expects one JSON response line on
+# stdout. Never print anything else to stdout; use stderr for logging.
+#
+# NOTE: skm does not append a trailing newline to the request, so `read`
+# returns a non-zero status at EOF even though it still populates the
+# variable correctly. Do NOT use `set -e` in a plugin script, or that
+# non-zero `read` status will kill the script before the case statement runs.
+
+PROVIDER_ID="template"
+PROVIDER_LABEL="Template Provider"
+PROVIDER_SCHEME="template:"
+
+IFS= read -r REQUEST
+
+case "$REQUEST" in
+  *'"action":"id"'*)
+    printf '{"id":"%s"}\n' "$PROVIDER_ID"
+    ;;
+
+  *'"action":"label"'*)
+    printf '{"label":"%s"}\n' "$PROVIDER_LABEL"
+    ;;
+
+  *'"action":"capability"'*)
+    printf '{"description":"Fetches assets from %s<path> addresses","schemes":["%s"]}\n' \
+      "$PROVIDER_SCHEME" "$PROVIDER_SCHEME"
+    ;;
+
+  *'"action":"normalize"'*)
+    # Extract the address from the request and echo it back unchanged.
+    # Replace this with real canonicalization (e.g. strip the scheme,
+    # resolve to a fetch URL).
+    ADDRESS=$(printf '%s' "$REQUEST" | sed -n 's/.*"address":"\([^"]*\)".*/\1/p')
+    printf '{"address":"%s"}\n' "$ADDRESS"
+    ;;
+
+  *'"action":"can_handle"'*)
+    ADDRESS=$(printf '%s' "$REQUEST" | sed -n 's/.*"address":"\([^"]*\)".*/\1/p')
+    case "$ADDRESS" in
+      "$PROVIDER_SCHEME"*) printf '{"result":true}\n' ;;
+      *) printf '{"result":false}\n' ;;
+    esac
+    ;;
+
+  *'"action":"fetch"'*)
+    # Stage the asset into a fresh temp dir and print its path. Replace this
+    # with real fetch logic (e.g. `git clone` or an HTTP download).
+    STAGED=$(mktemp -d)
+    # ... write/clone the asset into "$STAGED" here ...
+    printf '{"path":"%s"}\n' "$STAGED"
+    # On failure, instead print:
+    #   printf '{"error":{"code":"fetch_failed","message":"<reason>"}}\n'
+    ;;
+
+  *)
+    printf '{"error":{"code":"protocol_error","message":"unknown action"}}\n'
+    ;;
+esac

@@ -43,6 +43,7 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 	flagRoot, flagConfig = "", ""
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false
 	flagNoStrict = false
+	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
 	rootCmd.SetOut(outBuf)

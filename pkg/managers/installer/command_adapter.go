@@ -10,9 +10,9 @@ import (
 )
 
 // installAdapter creates a managed skill-form adapter directory for a command
-// in a Codex/CodeFuse-style skill target (FR-016): a SKILL.md link to the
-// command marker plus links to auxiliary resources, so the command is
-// discovered as a skill by those tools.
+// in a target whose declared strategy for command is command-adapter
+// (FR-016): a SKILL.md link to the command marker plus links to auxiliary
+// resources, so the command is discovered as a skill by that target's tool.
 func (i *Installer) installAdapter(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
 	adapterDir := filepath.Join(target.Path, entry.Name)
 	switch stateAdapter(adapterDir, entry) {

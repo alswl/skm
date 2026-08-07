@@ -126,6 +126,11 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID string
 		return nil, common.WithExitCode(err, common.ExitError)
 	}
 	if origin != nil {
+		// Record the installed location (relative to the repo root) so the
+		// meta.json tracks url / provider / path for the entry.
+		if rel, err := filepath.Rel(r.root, dest); err == nil {
+			origin.Path = rel
+		}
 		if err := dal.WriteMeta(dest, origin); err != nil {
 			_ = tx.Rollback()
 			return nil, common.WithExitCode(err, common.ExitError)

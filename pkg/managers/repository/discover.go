@@ -22,7 +22,7 @@ func (r *Repository) Discover(targets []common.InstallTarget, sourceDir string) 
 	existing := r.entryNames()
 	var out []DiscoveredSkill
 	for _, t := range targets {
-		if t.Kind != common.KindSkill {
+		if !t.AcceptsKind(common.KindSkill) {
 			continue
 		}
 		if sourceDir != "" && t.Path != sourceDir {

@@ -40,3 +40,10 @@ go.work.sum
 AGENTS.md
 CLAUDE.md
 specs
+
+# Unwanted requirement baseline docs (tracked once by accident)
+docs/req.md
+docs/req-2.md
+
+# Built binary (go build without -o in cmd/skm)
+cmd/skm/skm

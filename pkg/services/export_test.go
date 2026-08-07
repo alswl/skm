@@ -58,3 +58,21 @@ func TestExportEmptyInstalledSetEmitsNoCommand(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, res.Command, "no command when nothing is installed (SC-008)")
 }
+
+// T039/T043: export must never leak a machine-specific absolute destination
+// path — only the logical target name — so the emitted command is portable
+// to another machine (002-open-provider-target FR-017, SC-007).
+func TestExportNeverLeaksTargetAbsolutePath(t *testing.T) {
+	svc, target, _ := exportFixture(t)
+	tx := &dal.FileTransaction{}
+	_, err := svc.Installer.Install(tx, svc.FindEntry("demo"), *target, false)
+	require.NoError(t, err)
+	tx.Commit()
+
+	res, err := svc.Export()
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Command)
+	require.NotContains(t, res.Command, target.Path,
+		"export must reference the target by logical name only, not its absolute path")
+	require.Contains(t, res.Command, "--target 't'", "the logical target name is what makes the command portable")
+}

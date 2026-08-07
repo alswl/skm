@@ -25,12 +25,124 @@ func (r *Repository) Root() string { return r.root }
 // Scan walks skills/, commands/ and archived/ and builds the entry list.
 // Invalid assets become visible error entries; the scan never aborts
 // (FR-006). Global name conflicts are not flagged here — verify reports them.
+// A marker found anywhere else under the repo root is also surfaced, as a
+// StatusNonStandard entry, instead of being silently invisible.
 func (r *Repository) Scan() []*common.Entry {
 	var entries []*common.Entry
 	entries = append(entries, r.scanTop("skills", common.KindSkill, common.StatusActive)...)
 	entries = append(entries, r.scanTop("commands", common.KindCommand, common.StatusActive)...)
 	entries = append(entries, r.scanTop("archived", "", common.StatusArchived)...)
+	entries = append(entries, r.scanNonStandard()...)
 	return entries
+}
+
+// managedTopDirs are the only top-level names scanNonStandard does not
+// itself walk into — they already have their own dedicated scan above.
+var managedTopDirs = map[string]bool{"skills": true, "commands": true, "archived": true}
+
+// scanNonStandard walks the repo root looking for skill/command markers
+// outside skills/commands/archived, so a misplaced asset is visible instead
+// of invisible. Only directory markers (a dir containing SKILL.md or
+// command.md) are detected — loose *.md files are not, since any arbitrary
+// markdown file (README, docs) would otherwise be a false positive.
+func (r *Repository) scanNonStandard() []*common.Entry {
+	var out []*common.Entry
+	children, err := os.ReadDir(r.root)
+	if err != nil {
+		return out
+	}
+	for _, c := range children {
+		if !c.IsDir() || managedTopDirs[c.Name()] || strings.HasPrefix(c.Name(), ".") {
+			continue
+		}
+		out = append(out, r.walkNonStandard(filepath.Join(r.root, c.Name()))...)
+	}
+	return out
+}
+
+// walkNonStandard recurses into dir until it finds a marker (stopping there,
+// like scanGroup does for the managed trees) or runs out of subdirectories.
+func (r *Repository) walkNonStandard(dir string) []*common.Entry {
+	switch {
+	case dal.PathExists(filepath.Join(dir, "SKILL.md")):
+		return []*common.Entry{r.buildNonStandardEntry(dir, common.KindSkill)}
+	case dal.PathExists(filepath.Join(dir, "command.md")):
+		return []*common.Entry{r.buildNonStandardEntry(dir, common.KindCommand)}
+	}
+	var out []*common.Entry
+	children, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, c := range children {
+		if !c.IsDir() || strings.HasPrefix(c.Name(), ".") {
+			continue
+		}
+		out = append(out, r.walkNonStandard(filepath.Join(dir, c.Name()))...)
+	}
+	return out
+}
+
+// buildNonStandardEntry builds a StatusNonStandard entry for a marker found
+// outside the managed trees. Frontmatter is parsed best-effort — a
+// misplaced-but-otherwise-valid marker still shows its real name/description;
+// a broken one falls back to the directory's basename — but the entry is
+// always flagged non-standard, since location, not frontmatter validity, is
+// the problem being reported.
+func (r *Repository) buildNonStandardEntry(dir string, kind common.EntryKind) *common.Entry {
+	e := &common.Entry{Status: common.StatusNonStandard, Path: dir, Kind: kind, Name: filepath.Base(dir)}
+	rel, err := filepath.Rel(r.root, dir)
+	if err != nil {
+		rel = dir
+	}
+	note := fmt.Sprintf("non-standard location %q; expected under %s/<provider>/[<group>/]<name>/", rel, kind.TopDir())
+	e.Error = strPtr(note)
+
+	data, err := os.ReadFile(filepath.Join(dir, kind.MarkerFile()))
+	if err != nil {
+		return e
+	}
+	fm, _, err := dal.ParseFrontmatter(data)
+	if err != nil {
+		return e
+	}
+	if fm.Name != "" {
+		e.Name = fm.Name
+	}
+	e.Description = fm.Description
+	if fm.Version != nil && *fm.Version != "" {
+		e.Version = fm.Version
+	}
+	return e
+}
+
+// buildNonStandardFileEntry builds a non-standard entry for a single-file
+// command found directly under commands/ with no provider directory
+// (commands/<name>.md instead of the required commands/<provider>/<name>.md).
+func (r *Repository) buildNonStandardFileEntry(path string) *common.Entry {
+	e := &common.Entry{Status: common.StatusNonStandard, Path: path, Kind: common.KindCommand, Name: fileStem(path)}
+	rel, err := filepath.Rel(r.root, path)
+	if err != nil {
+		rel = path
+	}
+	e.Error = strPtr(fmt.Sprintf("non-standard location %q; expected under commands/<provider>/<name>.md", rel))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return e
+	}
+	fm, _, err := dal.ParseFrontmatter(data)
+	if err != nil {
+		return e
+	}
+	if fm.Name != "" {
+		e.Name = fm.Name
+	}
+	e.Description = fm.Description
+	if fm.Version != nil && *fm.Version != "" {
+		e.Version = fm.Version
+	}
+	return e
 }
 
 // scanTop walks a top-level tree (skills/commands/archived).
@@ -42,13 +154,44 @@ func (r *Repository) scanTop(topDir string, kind common.EntryKind, status common
 		return out
 	}
 	for _, d := range dirs {
+		p := filepath.Join(top, d.Name())
 		if !d.IsDir() {
+			// A loose command file directly under commands/, with no
+			// provider directory, is missing the required nesting level
+			// (commands/<provider>/<name>.md) — flag it instead of silently
+			// skipping it. Skills have no single-file form, so a loose file
+			// directly under skills/ is left alone (more likely a stray
+			// README than a misplaced skill).
+			if kind == common.KindCommand && isMarkdown(d.Name()) {
+				out = append(out, r.buildNonStandardFileEntry(p))
+			}
 			continue
 		}
-		p := filepath.Join(top, d.Name())
+		if actualKind, ok := markerKind(p); ok {
+			// The would-be "provider" directory directly holds the marker:
+			// the provider level itself is missing
+			// (skills/<name>/SKILL.md instead of
+			// skills/<provider>/<name>/SKILL.md) — flag it rather than
+			// treating d.Name() as a provider and never finding the entry.
+			out = append(out, r.buildNonStandardEntry(p, actualKind))
+			continue
+		}
 		out = append(out, r.scanProvider(p, d.Name(), kind, status)...)
 	}
 	return out
+}
+
+// markerKind reports which marker dir holds (preferring SKILL.md), used to
+// resolve the kind of an entry found at a non-standard nesting depth where
+// the expected kind may be ambiguous (e.g. archived/).
+func markerKind(dir string) (common.EntryKind, bool) {
+	if dal.PathExists(filepath.Join(dir, "SKILL.md")) {
+		return common.KindSkill, true
+	}
+	if dal.PathExists(filepath.Join(dir, "command.md")) {
+		return common.KindCommand, true
+	}
+	return "", false
 }
 
 // scanProvider walks one provider directory; its name is the mode_id.

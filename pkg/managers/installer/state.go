@@ -8,18 +8,19 @@ import (
 )
 
 // State derives the install health of entry within target from the
-// filesystem (FR-019): absent / installed / conflict / dangling.
+// filesystem (FR-019): absent / installed / conflict / dangling. Dispatch
+// mirrors Install/Uninstall: by the target's declared strategy for entry.Kind.
 func (i *Installer) State(entry *common.Entry, target common.InstallTarget) common.InstallState {
-	switch entry.Kind {
-	case common.KindSkill:
-		if target.Kind != common.KindSkill {
-			return common.InstallAbsent
-		}
+	strategy, ok := target.EffectiveStrategy(entry.Kind)
+	if !ok {
+		return common.InstallAbsent
+	}
+	switch strategy {
+	case common.StrategySkillSymlink:
 		return stateLink(filepath.Join(target.Path, entry.Name), entry.Path)
-	case common.KindCommand:
-		if target.Kind == common.KindCommand {
-			return stateLink(filepath.Join(target.Path, entry.Name+".md"), entry.MarkerPath())
-		}
+	case common.StrategyCommandMarker:
+		return stateLink(filepath.Join(target.Path, entry.Name+".md"), entry.MarkerPath())
+	case common.StrategyCommandAdapter:
 		return stateAdapter(filepath.Join(target.Path, entry.Name), entry)
 	}
 	return common.InstallAbsent

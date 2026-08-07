@@ -1,0 +1,40 @@
+{
+  "providers": [
+    {
+      "id": "local",
+      "label": "Local filesystem",
+      "kind": "builtin",
+      "description": "Imports from an existing local path or directory",
+      "schemes": ["/", "./", "~/"],
+      "loaded": true,
+      "error": null
+    },
+    {
+      "id": "github",
+      "label": "GitHub / git repositories",
+      "kind": "builtin",
+      "description": "Clones git URLs (git@/https/ssh/.git) and owner/repo shorthand",
+      "schemes": ["git@", "https://", "ssh://", "owner/repo"],
+      "loaded": true,
+      "error": null
+    },
+    {
+      "id": "gitlab",
+      "label": "GitLab",
+      "kind": "builtin",
+      "description": "Clones git URLs (git@/https/ssh/.git) and owner/repo shorthand",
+      "schemes": ["git@", "https://", "ssh://", "owner/repo"],
+      "loaded": true,
+      "error": null
+    },
+    {
+      "id": "skills-sh",
+      "label": "Skills.sh",
+      "kind": "builtin",
+      "description": "Fetches git-backed assets from skills.sh://<path> addresses",
+      "schemes": ["skills.sh://"],
+      "loaded": true,
+      "error": null
+    }
+  ]
+}

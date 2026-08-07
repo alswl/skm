@@ -68,6 +68,22 @@ func (s *Services) Delete(ctx context.Context, name string, opts LifecycleOption
 	return &LifecycleResult{Action: "delete", Name: name, DryRun: opts.DryRun, Path: entry.Path, Success: true}, nil
 }
 
+// Normalize moves a non-standard entry (found outside its expected
+// provider-nested location) into provider's location for its kind (provider
+// defaults to "local" when empty). DryRun previews the destination without
+// writing.
+func (s *Services) Normalize(ctx context.Context, name, provider string, opts LifecycleOptions) (*LifecycleResult, error) {
+	entry := s.FindEntry(name)
+	if entry == nil {
+		return nil, notFound("normalize", name)
+	}
+	dest, err := s.Repo.Normalize(ctx, entry, provider, repoLifecycleOpts(opts))
+	if err != nil {
+		return nil, err
+	}
+	return &LifecycleResult{Action: "normalize", Name: name, DryRun: opts.DryRun, Path: dest, Success: true}, nil
+}
+
 // Convert flips a directory entry's kind, cleaning old-kind links and
 // reinstalling under the new kind (FR-026).
 func (s *Services) Convert(ctx context.Context, name string, targetKind common.EntryKind, opts LifecycleOptions) (*LifecycleResult, error) {

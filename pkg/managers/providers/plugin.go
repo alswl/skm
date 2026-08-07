@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -11,7 +12,8 @@ import (
 )
 
 // PluginProvider adapts an executable implementing the subprocess JSON
-// protocol (research R8 / FR-035). Each request is a single JSON line on
+// protocol (research R8 / FR-035, extended per contracts/provider-protocol.md
+// for 002-open-provider-target). Each request is a single JSON line on
 // stdin; the response is a single JSON line on stdout.
 type PluginProvider struct {
 	path  string
@@ -20,30 +22,63 @@ type PluginProvider struct {
 	mu    sync.Mutex
 }
 
+// pluginTimeout bounds every subprocess call so one slow/hung plugin cannot
+// stall startup, provider list, or an import (FR-006, research R4). A var
+// (not const) so tests can shrink it to exercise timeout isolation quickly.
+var pluginTimeout = 15 * time.Second
+
 type pluginRequest struct {
 	Action  string `json:"action"`
 	Address string `json:"address,omitempty"`
 }
 
+// pluginError accepts either the new {code,message} object or a legacy bare
+// string (mapped to CodeFetchFailed) for backward compatibility with
+// already-built plugins (contracts/provider-protocol.md).
+type pluginError struct {
+	Code    string
+	Message string
+}
+
+func (e *pluginError) UnmarshalJSON(data []byte) error {
+	var obj struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &obj); err == nil && (obj.Code != "" || obj.Message != "") {
+		e.Code, e.Message = obj.Code, obj.Message
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	e.Code, e.Message = CodeFetchFailed, s
+	return nil
+}
+
 type pluginResponse struct {
-	ID     string `json:"id,omitempty"`
-	Label  string `json:"label,omitempty"`
-	Result *bool  `json:"result,omitempty"`
-	Path   string `json:"path,omitempty"`
-	Error  string `json:"error,omitempty"`
+	ID          string       `json:"id,omitempty"`
+	Label       string       `json:"label,omitempty"`
+	Description string       `json:"description,omitempty"`
+	Schemes     []string     `json:"schemes,omitempty"`
+	Address     string       `json:"address,omitempty"`
+	Result      *bool        `json:"result,omitempty"`
+	Path        string       `json:"path,omitempty"`
+	Error       *pluginError `json:"error,omitempty"`
 }
 
 // NewPluginProvider loads a plugin executable, probing its id and label.
 func NewPluginProvider(path string) (*PluginProvider, error) {
 	p := &PluginProvider{path: path}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
 	defer cancel()
 	idResp, err := p.call(ctx, "id", "")
 	if err != nil {
 		return nil, fmt.Errorf("plugin %s: %w", path, err)
 	}
 	if idResp.ID == "" {
-		return nil, fmt.Errorf("plugin %s: returned an empty id", path)
+		return nil, &ProviderError{Code: CodeEmptyID, Message: fmt.Sprintf("plugin %s: returned an empty id", path)}
 	}
 	p.id = idResp.ID
 	if lbl, err := p.call(ctx, "label", ""); err == nil {
@@ -63,9 +98,42 @@ func (p *PluginProvider) Label() string {
 	return p.label
 }
 
+// Capability runs the plugin's optional `capability` action. A plugin that
+// doesn't implement it (error or empty response) falls back to
+// {id,label,"",nil} (contracts/provider-protocol.md).
+func (p *PluginProvider) Capability() Capability {
+	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
+	defer cancel()
+	resp, err := p.call(ctx, "capability", "")
+	if err != nil || resp.Error != nil {
+		return Capability{ID: p.ID(), Label: p.Label()}
+	}
+	cap := Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes}
+	if resp.ID != "" {
+		cap.ID = resp.ID
+	}
+	if resp.Label != "" {
+		cap.Label = resp.Label
+	}
+	return cap
+}
+
+// Normalize runs the plugin's optional `normalize` action. A plugin that
+// doesn't implement it, errors, or returns an empty address falls back to
+// identity (address unchanged).
+func (p *PluginProvider) Normalize(address string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
+	defer cancel()
+	resp, err := p.call(ctx, "normalize", address)
+	if err != nil || resp.Error != nil || resp.Address == "" {
+		return address, nil
+	}
+	return resp.Address, nil
+}
+
 // CanHandle runs the plugin's can_handle for the address.
 func (p *PluginProvider) CanHandle(address string) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
 	defer cancel()
 	resp, err := p.call(ctx, "can_handle", address)
 	return err == nil && resp.Result != nil && *resp.Result
@@ -78,11 +146,11 @@ func (p *PluginProvider) Fetch(ctx context.Context, address string) (string, err
 	if err != nil {
 		return "", err
 	}
-	if resp.Error != "" {
-		return "", fmt.Errorf("plugin %s: %s", p.id, resp.Error)
+	if resp.Error != nil {
+		return "", &ProviderError{Code: resp.Error.Code, Message: fmt.Sprintf("plugin %s: %s", p.id, resp.Error.Message)}
 	}
 	if resp.Path == "" {
-		return "", fmt.Errorf("plugin %s: fetch returned no path", p.id)
+		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("plugin %s: fetch returned no path", p.id)}
 	}
 	return resp.Path, nil
 }
@@ -99,11 +167,14 @@ func (p *PluginProvider) call(ctx context.Context, action, address string) (*plu
 	cmd.Stdin = bytes.NewReader(data)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("plugin %s: %w", p.path, err)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, &ProviderError{Code: CodeTimeout, Message: fmt.Sprintf("plugin %s: timed out", p.path)}
+		}
+		return nil, &ProviderError{Code: CodeProtocolError, Message: fmt.Sprintf("plugin %s: %s", p.path, err)}
 	}
 	var resp pluginResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return nil, fmt.Errorf("plugin %s: invalid JSON response: %w", p.path, err)
+		return nil, &ProviderError{Code: CodeProtocolError, Message: fmt.Sprintf("plugin %s: invalid JSON response: %s", p.path, err)}
 	}
 	return &resp, nil
 }

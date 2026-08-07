@@ -52,6 +52,95 @@ config dir is `~/.config/skm`.
 - Exit codes: `0` success/warnings, `1` object problem, `2` argument/tool/
   provider/execution error.
 
+## Providers and Targets
+
+Acquisition sources (**Providers**) and install destinations (**Targets**) are both open,
+user-configurable capabilities — not fixed to the built-in Local/GitHub sources or the
+built-in Claude/Codex/CodeFuse targets.
+
+```bash
+./bin/skm provider list --json                 # built-ins (local, github, gitlab,
+./bin/skm provider validate --json             #   skills-sh) + any plugins
+
+./bin/skm target list --json
+./bin/skm target add --name my-tool --platform mytool --path ~/.mytool/skills \
+    --accepts skill,command \
+    --strategy skill=skill-symlink --strategy command=command-adapter --json
+./bin/skm target validate my-tool --json
+./bin/skm target update --name my-tool --path ~/.mytool/skills2 --json
+./bin/skm target remove --name my-tool --json
+```
+
+A Target declares its platform, path, accepted kinds, and per-kind install strategy —
+install/uninstall dispatch on that declaration, never on a hardcoded tool name. The TUI
+exposes the same operations behind the `t` key (add `a`, edit path `enter`, remove `d`).
+
+### Configuring Targets directly (`~/.config/skm/targets.json`)
+
+The commands above are the safe way to edit it, but the file itself is plain JSON — useful
+to see (or hand-edit, or check into dotfiles) directly. A minimal file with the four
+built-ins plus one custom tool:
+
+```jsonc
+[
+  { "name": "claude-skills", "platform": "claude", "path": "~/.claude/skills",
+    "accepts": ["skill"], "strategies": { "skill": "skill-symlink" }, "builtin": true },
+  { "name": "claude-commands", "platform": "claude", "path": "~/.claude/commands",
+    "accepts": ["command"], "strategies": { "command": "command-marker" }, "builtin": true },
+  { "name": "codex", "platform": "codex", "path": "~/.codex/skills",
+    "accepts": ["skill", "command"],
+    "strategies": { "skill": "skill-symlink", "command": "command-adapter" }, "builtin": true },
+
+  // A custom tool: its own path, only skills, symlink strategy.
+  { "name": "my-tool", "platform": "mytool", "path": "~/.mytool/skills",
+    "accepts": ["skill"], "strategies": { "skill": "skill-symlink" }, "builtin": false }
+]
+```
+
+Rules: `accepts` is a subset of `["skill", "command"]`; each accepted kind needs a
+kind-compatible `strategies` entry (`skill` → `skill-symlink`; `command` →
+`command-marker` or `command-adapter`). The file is missing/empty on first run — skm writes
+the four built-ins the first time you `target add`. An old skmgr `targets.json` (or one
+found in the legacy `~/.config/skill-manager/`) is read and migrated automatically — no
+manual edits needed.
+
+### Configuring a Provider (plugin)
+
+Providers are discovered from `~/.config/skm/plugins/` (or any directory listed in
+`SKM_PLUGINS_DIR`, `:`/`;`-separated). Each entry is a single executable — any language,
+as long as it speaks the line-based JSON protocol. A minimal working one:
+
+```sh
+#!/bin/sh
+# ~/.config/skm/plugins/acme  (chmod +x)
+IFS= read -r req
+case "$req" in
+  *'"action":"id"'*)         printf '{"id":"acme"}\n' ;;
+  *'"action":"label"'*)      printf '{"label":"Acme Internal Skills"}\n' ;;
+  *'"action":"capability"'*) printf '{"description":"Fetches acme://<repo> from our internal git host"}\n' ;;
+  *'"action":"can_handle"'*) case "$req" in *'"address":"acme:'*) printf '{"result":true}\n';; *) printf '{"result":false}\n';; esac ;;
+  *'"action":"fetch"'*)
+    addr=$(printf '%s' "$req" | sed -n 's/.*"address":"acme:\/\/\([^"]*\)".*/\1/p')
+    dir=$(mktemp -d)
+    git clone --depth 1 "https://git.acme.internal/${addr}.git" "$dir" >/dev/null 2>&1 \
+      && printf '{"path":"%s"}\n' "$dir" \
+      || printf '{"error":{"code":"fetch_failed","message":"clone failed"}}\n'
+    ;;
+  *) printf '{"error":{"code":"protocol_error","message":"unknown action"}}\n' ;;
+esac
+```
+
+```bash
+chmod +x ~/.config/skm/plugins/acme
+./bin/skm provider list --json                  # "acme" now appears, loaded:true
+./bin/skm import "acme://team/skills-repo"       # routed to it automatically
+```
+
+Note skm sends the request **without** a trailing newline, so don't use `set -e` in a shell
+plugin (`read` returns non-zero at EOF even though it populates the variable correctly — see
+[`docs/plugins/README.md`](docs/plugins/README.md) for the full protocol, error codes, and a
+copy-pasteable [reference template](docs/plugins/template/) that already handles this).
+
 ## Cross-machine deploy
 
 ```bash
@@ -86,8 +175,9 @@ pkg/tui → pkg/services   (UI adapter; never writes files directly)
 - **pkg/services**: single orchestration entry shared by CLI and TUI; every
   write path flows through it under lock + rollbackable transaction.
 - **pkg/managers**: repository (scan/import/update/lifecycle/convert/discover),
-  installer (symlinks/adapters/install-state), providers (registry, Local,
-  GitHub, subprocess plugins).
+  installer (strategy-dispatched: symlinks/markers/adapters, install-state),
+  providers (registry, Local, GitHub/GitLab, Skills.sh, subprocess
+  plugins).
 - **pkg/dal**: repository lock, `FileTransaction` (staging + rollback),
   frontmatter/meta.json/targets.json IO, content hashing.
 - **pkg/tui**: Bubble Tea list/detail/search; long operations run on a

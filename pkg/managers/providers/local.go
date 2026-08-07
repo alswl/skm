@@ -20,6 +20,19 @@ func (Local) ID() string { return "local" }
 // Label returns the human label.
 func (Local) Label() string { return "Local filesystem" }
 
+// Capability describes what Local handles.
+func (Local) Capability() Capability {
+	return Capability{
+		ID: "local", Label: "Local filesystem",
+		Description: "Imports from an existing local path or directory",
+		Schemes:     []string{"/", "./", "~/"},
+	}
+}
+
+// Normalize returns address unchanged; local paths have no canonical form
+// beyond what the filesystem already resolves.
+func (Local) Normalize(address string) (string, error) { return address, nil }
+
 // CanHandle reports whether address is an existing local path.
 func (Local) CanHandle(address string) bool {
 	return dal.PathExists(address)

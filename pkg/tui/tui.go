@@ -72,8 +72,11 @@ type model struct {
 	help     help.Model
 	showHelp bool
 
-	showDetail bool   // true renders the full-screen detail page (Enter/v)
-	detail     string // detail page content, built lazily in openDetail
+	showDetail      bool   // true renders the full-screen detail page (Enter/v)
+	detail          string // detail page content, built lazily in openDetail
+	detailOffset    int    // scroll offset (lines) into the detail content; j/k scroll it
+	detailTargets   int    // number of kind-matching targets (cached in Update; View must stay pure)
+	detailInstalled bool   // whether the entry is installed in any matching target (cached in Update)
 
 	// req-2 §1 modals and task center.
 	picker      *picker           // active multi/single-select modal (nil when closed)
@@ -81,10 +84,35 @@ type model struct {
 	showTasks   bool              // task-center view (J)
 	tasksCursor int               // cursor into the flattened task list
 	installCol  map[string]string // entry name -> per-target install summary (FR-041)
+
+	// 002-open-provider-target US2: Target configuration editor.
+	showTargets   bool          // target list/editor view (t)
+	targetsCursor int           // cursor into svc.Cfg.Targets
+	targetWizard  *targetWizard // active add/edit text-entry step (nil when idle)
+
+	// Provider filter tabs (Tab/Shift+Tab): providerTabs[0] is always
+	// tabAll; providerTabs[providerTabIdx] is the active filter.
+	providerTabs   []string
+	providerTabIdx int
 }
 
-func initialModel(ctx context.Context, svc *services.Services) model {
-	m := model{
+// tabAll and tabNone are the two synthetic provider-tab values: tabAll shows
+// every entry (no filter); tabNone groups entries with no mode_id. Real
+// provider mode_id values are never empty, so tabAll's "" never collides
+// with a real tab.
+const (
+	tabAll  = ""
+	tabNone = "none"
+)
+
+// initialModel returns a pointer model: the TUI runs on a single heap-allocated
+// *model so every closure capturing the receiver (picker/confirm callbacks,
+// job runners) always refers to the live model object. A value-based model
+// would copy the receiver each Update and closures would mutate stale copies —
+// the modals they open (confirm after a picker, next picker, status lines)
+// would silently never appear in the running program.
+func initialModel(ctx context.Context, svc *services.Services) *model {
+	m := &model{
 		ctx:      ctx,
 		svc:      svc,
 		queue:    jobs.New(32),
@@ -94,8 +122,76 @@ func initialModel(ctx context.Context, svc *services.Services) model {
 		help:     help.New(),
 	}
 	m.computeInstallCols()
+	m.computeProviderTabs()
 	m.refreshFiltered()
 	return m
+}
+
+// computeProviderTabs derives the provider filter tabs from the current scan:
+// tabAll, then every distinct mode_id in sorted order, then tabNone if any
+// entry has no mode_id. Called after every scan (startup and job
+// completion), like computeInstallCols.
+func (m *model) computeProviderTabs() {
+	seen := map[string]bool{}
+	hasNone := false
+	for _, e := range m.entries {
+		if mid := e.ModeIDValue(); mid != "" {
+			seen[mid] = true
+		} else {
+			hasNone = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for k := range seen {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	tabs := append([]string{tabAll}, names...)
+	if hasNone {
+		tabs = append(tabs, tabNone)
+	}
+	m.providerTabs = tabs
+	if m.providerTabIdx >= len(tabs) {
+		m.providerTabIdx = 0 // the active tab vanished (e.g. its entries were archived/deleted): fall back to All
+	}
+}
+
+// cycleProviderTab moves the active provider filter tab by delta (wrapping)
+// and re-filters the list.
+func (m *model) cycleProviderTab(delta int) {
+	if len(m.providerTabs) == 0 {
+		return
+	}
+	n := len(m.providerTabs)
+	m.providerTabIdx = ((m.providerTabIdx+delta)%n + n) % n
+	m.refreshFiltered()
+}
+
+// isDigitKey reports whether msg is a single '0'-'9' rune, used for direct
+// provider-tab jumps (0=All, 1..=providers/none, in tab-bar order) alongside
+// Tab/Shift+Tab cycling.
+func isDigitKey(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] >= '0' && msg.Runes[0] <= '9'
+}
+
+// jumpToProviderTab switches directly to provider tab index n. Out-of-range
+// digits (more tabs than 0-9, or fewer tabs than the pressed digit) are
+// silently ignored rather than wrapping or erroring.
+func (m *model) jumpToProviderTab(n int) {
+	if n < 0 || n >= len(m.providerTabs) {
+		return
+	}
+	m.providerTabIdx = n
+	m.refreshFiltered()
+}
+
+// activeProviderTab returns the currently selected tab value (tabAll,
+// tabNone, or a real mode_id).
+func (m *model) activeProviderTab() string {
+	if m.providerTabIdx <= 0 || m.providerTabIdx >= len(m.providerTabs) {
+		return tabAll
+	}
+	return m.providerTabs[m.providerTabIdx]
 }
 
 // computeInstallCols derives each entry's per-target install summary for the
@@ -105,32 +201,53 @@ func initialModel(ctx context.Context, svc *services.Services) model {
 func (m *model) computeInstallCols() {
 	m.installCol = make(map[string]string, len(m.entries))
 	for _, e := range m.entries {
-		if e.Status != common.StatusActive {
-			continue
-		}
+		// Evaluated for every entry (not just active ones) so a non-standard or
+		// moved entry's dangling/conflicting installs are still visible in the
+		// list ("安装状态无法在 list 页面看到").
 		var installed []string
+		problem := ""
 		for _, t := range m.svc.Installer.Targets(e) {
-			if m.svc.Installer.State(e, t) == common.InstallInstalled {
+			switch m.svc.Installer.State(e, t) {
+			case common.InstallInstalled:
 				installed = append(installed, t.Name)
+			case common.InstallConflict, common.InstallDangling:
+				if problem == "" {
+					problem = string(m.svc.Installer.State(e, t))
+				}
 			}
 		}
-		if len(installed) == 0 {
-			m.installCol[e.Name] = "—"
-		} else {
+		switch {
+		case len(installed) > 0:
 			m.installCol[e.Name] = strings.Join(installed, ",")
+		case problem != "":
+			m.installCol[e.Name] = problem // "conflict" / "dangling" — colored red
+		default:
+			m.installCol[e.Name] = "—"
 		}
 	}
 }
 
-// refreshFiltered re-applies the search filter and re-validates cursor/page
-// (FR-009: selection and page stay valid across filtering/paging/resize).
+// refreshFiltered re-applies the provider tab and search filters and
+// re-validates cursor/page (FR-009: selection and page stay valid across
+// filtering/paging/resize).
 func (m *model) refreshFiltered() {
 	q := m.search
+	tab := m.activeProviderTab()
 	// A fresh slice so buildRows' sort never reorders the underlying scan slice.
 	m.filtered = nil
 	for _, e := range m.entries {
 		if !m.showArchived && e.Status == common.StatusArchived {
 			continue
+		}
+		if tab != tabAll {
+			mid := e.ModeIDValue()
+			if tab == tabNone {
+				if mid != "" {
+					continue
+				}
+			} else if mid != tab {
+				continue
+			}
 		}
 		if q != "" && !containsFold(e.Name, q) && !containsFold(e.Description, q) {
 			continue
@@ -169,13 +286,10 @@ func (m *model) buildRows() {
 	} else {
 		m.entryRow = m.entryRow[:len(m.filtered)]
 	}
-	prev, first := "", true
-	for i, e := range m.filtered {
-		h := sectionHeader(e)
-		if first || h != prev {
-			m.rows = append(m.rows, dispRow{header: h})
-			prev, first = h, false
-		}
+	// The list is flat — no per-source section headers. Provider/group context
+	// comes from the tabs, the cursor's status line, and the detail page, so
+	// grouping headers in the list would just re-filter the page.
+	for i := range m.filtered {
 		m.entryRow[i] = len(m.rows)
 		m.rows = append(m.rows, dispRow{entryIdx: i})
 	}
@@ -276,14 +390,14 @@ func lowerASCII(c byte) byte {
 	return c
 }
 
-func (m model) Init() tea.Cmd { return waitForResult(m.queue) }
+func (m *model) Init() tea.Cmd { return waitForResult(m.queue) }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.help.Width = maxInt(1, msg.Width-4) // frame inner width
-		m.pageSize = maxInt(1, m.height-6)    // list area: top, list, sep, status, sep, help, bottom
+		m.pageSize = maxInt(1, m.height-7)    // list area: top, tabbar, list, sep, status, sep, help, bottom
 		m.refreshFiltered()
 		return m, nil
 	case tea.KeyMsg:
@@ -312,14 +426,44 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if m.showTasks {
 		return m.handleTasksKey(msg)
 	}
+	if m.targetWizard != nil {
+		return m.handleTargetWizardKey(msg)
+	}
+	if m.showTargets {
+		return m.handleTargetsKey(msg)
+	}
 	k := m.keys
 	if m.showDetail {
 		switch {
-		case key.Matches(msg, k.Detail), key.Matches(msg, k.ClearSearch):
-			m.showDetail = false // Enter/v/Esc back to the list
+		case key.Matches(msg, k.ClearSearch), key.Matches(msg, k.Quit):
+			m.showDetail = false // Esc/q back to the list (Enter does not close detail)
 			return nil
-		case key.Matches(msg, k.Quit):
-			return tea.Quit
+		case key.Matches(msg, k.MoveDown):
+			lines := splitLines(m.detail)
+			maxOffset := maxInt(0, len(lines)-maxInt(1, maxInt(10, m.height)-4))
+			m.detailOffset = clampInt(m.detailOffset+1, 0, maxOffset)
+			return nil
+		case key.Matches(msg, k.MoveUp):
+			m.detailOffset = maxInt(0, m.detailOffset-1)
+			return nil
+		case key.Matches(msg, k.Normalize):
+			m.normalizeSelected()
+			return nil
+		case key.Matches(msg, k.Install):
+			m.installSelected()
+			return nil
+		case key.Matches(msg, k.Uninstall):
+			m.uninstallSelected()
+			return nil
+		case key.Matches(msg, k.Update):
+			m.updateSelected()
+			return nil
+		case key.Matches(msg, k.Archive):
+			m.archiveSelected()
+			return nil
+		case key.Matches(msg, k.Delete):
+			m.deleteSelected()
+			return nil
 		}
 		return nil
 	}
@@ -359,6 +503,12 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		} else {
 			m.status = "archived hidden"
 		}
+	case key.Matches(msg, k.TabNext):
+		m.cycleProviderTab(1)
+	case key.Matches(msg, k.TabPrev):
+		m.cycleProviderTab(-1)
+	case isDigitKey(msg):
+		m.jumpToProviderTab(int(msg.Runes[0] - '0'))
 	case key.Matches(msg, k.ClearSearch):
 		m.clearSearch()
 	case key.Matches(msg, k.Detail):
@@ -380,6 +530,9 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.deleteSelected()
 	case key.Matches(msg, k.Discover):
 		m.discoverExternal()
+	case key.Matches(msg, k.Targets):
+		m.showTargets = true
+		m.targetsCursor = 0
 	case key.Matches(msg, k.Help):
 		m.showHelp = !m.showHelp
 	}
@@ -393,8 +546,31 @@ func (m *model) openDetail() {
 	if m.cursor >= len(m.filtered) {
 		return
 	}
-	m.detail = m.buildDetail()
+	m.refreshDetail()
 	m.showDetail = true
+}
+
+// refreshDetail rebuilds the detail page content and caches the FS-dependent
+// install availability for the current entry. It runs in Update only (View is
+// pure): the content, the kind-matching target count, and whether the entry is
+// installed anywhere all come from the filesystem via the installer.
+func (m *model) refreshDetail() {
+	if m.cursor >= len(m.filtered) {
+		return
+	}
+	m.detail = m.buildDetail()
+	e := m.filtered[m.cursor]
+	targets := m.svc.Installer.Targets(e)
+	installed := false
+	for _, t := range targets {
+		if m.svc.Installer.State(e, t) != common.InstallAbsent {
+			installed = true
+			break
+		}
+	}
+	m.detailTargets = len(targets)
+	m.detailInstalled = installed
+	m.detailOffset = 0
 }
 
 func (m *model) clearSearch() {
@@ -442,7 +618,7 @@ func (m *model) openTargetPicker(action string, entry *common.Entry) {
 	name := entry.Name
 	m.picker = &picker{
 		title: action + " " + name + " → targets",
-		hint:  "[space] toggle  [enter] confirm  [esc] cancel",
+		hint:  "[space] toggle  [enter] confirm  [esc/q] cancel",
 		items: items,
 		onConfirm: func(sel []pickerItem) {
 			if len(sel) == 0 {
@@ -481,4 +657,15 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// clampInt bounds v to [lo, hi].
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
