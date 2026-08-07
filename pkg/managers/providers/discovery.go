@@ -9,17 +9,18 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 )
 
-// DiscoverPlugins scans plugin directories for executable files and loads each
-// as a subprocess provider. A plugin that fails to launch, returns an empty
-// id, or has a duplicate id is isolated (skipped, recorded as a
-// ProviderLoadFailure) and never blocks startup (FR-035, FR-006, FR-007).
-// Dirs are scanned in order; within a dir, files are sorted for a stable
-// order.
-func DiscoverPlugins(dirs []string, logger *common.Logger) ([]Provider, []ProviderLoadFailure) {
+// DiscoverPlugins scans each base dir's "providers" subdirectory for
+// executable files and loads each as a subprocess provider. A plugin that
+// fails to launch, returns an empty id, or has a duplicate id is isolated
+// (skipped, recorded as a ProviderLoadFailure) and never blocks startup
+// (FR-035, FR-006, FR-007). Dirs are scanned in order; within a dir, files are
+// sorted for a stable order.
+func DiscoverPlugins(baseDirs []string, logger *common.Logger) ([]Provider, []ProviderLoadFailure) {
 	var out []Provider
 	var failures []ProviderLoadFailure
 	seen := map[string]bool{}
-	for _, dir := range dirs {
+	for _, base := range baseDirs {
+		dir := filepath.Join(base, "providers")
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue // missing/unreadable dir is not an error

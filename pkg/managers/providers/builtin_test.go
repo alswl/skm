@@ -26,6 +26,23 @@ func TestBuiltinProvidersCanHandleTheirOwnScheme(t *testing.T) {
 	}
 }
 
+// TestGitHostProvidersDoNotClaimOtherHosts: a git URL for a host that isn't
+// github.com/gitlab.com (e.g. an internal git server) must not be claimed by
+// GitHub or GitLab just because it's git-shaped — otherwise it's grabbed
+// before a plugin provider registered for that host ever sees it, and the
+// plugin's host-specific auth/fetch handling is silently skipped (the built-in
+// provider's plain `git clone` then fails for hosts that need it).
+func TestGitHostProvidersDoNotClaimOtherHosts(t *testing.T) {
+	addr := "https://git.example.com/team/skills-repo.git"
+	require.False(t, NewGitHub().CanHandle(addr))
+	require.False(t, NewGitLab().CanHandle(addr))
+
+	// Still claims their own host and owner/repo shorthand.
+	require.True(t, NewGitHub().CanHandle("https://github.com/team/skills-repo.git"))
+	require.True(t, NewGitHub().CanHandle("owner/repo"))
+	require.True(t, NewGitLab().CanHandle("https://gitlab.com/team/skills-repo.git"))
+}
+
 func TestBuiltinProvidersNormalizeToCanonicalGitURL(t *testing.T) {
 	// GitLab resolves owner/repo shorthand to its own https host, exactly like
 	// GitHub does for github.com (same access pattern, different host).

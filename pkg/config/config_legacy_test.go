@@ -25,13 +25,20 @@ func TestLoadMigratesLegacyCodeFusePathV1Entry(t *testing.T) {
 
 	cfg, err := Load(root, cfgDir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 1)
-	cf := cfg.Targets[0]
+	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the user's codefuse entry")
+	byName := map[string]common.InstallTarget{}
+	for _, t := range cfg.Targets {
+		byName[t.Name] = t
+	}
+	cf := byName["codefuse"]
 	require.Equal(t, "codefuse", cf.Name)
 	require.Equal(t, "/custom/codefuse/skills", cf.Path, "the legacy CodeFuse path is preserved, not overwritten by the built-in default")
 	require.ElementsMatch(t, []common.EntryKind{common.KindSkill, common.KindCommand}, cf.Accepts)
 	require.Equal(t, common.StrategyCommandAdapter, cf.Strategies[common.KindCommand],
 		"CodeFuse commands still install via the adapter strategy, exactly as the hardcoded 001 logic did")
+	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi"} {
+		require.Contains(t, byName, name, "built-ins stay visible even once the user has a targets.json entry")
+	}
 }
 
 func TestLoadHandlesMixedV1AndV2Targets(t *testing.T) {
@@ -46,7 +53,7 @@ func TestLoadHandlesMixedV1AndV2Targets(t *testing.T) {
 
 	cfg, err := Load(root, cfgDir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 2)
+	require.Len(t, cfg.Targets, 6, "the 4 built-ins are always merged in alongside the user's 2 entries")
 	require.Empty(t, cfg.InvalidTargets)
 
 	byName := map[string]common.InstallTarget{}
@@ -60,6 +67,7 @@ func TestLoadHandlesMixedV1AndV2Targets(t *testing.T) {
 func TestLoadFallsBackToLegacyConfigDirWhenNewDirHasNoTargetsFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	legacyDir := filepath.Join(home, LegacyConfigDirName)
 	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
@@ -73,14 +81,15 @@ func TestLoadFallsBackToLegacyConfigDirWhenNewDirHasNoTargetsFile(t *testing.T) 
 	// no targets.json, so the legacy dir must be consulted.
 	cfg, err := Load(root, "")
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 1)
-	require.Equal(t, "from-legacy-dir", cfg.Targets[0].Name)
+	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the legacy-dir entry")
+	require.Equal(t, "from-legacy-dir", cfg.Targets[len(cfg.Targets)-1].Name)
 	require.Equal(t, legacyDir, cfg.ConfigDir, "writes must land back in the same file the user already has")
 }
 
 func TestLoadPrefersNewConfigDirOverLegacyWhenBothExist(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 
 	legacyDir := filepath.Join(home, LegacyConfigDirName)
 	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
@@ -96,8 +105,8 @@ func TestLoadPrefersNewConfigDirOverLegacyWhenBothExist(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
 	cfg, err := Load(root, "")
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 1)
-	require.Equal(t, "new", cfg.Targets[0].Name, "the new-style config dir wins once it exists")
+	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the new-dir entry")
+	require.Equal(t, "new", cfg.Targets[len(cfg.Targets)-1].Name, "the new-style config dir wins once it exists")
 }
 
 func TestLoadIgnoresLegacyDirWhenConfigIsExplicit(t *testing.T) {

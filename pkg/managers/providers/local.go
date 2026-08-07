@@ -26,6 +26,7 @@ func (Local) Capability() Capability {
 		ID: "local", Label: "Local filesystem",
 		Description: "Imports from an existing local path or directory",
 		Schemes:     []string{"/", "./", "~/"},
+		Icon:        "📂",
 	}
 }
 

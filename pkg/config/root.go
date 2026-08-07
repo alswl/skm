@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 )
@@ -35,11 +36,24 @@ func DiscoverRoot(rootFlag string) (string, error) {
 }
 
 // NormalizeRoot converts a --root value into the repository root: a path
-// pointing directly at a skills/ directory is normalized to its parent.
+// pointing directly at a skills/ directory is normalized to its parent,
+// unless the path itself already contains a skills/ or commands/ tree (e.g.
+// a repo whose root happens to be named "skills"), in which case it is
+// returned as-is.
 func NormalizeRoot(p string) (string, error) {
+	home, herr := os.UserHomeDir()
+	switch {
+	case p == "~" && herr == nil:
+		p = home
+	case strings.HasPrefix(p, "~/") && herr == nil:
+		p = filepath.Join(home, strings.TrimPrefix(p, "~/"))
+	}
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return "", common.Errf("cannot resolve --root %q: %w", p, err)
+	}
+	if hasRepoMarkers(abs) {
+		return abs, nil
 	}
 	if base := filepath.Base(abs); base == "skills" || base == "commands" {
 		return filepath.Dir(abs), nil

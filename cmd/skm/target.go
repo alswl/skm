@@ -167,6 +167,36 @@ var targetValidateCmd = &cobra.Command{
 	},
 }
 
+var targetPluginCmd = &cobra.Command{
+	Use:   "plugin",
+	Short: "Manage Target plugins (out-of-process install strategies)",
+}
+
+var targetPluginListCmd = &cobra.Command{
+	Use:     "list",
+	Short:   "List discovered Target plugins",
+	Example: "  skm target plugin list --json",
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc, err := deployServicesFor(cmd)
+		if err != nil {
+			return err
+		}
+		rep := svc.TargetPluginList()
+		if flagJSON {
+			return printJSON(cmd, rep)
+		}
+		for _, p := range rep.Plugins {
+			if p.Loaded {
+				fmt.Fprintf(cmd.OutOrStdout(), "%-14s %-8v %s\n", p.ID, p.Kinds, p.Description)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "%-14s FAILED: %s\n", orDashStr(p.ID), p.Error.Message)
+			}
+		}
+		return nil
+	},
+}
+
 func init() {
 	for _, c := range []*cobra.Command{targetAddCmd, targetUpdateCmd, targetRemoveCmd} {
 		c.Flags().StringVar(&targetFlags.name, "name", "", "target name")
@@ -175,9 +205,10 @@ func init() {
 		c.Flags().StringVar(&targetFlags.platform, "platform", "", "descriptive platform label")
 		c.Flags().StringVar(&targetFlags.path, "path", "", "destination directory")
 		c.Flags().StringVar(&targetFlags.accepts, "accepts", "", "comma-separated kinds: skill,command")
-		c.Flags().StringArrayVar(&targetFlags.strategies, "strategy", nil, "kind=strategy, e.g. skill=skill-symlink (repeatable)")
+		c.Flags().StringArrayVar(&targetFlags.strategies, "strategy", nil, "kind=strategy, e.g. skill=skill-symlink or skill=plugin:<id> (repeatable)")
 	}
-	targetCmd.AddCommand(targetListCmd, targetAddCmd, targetUpdateCmd, targetRemoveCmd, targetValidateCmd)
+	targetPluginCmd.AddCommand(targetPluginListCmd)
+	targetCmd.AddCommand(targetListCmd, targetAddCmd, targetUpdateCmd, targetRemoveCmd, targetValidateCmd, targetPluginCmd)
 	rootCmd.AddCommand(targetCmd)
 }
 

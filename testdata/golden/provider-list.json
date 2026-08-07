@@ -10,6 +10,14 @@
       "error": null
     },
     {
+      "id": "self-build",
+      "label": "Self-built",
+      "kind": "builtin",
+      "description": "Entries authored directly in the repo, never imported from an external source",
+      "loaded": true,
+      "error": null
+    },
+    {
       "id": "github",
       "label": "GitHub / git repositories",
       "kind": "builtin",

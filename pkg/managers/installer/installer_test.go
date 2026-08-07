@@ -39,7 +39,7 @@ func newTestInstaller(t *testing.T, entryKind common.EntryKind) (*common.Entry, 
 	}
 	target := common.InstallTarget{Name: "t", Path: filepath.Join(root, "targets", "t"), Kind: entryKind}
 	mkdir(t, target.Path)
-	return entry, target, New([]common.InstallTarget{target})
+	return entry, target, New([]common.InstallTarget{target}, nil)
 }
 
 func TestInstallSkillCreatesDirSymlinkAndIsIdempotent(t *testing.T) {

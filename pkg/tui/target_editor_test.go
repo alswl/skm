@@ -95,7 +95,15 @@ func TestTargetEditorAddRejectsEmptyName(t *testing.T) {
 func TestTargetEditorRemoveFlow(t *testing.T) {
 	m := newTestModel(t)
 	_ = m.handleKey(runeKey('t'))
+	// Select the fixture's custom target ("t"): the built-ins (always merged
+	// in, config.mergeWithBuiltins) can't be removed unless first overridden.
+	for i, tgt := range m.svc.Cfg.Targets {
+		if tgt.Name == "t" {
+			m.targetsCursor = i
+		}
+	}
 	name := m.svc.Cfg.Targets[m.targetsCursor].Name
+	require.Equal(t, "t", name)
 
 	_ = m.handleKey(runeKey('d'))
 	require.NotNil(t, m.confirm, "remove asks for confirmation")

@@ -94,13 +94,6 @@ func defaultKeys() keyMap {
 	}
 }
 
-// ShortHelp returns the compact bindings shown in the help bar.
-func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		k.MoveDown, k.MoveUp, k.Search, k.Install, k.Uninstall, k.Quit,
-	}
-}
-
 // FullHelp returns the grouped full-key table shown on `?`.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{

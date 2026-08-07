@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -168,15 +170,30 @@ func (m *model) openAcceptsPicker(draft common.InstallTarget) {
 	}
 }
 
-// kindStrategies lists the strategies compatible with kind (target-config.md).
-func kindStrategies(kind common.EntryKind) []common.InstallStrategy {
+// kindStrategies lists the strategies compatible with kind: the built-in
+// shapes (target-config.md) plus any loaded Target plugin whose declared
+// capability covers kind (or that declares no capability at all, matching
+// the same permissive fallback providers.Capability uses).
+func (m *model) kindStrategies(kind common.EntryKind) []common.InstallStrategy {
+	var out []common.InstallStrategy
 	switch kind {
 	case common.KindSkill:
-		return []common.InstallStrategy{common.StrategySkillSymlink}
+		out = []common.InstallStrategy{common.StrategySkillSymlink}
 	case common.KindCommand:
-		return []common.InstallStrategy{common.StrategyCommandMarker, common.StrategyCommandAdapter}
+		out = []common.InstallStrategy{common.StrategyCommandMarker, common.StrategyCommandAdapter}
 	}
-	return nil
+	ids := make([]string, 0, len(m.svc.TargetPlugins))
+	for id := range m.svc.TargetPlugins {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		cap := m.svc.TargetPlugins[id].Capability()
+		if len(cap.Kinds) == 0 || slices.Contains(cap.Kinds, kind) {
+			out = append(out, common.PluginStrategy(id))
+		}
+	}
+	return out
 }
 
 // resolveStrategy assigns kinds[idx]'s strategy — automatically when only one
@@ -188,7 +205,7 @@ func (m *model) resolveStrategy(draft common.InstallTarget, kinds []common.Entry
 		return
 	}
 	kind := kinds[idx]
-	options := kindStrategies(kind)
+	options := m.kindStrategies(kind)
 	if len(options) == 1 {
 		draft.Strategies[kind] = options[0]
 		m.resolveStrategy(draft, kinds, idx+1)

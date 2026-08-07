@@ -9,5 +9,6 @@ func NewSkillsSh() Provider {
 	return gitBackedProvider{
 		id: "skills-sh", label: "Skills.sh", scheme: "skills.sh://",
 		envHostVar: "SKM_SKILLS_SH_HOST", defaultHost: "github.com",
+		icon: "🌐",
 	}
 }

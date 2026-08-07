@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	isatty "github.com/mattn/go-isatty"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/jobs"
+	"github.com/alswl/skm/skm/pkg/managers/providers"
 	"github.com/alswl/skm/skm/pkg/pagination"
 	"github.com/alswl/skm/skm/pkg/services"
 )
@@ -72,6 +73,9 @@ type model struct {
 	help     help.Model
 	showHelp bool
 
+	loading bool // true while the initial scan is still running (spinner shown in place of the list)
+	spinner spinner.Model
+
 	showDetail      bool   // true renders the full-screen detail page (Enter/v)
 	detail          string // detail page content, built lazily in openDetail
 	detailOffset    int    // scroll offset (lines) into the detail content; j/k scroll it
@@ -79,11 +83,11 @@ type model struct {
 	detailInstalled bool   // whether the entry is installed in any matching target (cached in Update)
 
 	// req-2 §1 modals and task center.
-	picker      *picker           // active multi/single-select modal (nil when closed)
-	confirm     *confirm          // active confirmation modal (nil when closed)
-	showTasks   bool              // task-center view (J)
-	tasksCursor int               // cursor into the flattened task list
-	installCol  map[string]string // entry name -> per-target install summary (FR-041)
+	picker      *picker                  // active multi/single-select modal (nil when closed)
+	confirm     *confirm                 // active confirmation modal (nil when closed)
+	showTasks   bool                     // task-center view (J)
+	tasksCursor int                      // cursor into the flattened task list
+	installCol  map[string][]installCell // entry name -> one cell per configured target, in Cfg.Targets order (FR-041)
 
 	// 002-open-provider-target US2: Target configuration editor.
 	showTargets   bool          // target list/editor view (t)
@@ -94,6 +98,13 @@ type model struct {
 	// tabAll; providerTabs[providerTabIdx] is the active filter.
 	providerTabs   []string
 	providerTabIdx int
+
+	// providerIcons maps a provider id (entry.ModeID) to its declared
+	// one-glyph icon, computed once at startup (the registry never changes
+	// after Services.New()). Precomputed here rather than looked up in View,
+	// since a plugin provider's Capability() makes a subprocess call and View
+	// must stay pure/fast.
+	providerIcons map[string]string
 }
 
 // tabAll and tabNone are the two synthetic provider-tab values: tabAll shows
@@ -113,18 +124,66 @@ const (
 // would silently never appear in the running program.
 func initialModel(ctx context.Context, svc *services.Services) *model {
 	m := &model{
-		ctx:      ctx,
-		svc:      svc,
-		queue:    jobs.New(32),
-		pageSize: 20,
-		entries:  svc.Scan(),
-		keys:     defaultKeys(),
-		help:     help.New(),
+		ctx:           ctx,
+		svc:           svc,
+		queue:         jobs.New(32),
+		pageSize:      20,
+		keys:          defaultKeys(),
+		help:          help.New(),
+		loading:       true,
+		spinner:       spinner.New(),
+		providerIcons: computeProviderIcons(svc.Registry),
 	}
+	return m
+}
+
+// computeProviderIcons collects each registered provider's declared icon
+// (Capability().Icon), keyed by provider id, once at startup.
+func computeProviderIcons(reg *providers.Registry) map[string]string {
+	icons := make(map[string]string, len(reg.Providers()))
+	for _, p := range reg.Providers() {
+		if icon := p.Capability().Icon; icon != "" {
+			icons[p.ID()] = icon
+		}
+	}
+	return icons
+}
+
+// unknownProviderIcon marks an entry whose ModeID (including "", i.e. none
+// recorded) has no registered/loaded provider declaring an icon — e.g. the
+// "self-build" bucket (pkg/managers/providers.SelfBuild) covers ModeID
+// "self-build"; a truly empty or unrecognized ModeID falls back here.
+const unknownProviderIcon = "❓"
+
+// providerIcon returns the icon declared by the provider that imported an
+// entry (its ModeID), or unknownProviderIcon when the ModeID doesn't resolve
+// to a provider that declared one — a pure map lookup, safe to call from
+// View.
+func (m model) providerIcon(modeID string) string {
+	if icon, ok := m.providerIcons[modeID]; ok {
+		return icon
+	}
+	return unknownProviderIcon
+}
+
+// applyEntries installs a fresh scan result and recomputes everything derived
+// from it (install columns, provider tabs, filtered/display rows). Shared by
+// the initial async scan (scanDoneMsg) and post-job rescans (handleJobDone).
+func (m *model) applyEntries(entries []*common.Entry) {
+	m.entries = entries
 	m.computeInstallCols()
 	m.computeProviderTabs()
 	m.refreshFiltered()
-	return m
+}
+
+// scanDoneMsg carries the result of the initial background scan.
+type scanDoneMsg struct{ entries []*common.Entry }
+
+// scanCmd runs the potentially slow filesystem scan off the Bubble Tea event
+// loop so the program can render the loading spinner immediately instead of
+// blocking before the first frame.
+func scanCmd(svc *services.Services) tea.Cmd {
+	return func() tea.Msg { return scanDoneMsg{entries: svc.Scan()} }
 }
 
 // computeProviderTabs derives the provider filter tabs from the current scan:
@@ -194,36 +253,28 @@ func (m *model) activeProviderTab() string {
 	return m.providerTabs[m.providerTabIdx]
 }
 
-// computeInstallCols derives each entry's per-target install summary for the
-// list column (FR-041). The filesystem reads happen here, off the View path;
-// it is called after every scan (startup and job completion), not on filter or
+// computeInstallCols derives each entry's per-target install-state cells for
+// the list columns (FR-041): one cell per configured target, in Cfg.Targets
+// order, so the list shows every target individually instead of a single
+// collapsed summary. The filesystem reads happen here, off the View path; it
+// is called after every scan (startup and job completion), not on filter or
 // resize.
 func (m *model) computeInstallCols() {
-	m.installCol = make(map[string]string, len(m.entries))
+	targets := m.svc.Cfg.Targets
+	m.installCol = make(map[string][]installCell, len(m.entries))
 	for _, e := range m.entries {
 		// Evaluated for every entry (not just active ones) so a non-standard or
 		// moved entry's dangling/conflicting installs are still visible in the
 		// list ("安装状态无法在 list 页面看到").
-		var installed []string
-		problem := ""
-		for _, t := range m.svc.Installer.Targets(e) {
-			switch m.svc.Installer.State(e, t) {
-			case common.InstallInstalled:
-				installed = append(installed, t.Name)
-			case common.InstallConflict, common.InstallDangling:
-				if problem == "" {
-					problem = string(m.svc.Installer.State(e, t))
-				}
+		cells := make([]installCell, len(targets))
+		for i, t := range targets {
+			state := installNA
+			if t.AcceptsKind(e.Kind) {
+				state = m.svc.Installer.State(e, t)
 			}
+			cells[i] = installCell{name: t.Name, state: state}
 		}
-		switch {
-		case len(installed) > 0:
-			m.installCol[e.Name] = strings.Join(installed, ",")
-		case problem != "":
-			m.installCol[e.Name] = problem // "conflict" / "dangling" — colored red
-		default:
-			m.installCol[e.Name] = "—"
-		}
+		m.installCol[e.Name] = cells
 	}
 }
 
@@ -390,14 +441,19 @@ func lowerASCII(c byte) byte {
 	return c
 }
 
-func (m *model) Init() tea.Cmd { return waitForResult(m.queue) }
+func (m *model) Init() tea.Cmd {
+	if m.loading {
+		return tea.Batch(m.spinner.Tick, scanCmd(m.svc), waitForResult(m.queue))
+	}
+	return waitForResult(m.queue)
+}
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.help.Width = maxInt(1, msg.Width-4) // frame inner width
-		m.pageSize = maxInt(1, m.height-7)    // list area: top, tabbar, list, sep, status, sep, help, bottom
+		m.pageSize = maxInt(1, m.height-8)    // list area: top, tabbar, install-header, [list], sep, status, sep, help, bottom (must match listView's rows)
 		m.refreshFiltered()
 		return m, nil
 	case tea.KeyMsg:
@@ -405,6 +461,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case jobDoneMsg:
 		return m, m.handleJobDone(msg.Result)
+	case scanDoneMsg:
+		m.loading = false
+		m.applyEntries(msg.entries)
+		return m, waitForResult(m.queue)
+	case spinner.TickMsg:
+		if !m.loading {
+			return m, nil // scan already finished: drop stray ticks so the spinner doesn't keep animating
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	default:
 		return m, nil
 	}

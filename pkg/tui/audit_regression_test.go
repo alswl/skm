@@ -87,18 +87,19 @@ func TestListRowShowsVersionAndStatusColumns(t *testing.T) {
 // column is truncated (hidden), not left to grow (found via manual testing
 // against a real repo with long skill names).
 func TestListRowColumnsStayAlignedWithLongContent(t *testing.T) {
-	short := renderEntryLine(&common.Entry{Name: "short", Kind: common.KindSkill, Status: common.StatusActive}, "t", false)
+	cells := []installCell{{name: "t", state: common.InstallInstalled}}
+	short := renderEntryLine(&common.Entry{Name: "short", Kind: common.KindSkill, Status: common.StatusActive}, "", cells, false)
 	long := renderEntryLine(&common.Entry{
 		Name: "a-very-long-skill-name-that-overflows-the-column", Kind: common.KindSkill, Status: common.StatusActive,
-	}, "t", false)
+	}, "", cells, false)
 
 	require.Equal(t, len(short), len(long), "rows stay the same total width regardless of content length")
-	// The kind/status/install columns must start at the same byte offset in
+	// The kind/status/target columns must start at the same byte offset in
 	// both rows — i.e. the long name was truncated, not left to overflow.
-	nameFieldEnd := nameColWidth + 1 // +1 for the separating space
+	nameFieldEnd := iconColWidth + 1 + nameColWidth + 1 // icon column, then name, +1 each for the separating space
 	require.Equal(t, short[nameFieldEnd:], long[nameFieldEnd:], "columns after name stay aligned")
 
-	nonStandard := renderEntryLine(&common.Entry{Name: "x", Kind: common.KindSkill, Status: common.StatusNonStandard}, "t", false)
+	nonStandard := renderEntryLine(&common.Entry{Name: "x", Kind: common.KindSkill, Status: common.StatusNonStandard}, "", cells, false)
 	require.Contains(t, nonStandard, "non_standard", "the widened status column fits the longest status value in full")
 }
 

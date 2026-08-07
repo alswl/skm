@@ -100,12 +100,18 @@ func ValidateTarget(t common.InstallTarget) string {
 	return ""
 }
 
-// AddTarget validates t, rejects a duplicate name, and appends it to
+// AddTarget validates t, rejects a duplicate name (including a built-in's
+// name — customize a built-in via UpdateTarget instead), and appends it to
 // configDir's targets.json.
 func AddTarget(configDir string, t common.InstallTarget) (common.InstallTarget, error) {
 	t = expandTarget(t)
 	if reason := ValidateTarget(t); reason != "" {
 		return common.InstallTarget{}, fmt.Errorf("target add: %s", reason)
+	}
+	for _, d := range defaultTargets() {
+		if d.Name == t.Name {
+			return common.InstallTarget{}, fmt.Errorf("target add: %q already exists; use 'skm target update %q' to customize", t.Name, t.Name)
+		}
 	}
 	targets, _ := loadTargetsRaw(configDir)
 	for _, existing := range targets {
@@ -120,7 +126,11 @@ func AddTarget(configDir string, t common.InstallTarget) (common.InstallTarget, 
 	return t, nil
 }
 
-// UpdateTarget replaces the named target's fields and re-validates it.
+// UpdateTarget replaces the named target's fields and re-validates it. When
+// name matches a built-in that has no user entry yet, a new user-owned
+// override entry is seeded from the built-in and inserted into
+// targets.json, so future loads merge it in place of the built-in
+// (mergeWithBuiltins).
 func UpdateTarget(configDir, name string, apply func(*common.InstallTarget)) (common.InstallTarget, error) {
 	targets, _ := loadTargetsRaw(configDir)
 	for i, t := range targets {
@@ -138,11 +148,31 @@ func UpdateTarget(configDir, name string, apply func(*common.InstallTarget)) (co
 		}
 		return t, nil
 	}
+	for _, d := range defaultTargets() {
+		if d.Name != name {
+			continue
+		}
+		apply(&d)
+		d = expandTarget(d)
+		if reason := ValidateTarget(d); reason != "" {
+			return common.InstallTarget{}, fmt.Errorf("target update: %s", reason)
+		}
+		targets = append(targets, d)
+		if err := writeTargets(configDir, targets); err != nil {
+			return common.InstallTarget{}, err
+		}
+		return d, nil
+	}
 	return common.InstallTarget{}, fmt.Errorf("target update: %q not found", name)
 }
 
 // RemoveTarget deletes the named target. Assets already installed through it
-// are left untouched (FR-018); removal only stops future installs.
+// are left untouched (FR-018); removal only stops future installs. A
+// built-in with no user override entry can't be removed — its name is
+// always present via mergeWithBuiltins, so deleting it here would have no
+// effect; the caller must customize it (UpdateTarget) first if they want it
+// gone. A user's override entry for a built-in can be removed as usual: the
+// built-in default reappears on the next load.
 func RemoveTarget(configDir, name string) error {
 	targets, _ := loadTargetsRaw(configDir)
 	out := make([]common.InstallTarget, 0, len(targets))
@@ -155,6 +185,11 @@ func RemoveTarget(configDir, name string) error {
 		out = append(out, t)
 	}
 	if !found {
+		for _, d := range defaultTargets() {
+			if d.Name == name {
+				return fmt.Errorf("cannot remove built-in target %q; use 'skm target update' to customize", name)
+			}
+		}
 		return fmt.Errorf("target remove: %q not found", name)
 	}
 	return writeTargets(configDir, out)

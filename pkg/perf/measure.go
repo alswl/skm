@@ -19,7 +19,7 @@ type Measurement struct {
 // content hash, install-state derivation, and the read report data.
 func Suite(root string, targets []common.InstallTarget) []Measurement {
 	repo := repository.New(root)
-	inst := installer.New(targets)
+	inst := installer.New(targets, nil)
 	entries := repo.Scan() // warm cache for repeatable timing
 
 	var out []Measurement

@@ -162,9 +162,11 @@ func TestPluginFetchErrorShapes(t *testing.T) {
 // ProviderLoadFailures and never prevent other providers from loading.
 func TestDiscoverIsolatesProtocolErrorAndTimeout(t *testing.T) {
 	dir := t.TempDir()
-	writeStubPlugin(t, dir, "ok.sh", "ok")
-	writeBrokenJSONPlugin(t, dir, "broken-json.sh")
-	slow := writeSlowPlugin(t, dir, "slow.sh")
+	providersDir := filepath.Join(dir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	writeStubPlugin(t, providersDir, "ok.sh", "ok")
+	writeBrokenJSONPlugin(t, providersDir, "broken-json.sh")
+	slow := writeSlowPlugin(t, providersDir, "slow.sh")
 
 	orig := pluginTimeout
 	pluginTimeout = 800 * time.Millisecond
@@ -179,14 +181,16 @@ func TestDiscoverIsolatesProtocolErrorAndTimeout(t *testing.T) {
 	for _, f := range failures {
 		byPath[f.Path] = f
 	}
-	require.Equal(t, CodeProtocolError, byPath[filepath.Join(dir, "broken-json.sh")].Reason.Code)
+	require.Equal(t, CodeProtocolError, byPath[filepath.Join(providersDir, "broken-json.sh")].Reason.Code)
 	require.Equal(t, CodeTimeout, byPath[slow].Reason.Code)
 }
 
 func TestDiscoverRegistersPluginsInStableOrder(t *testing.T) {
 	dir := t.TempDir()
-	writeStubPlugin(t, dir, "a.sh", "plugin-a")
-	writeStubPlugin(t, dir, "b.sh", "plugin-b")
+	providersDir := filepath.Join(dir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	writeStubPlugin(t, providersDir, "a.sh", "plugin-a")
+	writeStubPlugin(t, providersDir, "b.sh", "plugin-b")
 	logger := common.NewLogger(false)
 
 	plugins, failures := DiscoverPlugins([]string{dir}, logger)
@@ -198,8 +202,10 @@ func TestDiscoverRegistersPluginsInStableOrder(t *testing.T) {
 
 func TestDiscoverIsolatesBrokenPlugin(t *testing.T) {
 	dir := t.TempDir()
-	writeStubPlugin(t, dir, "ok.sh", "ok")
-	broken := filepath.Join(dir, "broken.sh")
+	providersDir := filepath.Join(dir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	writeStubPlugin(t, providersDir, "ok.sh", "ok")
+	broken := filepath.Join(providersDir, "broken.sh")
 	require.NoError(t, os.WriteFile(broken, []byte("#!/bin/sh\nexit 1\n"), 0o755))
 
 	logger := common.NewLogger(false)
@@ -212,8 +218,10 @@ func TestDiscoverIsolatesBrokenPlugin(t *testing.T) {
 
 func TestDiscoverRejectsDuplicateIDs(t *testing.T) {
 	dir := t.TempDir()
-	writeStubPlugin(t, dir, "first.sh", "dup")
-	writeStubPlugin(t, dir, "second.sh", "dup")
+	providersDir := filepath.Join(dir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	writeStubPlugin(t, providersDir, "first.sh", "dup")
+	writeStubPlugin(t, providersDir, "second.sh", "dup")
 
 	logger := common.NewLogger(false)
 	plugins, failures := DiscoverPlugins([]string{dir}, logger)
@@ -225,7 +233,9 @@ func TestDiscoverRejectsDuplicateIDs(t *testing.T) {
 
 func TestRegistryRegistrationOrder(t *testing.T) {
 	dir := t.TempDir()
-	writeStubPlugin(t, dir, "p.sh", "plug")
+	providersDir := filepath.Join(dir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	writeStubPlugin(t, providersDir, "p.sh", "plug")
 	reg := NewRegistry()
 	require.NoError(t, reg.Register(NewLocal()))
 	require.NoError(t, reg.Register(NewGitHub()))

@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
@@ -10,9 +12,11 @@ import (
 
 // installerFor rebuilds the Installer over targets, so an add/update/remove
 // is immediately reflected in subsequent install/uninstall calls within the
-// same Services instance.
-func installerFor(targets []common.InstallTarget) *installer.Installer {
-	return installer.New(targets)
+// same Services instance. The loaded target plugin set carries over
+// unchanged — plugins are discovered once at startup, independent of
+// targets.json edits.
+func (s *Services) installerFor(targets []common.InstallTarget) *installer.Installer {
+	return installer.New(targets, s.TargetPlugins)
 }
 
 // TargetInfo is one row of `target list` (contracts/cli-json.md).
@@ -59,7 +63,7 @@ func (s *Services) TargetAdd(t common.InstallTarget) (common.InstallTarget, erro
 		return common.InstallTarget{}, common.WithExitCode(err, common.ExitError)
 	}
 	s.Cfg.Targets = append(s.Cfg.Targets, added)
-	s.Installer = installerFor(s.Cfg.Targets)
+	s.Installer = s.installerFor(s.Cfg.Targets)
 	return added, nil
 }
 
@@ -75,7 +79,7 @@ func (s *Services) TargetUpdate(name string, apply func(*common.InstallTarget)) 
 			s.Cfg.Targets[i] = updated
 		}
 	}
-	s.Installer = installerFor(s.Cfg.Targets)
+	s.Installer = s.installerFor(s.Cfg.Targets)
 	return updated, nil
 }
 
@@ -92,7 +96,7 @@ func (s *Services) TargetRemove(name string) error {
 		}
 	}
 	s.Cfg.Targets = out
-	s.Installer = installerFor(s.Cfg.Targets)
+	s.Installer = s.installerFor(s.Cfg.Targets)
 	return nil
 }
 
@@ -123,6 +127,9 @@ func (s *Services) TargetValidate(name string) *TargetValidateResult {
 		if reason := config.ValidateTarget(t); reason != "" {
 			entry.OK = false
 			entry.Error = &reason
+		} else if reason := s.validatePluginStrategies(t); reason != "" {
+			entry.OK = false
+			entry.Error = &reason
 		}
 		if !entry.OK {
 			res.Success = false
@@ -133,6 +140,64 @@ func (s *Services) TargetValidate(name string) *TargetValidateResult {
 		reason := fmt.Sprintf("target %q not found", name)
 		res.Results = append(res.Results, TargetValidateEntry{Name: name, OK: false, Error: &reason})
 		res.Success = false
+	}
+	return res
+}
+
+// validatePluginStrategies reports the specific reason a target's
+// plugin:<id> strategy is unusable — the plugin isn't loaded, or its
+// declared capability doesn't cover the kind it was assigned to — without
+// performing an install (spec.md edge case: an incompatible/unresolvable
+// strategy must be reported, not silently skipped).
+func (s *Services) validatePluginStrategies(t common.InstallTarget) string {
+	for _, k := range t.EffectiveAccepts() {
+		strategy, ok := t.EffectiveStrategy(k)
+		if !ok || !strategy.IsPlugin() {
+			continue
+		}
+		id := strategy.PluginID()
+		p, loaded := s.TargetPlugins[id]
+		if !loaded {
+			return fmt.Sprintf("kind %q strategy plugin %q is not loaded", k, id)
+		}
+		if cap := p.Capability(); len(cap.Kinds) > 0 && !slices.Contains(cap.Kinds, k) {
+			return fmt.Sprintf("kind %q strategy plugin %q does not declare support for kind %q", k, id, k)
+		}
+	}
+	return ""
+}
+
+// TargetPluginInfo is one row of `target plugin list`, mirroring
+// ProviderInfo's shape for the Provider side.
+type TargetPluginInfo struct {
+	ID          string                       `json:"id"`
+	Label       string                       `json:"label,omitempty"`
+	Description string                       `json:"description,omitempty"`
+	Kinds       []common.EntryKind           `json:"kinds,omitempty"`
+	Path        string                       `json:"path,omitempty"`
+	Loaded      bool                         `json:"loaded"`
+	Error       *installer.TargetPluginError `json:"error"`
+}
+
+// TargetPluginListResult is the CLI JSON report for `target plugin list`.
+type TargetPluginListResult struct {
+	Plugins []TargetPluginInfo `json:"plugins"`
+}
+
+// TargetPluginList reports every loaded Target plugin plus any plugin that
+// failed to load, each with its specific reason.
+func (s *Services) TargetPluginList() *TargetPluginListResult {
+	res := &TargetPluginListResult{Plugins: []TargetPluginInfo{}}
+	for _, p := range s.TargetPlugins {
+		cap := p.Capability()
+		res.Plugins = append(res.Plugins, TargetPluginInfo{
+			ID: p.ID(), Label: p.Label(), Description: cap.Description, Kinds: cap.Kinds, Loaded: true,
+		})
+	}
+	slices.SortFunc(res.Plugins, func(a, b TargetPluginInfo) int { return strings.Compare(a.ID, b.ID) })
+	for _, f := range s.TargetPluginFailures {
+		reason := f.Reason
+		res.Plugins = append(res.Plugins, TargetPluginInfo{ID: f.ID, Path: f.Path, Loaded: false, Error: &reason})
 	}
 	return res
 }

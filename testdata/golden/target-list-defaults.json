@@ -35,11 +35,11 @@
       "error": null
     },
     {
-      "name": "codefuse",
-      "platform": "codefuse",
-      "path": "$HOME/.codefuse/skills",
-      "accepts": ["skill", "command"],
-      "strategies": { "skill": "skill-symlink", "command": "command-adapter" },
+      "name": "pi",
+      "platform": "pi",
+      "path": "$HOME/.pi/agent/skills",
+      "accepts": ["skill"],
+      "strategies": { "skill": "skill-symlink" },
       "builtin": true,
       "valid": true,
       "path_state": "not_writable",

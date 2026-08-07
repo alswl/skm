@@ -56,7 +56,7 @@ config dir is `~/.config/skm`.
 
 Acquisition sources (**Providers**) and install destinations (**Targets**) are both open,
 user-configurable capabilities — not fixed to the built-in Local/GitHub sources or the
-built-in Claude/Codex/CodeFuse targets.
+built-in Claude/Codex/pi targets.
 
 ```bash
 ./bin/skm provider list --json                 # built-ins (local, github, gitlab,
@@ -99,10 +99,16 @@ built-ins plus one custom tool:
 
 Rules: `accepts` is a subset of `["skill", "command"]`; each accepted kind needs a
 kind-compatible `strategies` entry (`skill` → `skill-symlink`; `command` →
-`command-marker` or `command-adapter`). The file is missing/empty on first run — skm writes
-the four built-ins the first time you `target add`. An old skmgr `targets.json` (or one
-found in the legacy `~/.config/skill-manager/`) is read and migrated automatically — no
-manual edits needed.
+`command-marker` or `command-adapter`). The four built-ins are always present in `target
+list` and the install flow, whether or not `targets.json` exists or has entries of its own —
+`target add`ing a custom tool never hides them. To customize a built-in (a different path,
+say), use `target update`, which writes your override into `targets.json`; `target add`
+rejects a name that collides with a built-in, since there's nothing to add — use `target
+update` instead. `target remove` on an unmodified built-in is rejected (there'd be nothing to
+remove); once you've overridden one via `target update`, `target remove` deletes that
+override and the built-in default reappears on the next load. An old skmgr `targets.json`
+(or one found in the legacy `~/.config/skill-manager/`) is read and migrated automatically —
+no manual edits needed.
 
 ### Configuring a Provider (plugin)
 

@@ -1,23 +1,43 @@
 package installer
 
 import (
+	"fmt"
+
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
 )
 
 // Installer manages installs into kind-matching targets, dispatching on each
 // target's declared InstallStrategy per kind — skill directory symlinks,
-// command marker symlinks, or command adapters (002-open-provider-target
-// FR-013: no tool name drives this, only the target's own declaration; see
-// common.InstallTarget.EffectiveStrategy for legacy-Kind compatibility).
-// Install state is derived from the filesystem, never stored (FR-019).
+// command marker symlinks, command adapters, or a Target plugin
+// (002-open-provider-target FR-013: no tool name drives this, only the
+// target's own declaration; see common.InstallTarget.EffectiveStrategy for
+// legacy-Kind compatibility). Install state is derived from the filesystem
+// (or, for a plugin strategy, from the plugin), never stored (FR-019).
 type Installer struct {
-	targets []common.InstallTarget
+	targets       []common.InstallTarget
+	targetPlugins map[string]*TargetPlugin
 }
 
-// New returns an Installer over the given targets.
-func New(targets []common.InstallTarget) *Installer {
-	return &Installer{targets: targets}
+// New returns an Installer over the given targets. targetPlugins is the set
+// of loaded Target plugins keyed by id, consulted when a target declares a
+// "plugin:<id>" strategy; nil when no plugins are loaded.
+func New(targets []common.InstallTarget, targetPlugins map[string]*TargetPlugin) *Installer {
+	return &Installer{targets: targets, targetPlugins: targetPlugins}
+}
+
+// pluginFor looks up a loaded Target plugin by strategy's plugin id, or
+// returns a diagnosable error naming the target and the missing plugin
+// (spec.md edge case: an incompatible/unresolvable strategy must be
+// reported, not silently skipped).
+func (i *Installer) pluginFor(strategy common.InstallStrategy, target common.InstallTarget) (*TargetPlugin, error) {
+	id := strategy.PluginID()
+	p := i.targetPlugins[id]
+	if p == nil {
+		return nil, common.WithExitCode(
+			fmt.Errorf("target %q: plugin %q is not loaded", target.Name, id), common.ExitObject)
+	}
+	return p, nil
 }
 
 // Targets returns the kind-matching targets for an entry.
@@ -69,6 +89,13 @@ func (i *Installer) Install(tx *dal.FileTransaction, entry *common.Entry, target
 	case common.StrategyCommandAdapter:
 		return i.installAdapter(tx, entry, target, force)
 	}
+	if strategy.IsPlugin() {
+		p, err := i.pluginFor(strategy, target)
+		if err != nil {
+			return false, err
+		}
+		return p.Install(entry, target, force)
+	}
 	return false, nil
 }
 
@@ -86,6 +113,13 @@ func (i *Installer) Uninstall(tx *dal.FileTransaction, entry *common.Entry, targ
 		return i.uninstallClaudeMarkdown(tx, entry, target)
 	case common.StrategyCommandAdapter:
 		return i.uninstallAdapter(tx, entry, target)
+	}
+	if strategy.IsPlugin() {
+		p, err := i.pluginFor(strategy, target)
+		if err != nil {
+			return false, err
+		}
+		return p.Uninstall(entry, target)
 	}
 	return false, nil
 }

@@ -21,6 +21,7 @@ type gitBackedProvider struct {
 	id, label, scheme string
 	envHostVar        string
 	defaultHost       string
+	icon              string
 }
 
 // ID returns the provider id.
@@ -35,6 +36,7 @@ func (g gitBackedProvider) Capability() Capability {
 		ID: g.id, Label: g.label,
 		Description: fmt.Sprintf("Fetches git-backed assets from %s<path> addresses", g.scheme),
 		Schemes:     []string{g.scheme},
+		Icon:        g.icon,
 	}
 }
 

@@ -97,7 +97,13 @@ func startProgram(t *testing.T, m *model) *programProbe {
 	})
 	// Deterministic window size (bubbletea cannot query size on io.Discard).
 	pp.p.Send(tea.WindowSizeMsg{Width: 100, Height: 30})
-	pp.wait(func(s model) bool { return s.height == 30 }, "window size 100x30 applied")
+	// height and loading are independent, persistent model fields updated by
+	// unrelated messages (WindowSizeMsg vs. the async scanDoneMsg) that can
+	// arrive in either order; a single combined predicate is required because
+	// wait() discards non-matching snapshots as it drains, so a one-off state
+	// change (loading flipping false) would be lost if it arrived during a
+	// wait for the other condition.
+	pp.wait(func(s model) bool { return s.height == 30 && !s.loading }, "window size 100x30 applied and initial scan completed")
 	return pp
 }
 
@@ -140,6 +146,7 @@ func keyRunes(r rune) tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []r
 // builds Services with one skill target, and returns a ready initialModel.
 func fixtureProgramModel(t *testing.T) *model {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir()) // built-in targets now always merge in (config.mergeWithBuiltins): keep their paths out of the real home dir
 	root := t.TempDir()
 	require.NoError(t, copyE2ERepo(t, root))
 	cfgDir := t.TempDir()

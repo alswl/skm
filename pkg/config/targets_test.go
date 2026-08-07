@@ -146,3 +146,72 @@ func readFile(t *testing.T, path string) []byte {
 	require.NoError(t, err)
 	return data
 }
+
+func TestLoadMergesBuiltinsWithASingleCustomEntry(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, targetsFileName), []byte(`[{
+		"name": "codefuse", "platform": "codefuse", "path": "/opt/codefuse/skills",
+		"accepts": ["skill"], "strategies": {"skill": "plugin:codefuse"}
+	}]`), 0o644))
+
+	cfg, err := Load(root, dir)
+	require.NoError(t, err)
+	require.Len(t, cfg.Targets, 5, "the 4 built-ins plus the codefuse entry")
+	byName := map[string]common.InstallTarget{}
+	for _, t := range cfg.Targets {
+		byName[t.Name] = t
+	}
+	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi", "codefuse"} {
+		require.Contains(t, byName, name)
+	}
+}
+
+func TestAddTargetRejectsBuiltinName(t *testing.T) {
+	dir := t.TempDir()
+	_, err := AddTarget(dir, common.InstallTarget{
+		Name: "codex", Platform: "p", Path: "/x",
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "target update")
+}
+
+func TestUpdateTargetCustomizesBuiltinInPlace(t *testing.T) {
+	dir := t.TempDir()
+	updated, err := UpdateTarget(dir, "codex", func(t *common.InstallTarget) { t.Path = "/custom/codex/skills" })
+	require.NoError(t, err)
+	require.Equal(t, "/custom/codex/skills", updated.Path)
+
+	targets, _ := loadTargetsRaw(dir)
+	require.Len(t, targets, 1, "the customization is persisted as a single override entry")
+	require.Equal(t, "codex", targets[0].Name)
+}
+
+func TestRemoveTargetRejectsUnmodifiedBuiltin(t *testing.T) {
+	dir := t.TempDir()
+	err := RemoveTarget(dir, "codex")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot remove built-in target")
+}
+
+func TestRemoveTargetOfOverriddenBuiltinRestoresDefaultOnNextLoad(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
+	dir := t.TempDir()
+
+	_, err := UpdateTarget(dir, "codex", func(t *common.InstallTarget) { t.Path = "/custom/codex/skills" })
+	require.NoError(t, err)
+
+	require.NoError(t, RemoveTarget(dir, "codex"), "removing the user's override entry succeeds")
+
+	cfg, err := Load(root, dir)
+	require.NoError(t, err)
+	byName := map[string]common.InstallTarget{}
+	for _, t := range cfg.Targets {
+		byName[t.Name] = t
+	}
+	require.NotEqual(t, "/custom/codex/skills", byName["codex"].Path, "the built-in default is restored")
+}

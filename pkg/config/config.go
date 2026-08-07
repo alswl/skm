@@ -21,7 +21,9 @@ type Config struct {
 	// each with its own reason (002-open-provider-target FR-016) — the
 	// interpretable entries in Targets still load.
 	InvalidTargets []InvalidTarget
-	// PluginDirs are provider plugin directories scanned at startup.
+	// PluginDirs are the base plugin directories scanned at startup. Each
+	// contains a "providers" subdir (Provider plugins) and a "targets"
+	// subdir (Target plugins), scanned separately by their own Discover*.
 	PluginDirs []string
 }
 
@@ -30,9 +32,14 @@ type Config struct {
 // Tracking: intentionally not os.UserConfigDir()).
 const (
 	ConfigDirName   = ".config/skm"
-	PluginDirName   = ".config/skm/plugins"
 	EnvPluginsDir   = "SKM_PLUGINS_DIR"
 	targetsFileName = "targets.json"
+	// EnvXDGConfigHome is the XDG Base Directory config-home override
+	// (https://specifications.freedesktop.org/basedir-spec/latest/). Read
+	// directly rather than via os.UserConfigDir(), which on macOS always
+	// returns ~/Library/Application Support regardless of this variable and
+	// would silently break the documented ~/.config/skm default.
+	EnvXDGConfigHome = "XDG_CONFIG_HOME"
 	// LegacyConfigDirName is the original skmgr config directory
 	// (docs/req.md: `--config` 默认 `~/.config/skill-manager`). It is
 	// consulted only as a fallback when the caller didn't pass --config and
@@ -42,10 +49,14 @@ const (
 	LegacyConfigDirName = ".config/skill-manager"
 )
 
-// DefaultConfigDir returns the default config directory
-// (~/.config/skm), falling back to the literal value if HOME is
-// unset.
+// DefaultConfigDir returns the default config directory: $XDG_CONFIG_HOME/skm
+// when that variable is set (XDG Base Directory spec), otherwise
+// ~/.config/skm — which is also the spec's own default for XDG_CONFIG_HOME,
+// so an unset environment keeps today's path unchanged.
 func DefaultConfigDir() string {
+	if xdg := os.Getenv(EnvXDGConfigHome); xdg != "" {
+		return filepath.Join(xdg, "skm")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "~/.config/skm"
@@ -64,21 +75,22 @@ func DefaultLegacyConfigDir() string {
 	return filepath.Join(home, LegacyConfigDirName)
 }
 
-// DefaultPluginDirs returns the default plugin directory
-// (~/.config/skm/plugins).
+// DefaultPluginDirs returns the default plugin directory: "plugins" under
+// DefaultConfigDir(), so it follows the same $XDG_CONFIG_HOME override.
 func DefaultPluginDirs() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return []string{"~/.config/skm/plugins"}
-	}
-	return []string{filepath.Join(home, PluginDirName)}
+	return []string{filepath.Join(DefaultConfigDir(), "plugins")}
 }
 
 // defaultTargets returns the built-in targets restored when targets.json is
 // missing or has zero interpretable entries (FR-003). Each declares its own
-// accepts/strategies (FR-012/FR-013, data-model.md); codex/codefuse receive
-// skills directly and commands via a command-adapter, exactly as before —
-// nothing in the installer branches on their names.
+// accepts/strategies (FR-012/FR-013, data-model.md); codex receives skills
+// directly and commands via a command-adapter, exactly as before — nothing in
+// the installer branches on its name. pi has no separate commands concept (a
+// skill can be auto-registered as a /skill:name command by pi itself), so it
+// only accepts skill, via skill-symlink into its ~/.pi/agent/skills
+// convention. skm ships built-ins only for these widely-used public tools:
+// any other tool (private or public) is added via `skm target add`, not a
+// hardcoded default.
 func defaultTargets() []common.InstallTarget {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -99,8 +111,9 @@ func defaultTargets() []common.InstallTarget {
 			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindCommand: common.StrategyCommandMarker}},
 		{Name: "codex", Platform: "codex", Path: filepath.Join(home, ".codex", "skills"), Builtin: true,
 			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: skillAndCommandAdapter()},
-		{Name: "codefuse", Platform: "codefuse", Path: filepath.Join(home, ".codefuse", "skills"), Builtin: true,
-			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: skillAndCommandAdapter()},
+		{Name: "pi", Platform: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Builtin: true,
+			Accepts:    []common.EntryKind{common.KindSkill},
+			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
 	}
 }
 
@@ -173,7 +186,9 @@ func loadTargetsWithLegacyFallback(configDir string, explicit bool) (resolvedDir
 // entries and validating v2 entries independently (research R6): a
 // per-entry problem is reported in invalid, not a fallback to defaults, and
 // readable entries still load (FR-016). Built-in defaults are restored only
-// when the file is missing or has zero interpretable entries (FR-003).
+// when the file is missing or has zero interpretable entries (FR-003);
+// otherwise the built-ins are always merged in alongside the user's entries
+// (mergeWithBuiltins) so a custom target never hides them.
 func loadTargets(configDir string) (valid []common.InstallTarget, invalid []InvalidTarget) {
 	data, err := os.ReadFile(filepath.Join(configDir, targetsFileName))
 	if err != nil {
@@ -188,7 +203,38 @@ func loadTargets(configDir string) (valid []common.InstallTarget, invalid []Inva
 	if len(valid) == 0 {
 		return defaultTargets(), invalid
 	}
-	return valid, invalid
+	return mergeWithBuiltins(valid), invalid
+}
+
+// mergeWithBuiltins combines the always-present built-in targets with the
+// user's targets.json entries: a user entry sharing a built-in's name
+// overrides it (in the built-in's original position); every other user entry
+// is appended after, in file order. This keeps the four built-ins visible in
+// `target list` and the install flow even once the user has added targets of
+// their own (a targets.json with ≥1 entry used to replace the built-ins
+// outright).
+func mergeWithBuiltins(userEntries []common.InstallTarget) []common.InstallTarget {
+	overrides := make(map[string]common.InstallTarget, len(userEntries))
+	for _, u := range userEntries {
+		overrides[u.Name] = u
+	}
+	defaults := defaultTargets()
+	merged := make([]common.InstallTarget, 0, len(defaults)+len(userEntries))
+	seen := make(map[string]bool, len(defaults))
+	for _, d := range defaults {
+		if u, ok := overrides[d.Name]; ok {
+			merged = append(merged, u)
+		} else {
+			merged = append(merged, d)
+		}
+		seen[d.Name] = true
+	}
+	for _, u := range userEntries {
+		if !seen[u.Name] {
+			merged = append(merged, u)
+		}
+	}
+	return merged
 }
 
 func expandTarget(t common.InstallTarget) common.InstallTarget {

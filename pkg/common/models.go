@@ -85,11 +85,45 @@ const (
 	StrategySkillSymlink   InstallStrategy = "skill-symlink"
 	StrategyCommandMarker  InstallStrategy = "command-marker"
 	StrategyCommandAdapter InstallStrategy = "command-adapter"
+
+	// pluginStrategyPrefix marks a strategy as delegated to an out-of-process
+	// Target plugin instead of one of the three built-in shapes above (see
+	// IsPlugin/PluginID). The id after the prefix is the plugin's own stable
+	// id, matched against discovered plugins at install/validate time.
+	pluginStrategyPrefix = "plugin:"
 )
+
+// PluginStrategy returns the "plugin:<id>" strategy value referring to the
+// Target plugin with the given id.
+func PluginStrategy(id string) InstallStrategy {
+	return InstallStrategy(pluginStrategyPrefix + id)
+}
+
+// IsPlugin reports whether the strategy delegates to a Target plugin rather
+// than a built-in shape.
+func (s InstallStrategy) IsPlugin() bool {
+	return strings.HasPrefix(string(s), pluginStrategyPrefix)
+}
+
+// PluginID returns the plugin id a "plugin:<id>" strategy refers to, or ""
+// when IsPlugin is false.
+func (s InstallStrategy) PluginID() string {
+	if !s.IsPlugin() {
+		return ""
+	}
+	return strings.TrimPrefix(string(s), pluginStrategyPrefix)
+}
 
 // CompatibleWith reports whether a strategy is a valid on-disk shape for kind
 // (target-config.md: skill→skill-symlink; command→command-marker|command-adapter).
+// A plugin-delegated strategy is accepted structurally for any kind here;
+// whether the referenced plugin actually supports that kind is a runtime
+// check against its declared Capability, not a schema-level one (mirrors a
+// Provider's CanHandle being dynamic rather than declared in targets.json).
 func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
+	if s.IsPlugin() {
+		return true
+	}
 	switch kind {
 	case KindSkill:
 		return s == StrategySkillSymlink

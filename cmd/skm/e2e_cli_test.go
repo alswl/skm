@@ -135,8 +135,8 @@ func TestE2ECLIListAndVerifyReportsNonStandardLocations(t *testing.T) {
 	require.Equal(t, false, v["consistent"])
 }
 
-// TestE2ECLIProviderListAndValidate: the four built-ins plus local/github are
-// discoverable, and validating one succeeds.
+// TestE2ECLIProviderListAndValidate: the five built-ins are discoverable, and
+// validating one succeeds.
 func TestE2ECLIProviderListAndValidate(t *testing.T) {
 	_, cfgDir := e2eFixture(t)
 
@@ -148,7 +148,7 @@ func TestE2ECLIProviderListAndValidate(t *testing.T) {
 	for _, p := range providers {
 		ids = append(ids, p.(map[string]any)["id"].(string))
 	}
-	require.Equal(t, []string{"local", "github", "gitlab", "skills-sh"}, ids)
+	require.Equal(t, []string{"local", "self-build", "github", "gitlab", "skills-sh"}, ids)
 
 	out, _, code = e2eRun(t, "provider", "validate", "gitlab", "--config", cfgDir, "--json")
 	require.Equal(t, 0, code)
@@ -162,7 +162,7 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 	_, cfgDir := e2eFixture(t)
 
 	out, _, _ := e2eRun(t, "target", "list", "--config", cfgDir, "--json")
-	require.Len(t, e2eJSON(t, out)["targets"].([]any), 1, "fixture starts with one target")
+	require.Len(t, e2eJSON(t, out)["targets"].([]any), 4, "fixture's one claude-skills entry merges with the 3 other built-ins")
 
 	newTarget := filepath.Join(t.TempDir(), "my-tool")
 	_, stderr, code := e2eRun(t, "target", "add", "--config", cfgDir,
@@ -172,7 +172,7 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 
 	out, _, _ = e2eRun(t, "target", "list", "--config", cfgDir, "--json")
 	targets := e2eJSON(t, out)["targets"].([]any)
-	require.Len(t, targets, 2)
+	require.Len(t, targets, 5)
 	var myTool map[string]any
 	for _, tgt := range targets {
 		if tgt.(map[string]any)["name"] == "my-tool" {
@@ -194,5 +194,5 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 	require.Equal(t, 0, code)
 
 	out, _, _ = e2eRun(t, "target", "list", "--config", cfgDir, "--json")
-	require.Len(t, e2eJSON(t, out)["targets"].([]any), 1, "back to the single fixture target")
+	require.Len(t, e2eJSON(t, out)["targets"].([]any), 4, "back to the fixture's merged built-ins")
 }

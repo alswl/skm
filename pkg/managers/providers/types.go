@@ -8,6 +8,7 @@ type Capability struct {
 	Label       string
 	Description string
 	Schemes     []string
+	Icon        string // optional one-glyph marker shown next to the provider's entries in the TUI; "" means none
 }
 
 // ProviderError is a diagnosable error from a Provider operation: a stable

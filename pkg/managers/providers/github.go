@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // resolve owner/repo shorthand to their own https host and clone over https
 // (plan.md constraints: no network except via git).
 type gitHostProvider struct {
-	id, label, host, description string
+	id, label, host, description, icon string
 }
 
 // NewGitHub returns the built-in GitHub provider.
@@ -22,6 +23,7 @@ func NewGitHub() Provider {
 	return gitHostProvider{
 		id: "github", label: "GitHub / git repositories", host: "github.com",
 		description: "Clones git URLs (git@/https/ssh/.git) and owner/repo shorthand",
+		icon:        "🐙",
 	}
 }
 
@@ -31,6 +33,7 @@ func NewGitLab() Provider {
 	return gitHostProvider{
 		id: "gitlab", label: "GitLab", host: "gitlab.com",
 		description: "Clones git URLs (git@/https/ssh/.git) and owner/repo shorthand",
+		icon:        "🦊",
 	}
 }
 
@@ -46,6 +49,7 @@ func (g gitHostProvider) Capability() Capability {
 		ID: g.id, Label: g.label,
 		Description: g.description,
 		Schemes:     []string{"git@", "https://", "ssh://", "owner/repo"},
+		Icon:        g.icon,
 	}
 }
 
@@ -55,9 +59,17 @@ func (g gitHostProvider) Normalize(address string) (string, error) {
 	return normalizeGitURL(address, g.host), nil
 }
 
-// CanHandle reports whether address is a git URL or an owner/repo shorthand.
+// CanHandle reports whether address is an owner/repo shorthand (host-agnostic
+// by design; --provider or registration order picks the target host) or a git
+// URL whose host is this provider's own (g.host) — a git URL for another host
+// (e.g. an internal git server) must not be claimed here just because it looks
+// git-shaped, or it never reaches a plugin provider registered for that host
+// and its host-specific auth/fetch behavior is silently skipped.
 func (g gitHostProvider) CanHandle(address string) bool {
-	return isGitURL(address) || isOwnerRepoShorthand(address)
+	if isOwnerRepoShorthand(address) {
+		return true
+	}
+	return isGitURL(address) && gitURLHost(address) == g.host
 }
 
 // Fetch clones the address into a temp dir and returns its path.
@@ -83,6 +95,24 @@ func isGitURL(s string) bool {
 		strings.HasPrefix(s, "https://") ||
 		strings.HasPrefix(s, "ssh://") ||
 		strings.HasSuffix(s, ".git")
+}
+
+// gitURLHost extracts the host from a git URL, in either URL-scheme form
+// (https://host/..., ssh://host/..., git://host/...) or SCP-style form
+// (git@host:owner/repo.git). Returns "" if no host can be determined (a bare
+// path ending in ".git", with no scheme or git@ prefix).
+func gitURLHost(s string) string {
+	if strings.HasPrefix(s, "git@") {
+		rest := strings.TrimPrefix(s, "git@")
+		if i := strings.IndexAny(rest, ":/"); i >= 0 {
+			return rest[:i]
+		}
+		return rest
+	}
+	if u, err := url.Parse(s); err == nil {
+		return u.Hostname()
+	}
+	return ""
 }
 
 // isOwnerRepoShorthand detects "owner/repo".

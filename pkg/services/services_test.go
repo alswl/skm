@@ -21,10 +21,10 @@ func TestNewRegistersBuiltinProvidersInDocumentedOrder(t *testing.T) {
 	for _, p := range svc.Registry.Providers() {
 		ids = append(ids, p.ID())
 	}
-	require.Equal(t, []string{"local", "github", "gitlab", "skills-sh"}, ids)
+	require.Equal(t, []string{"local", "self-build", "github", "gitlab", "skills-sh"}, ids)
 
 	rep := svc.ProviderList()
-	require.Len(t, rep.Providers, 4)
+	require.Len(t, rep.Providers, 5)
 	for _, id := range ids {
 		found := false
 		for _, p := range rep.Providers {

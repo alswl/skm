@@ -23,6 +23,17 @@ func (i *Installer) State(entry *common.Entry, target common.InstallTarget) comm
 	case common.StrategyCommandAdapter:
 		return stateAdapter(filepath.Join(target.Path, entry.Name), entry)
 	}
+	if strategy.IsPlugin() {
+		p, err := i.pluginFor(strategy, target)
+		if err != nil {
+			return common.InstallAbsent
+		}
+		state, err := p.State(entry, target)
+		if err != nil {
+			return common.InstallAbsent
+		}
+		return state
+	}
 	return common.InstallAbsent
 }
 

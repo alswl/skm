@@ -11,21 +11,24 @@ import (
 // Services is the single orchestration entry shared by the CLI and TUI. All
 // write paths flow through it (no two business logics invariant).
 type Services struct {
-	Cfg       *config.Config
-	Logger    *common.Logger
-	Repo      *repository.Repository
-	Registry  *providers.Registry
-	Installer *installer.Installer
+	Cfg                  *config.Config
+	Logger               *common.Logger
+	Repo                 *repository.Repository
+	Registry             *providers.Registry
+	Installer            *installer.Installer
+	TargetPlugins        map[string]*installer.TargetPlugin
+	TargetPluginFailures []installer.PluginLoadFailure
 }
 
 // New wires a Services instance from resolved config. Built-in providers
-// (Local, GitHub, then the four internal sources) are registered first in a
+// (Local, SelfBuild, GitHub, GitLab, Skills.sh) are registered first in a
 // stable order (FR-035, FR-009), then subprocess plugins from the configured
-// plugin dirs (US8).
+// plugin dirs (US8). Target plugins are discovered the same way, so a target
+// declaring a "plugin:<id>" strategy resolves against an already-loaded set.
 func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	reg := providers.NewRegistry()
 	builtins := []providers.Provider{
-		providers.NewLocal(), providers.NewGitHub(),
+		providers.NewLocal(), providers.NewSelfBuild(), providers.NewGitHub(),
 		providers.NewGitLab(), providers.NewSkillsSh(),
 	}
 	for _, p := range builtins {
@@ -33,12 +36,24 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 			return nil, err
 		}
 	}
+
+	loadedTargetPlugins, targetPluginFailures := installer.DiscoverTargetPlugins(cfg.PluginDirs, logger)
+	targetPlugins := make(map[string]*installer.TargetPlugin, len(loadedTargetPlugins))
+	for _, p := range loadedTargetPlugins {
+		targetPlugins[p.ID()] = p
+	}
+	for _, f := range targetPluginFailures {
+		logger.Warn("target plugin load failed (isolated)", "path", f.Path, "err", f.Reason.Message)
+	}
+
 	svc := &Services{
-		Cfg:       cfg,
-		Logger:    logger,
-		Repo:      repository.New(cfg.Root),
-		Registry:  reg,
-		Installer: installer.New(cfg.Targets),
+		Cfg:                  cfg,
+		Logger:               logger,
+		Repo:                 repository.New(cfg.Root),
+		Registry:             reg,
+		TargetPlugins:        targetPlugins,
+		TargetPluginFailures: targetPluginFailures,
+		Installer:            installer.New(cfg.Targets, targetPlugins),
 	}
 	svc.loadPlugins()
 	svc.logInvalidTargets()

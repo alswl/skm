@@ -62,6 +62,7 @@ type pluginResponse struct {
 	Label       string       `json:"label,omitempty"`
 	Description string       `json:"description,omitempty"`
 	Schemes     []string     `json:"schemes,omitempty"`
+	Icon        string       `json:"icon,omitempty"`
 	Address     string       `json:"address,omitempty"`
 	Result      *bool        `json:"result,omitempty"`
 	Path        string       `json:"path,omitempty"`
@@ -108,7 +109,7 @@ func (p *PluginProvider) Capability() Capability {
 	if err != nil || resp.Error != nil {
 		return Capability{ID: p.ID(), Label: p.Label()}
 	}
-	cap := Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes}
+	cap := Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes, Icon: resp.Icon}
 	if resp.ID != "" {
 		cap.ID = resp.ID
 	}

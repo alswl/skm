@@ -16,10 +16,11 @@ var (
 	styleGroup  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "24", Dark: "38"})
 	styleTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
 	stylePrompt = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
-	// styleCursor highlights the current row (nnn-style solid cursor line).
-	styleCursor = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "0", Dark: "0"}).
-			Background(lipgloss.AdaptiveColor{Light: "212", Dark: "141"})
+	// styleCursor highlights the current row. nnn's own cursor line isn't a
+	// fixed color — it reverses whatever fg/bg the terminal already has, so
+	// it never clashes with the user's theme; a hardcoded magenta/purple
+	// background did, and is too high-contrast against most themes.
+	styleCursor = lipgloss.NewStyle().Reverse(true)
 	// styleStatusBar is the full-width bottom status bar.
 	styleStatusBar = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).
@@ -50,16 +51,20 @@ func styleForKind(k common.EntryKind) lipgloss.Style {
 	return styleKindSkill
 }
 
-// styleForInstall colors the install cell: green when installed in some
-// target, red for a conflict/dangling problem, dim when absent everywhere.
-func styleForInstall(install string) lipgloss.Style {
-	switch install {
-	case "", "—":
-		return styleInstallAbsent
-	case "conflict", "dangling":
-		return styleInstallProblem
+// installIcon renders one target cell's glyph and color (FR-041 per-target
+// columns): a check when installed, a cross for a conflict/dangling problem,
+// a dash when the target could receive the entry but doesn't have it, and a
+// dim middle-dot when the target's kind doesn't match at all.
+func installIcon(s common.InstallState) (string, lipgloss.Style) {
+	switch s {
+	case common.InstallInstalled:
+		return "✓", styleInstallInstalled
+	case common.InstallConflict, common.InstallDangling:
+		return "✗", styleInstallProblem
+	case installNA:
+		return "·", styleDim
 	default:
-		return styleInstallInstalled
+		return "—", styleInstallAbsent
 	}
 }
 

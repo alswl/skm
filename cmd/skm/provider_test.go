@@ -48,8 +48,10 @@ esac
 func TestProviderListShowsLoadedPluginAndTypedFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	pluginDir := t.TempDir()
-	writeCLIStubPlugin(t, pluginDir, "acme", "acme")
-	require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "broken"), []byte("#!/bin/sh\nexit 1\n"), 0o755))
+	providersDir := filepath.Join(pluginDir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	writeCLIStubPlugin(t, providersDir, "acme", "acme")
+	require.NoError(t, os.WriteFile(filepath.Join(providersDir, "broken"), []byte("#!/bin/sh\nexit 1\n"), 0o755))
 	t.Setenv("SKM_PLUGINS_DIR", pluginDir)
 
 	cfgDir := t.TempDir()
@@ -68,7 +70,7 @@ func TestProviderListShowsLoadedPluginAndTypedFailure(t *testing.T) {
 		} `json:"providers"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	require.Len(t, rep.Providers, 6) // local, github, gitlab, skills-sh, acme, broken
+	require.Len(t, rep.Providers, 7) // local, self-build, github, gitlab, skills-sh, acme, broken
 
 	byID := map[string]int{}
 	for i, p := range rep.Providers {
@@ -104,7 +106,9 @@ func TestProviderListShowsLoadedPluginAndTypedFailure(t *testing.T) {
 func TestProviderValidateFailsWhenAPluginIsBroken(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	pluginDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(pluginDir, "broken"), []byte("#!/bin/sh\nexit 1\n"), 0o755))
+	providersDir := filepath.Join(pluginDir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(providersDir, "broken"), []byte("#!/bin/sh\nexit 1\n"), 0o755))
 	t.Setenv("SKM_PLUGINS_DIR", pluginDir)
 
 	cfgDir := t.TempDir()

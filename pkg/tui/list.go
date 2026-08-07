@@ -21,6 +21,8 @@ import (
 // openDetail (go-tui-guides.md).
 func (m *model) View() string {
 	switch {
+	case m.loading:
+		return m.loadingView()
 	case m.picker != nil:
 		return m.pickerView()
 	case m.confirm != nil:
@@ -45,21 +47,60 @@ func (m model) listView() string {
 	w := maxInt(20, m.width)
 	h := maxInt(10, m.height)
 	inner := w - 2         // width inside the │ frame sides
-	rows := maxInt(1, h-7) // top, tabbar, [list], status-sep, status, help-sep, help, bottom
+	rows := maxInt(1, h-8) // top, tabbar, install-header, [list], status-sep, status, help-sep, help, bottom
 	title := " skm · " + m.svc.Repo.Root()
 
 	var sb strings.Builder
 	sb.WriteString(frameTop(inner, title) + "\n")
 	sb.WriteString("│" + fitCell(m.tabBarContent(), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString("│" + fitCell(installHeaderRow(m.svc.Cfg.Targets), inner, lipgloss.NewStyle()) + "│\n")
 	for _, r := range m.renderMainArea(inner, rows) {
 		sb.WriteString("│" + r + "│\n")
 	}
 	sb.WriteString(frameSep(inner) + "\n")
 	sb.WriteString("│" + fitCell(m.statusContent(), inner, styleStatusBar) + "│\n")
 	sb.WriteString(frameSep(inner) + "\n")
-	sb.WriteString("│" + fitCell(m.help.ShortHelpView(m.keys.ShortHelp()), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString("│" + fitCell(m.listHint(), inner, lipgloss.NewStyle()) + "│\n")
 	sb.WriteString(frameBottom(inner))
 	return sb.String()
+}
+
+// loadingView renders the same framed box as listView but with the spinner
+// centered in the main area, shown while the initial background scan is
+// still running (Init/scanCmd) so the terminal never sits blank.
+func (m model) loadingView() string {
+	w := maxInt(20, m.width)
+	h := maxInt(10, m.height)
+	inner := w - 2
+	rows := maxInt(1, h-2) // top, [content], bottom
+	title := " skm · " + m.svc.Repo.Root()
+	msg := m.spinner.View() + " scanning skills…"
+	mid := rows / 2
+
+	var sb strings.Builder
+	sb.WriteString(frameTop(inner, title) + "\n")
+	for i := 0; i < rows; i++ {
+		if i == mid {
+			sb.WriteString("│" + centerCell(msg, inner) + "│\n")
+		} else {
+			sb.WriteString("│" + fitCell("", inner, lipgloss.NewStyle()) + "│\n")
+		}
+	}
+	sb.WriteString(frameBottom(inner))
+	return sb.String()
+}
+
+// centerCell horizontally centers content within w cells, padding with
+// spaces on both sides (falls back to fitCell's truncate+pad if content is
+// too wide to center).
+func centerCell(content string, w int) string {
+	cw := lipgloss.Width(content)
+	if cw >= w {
+		return fitCell(content, w, lipgloss.NewStyle())
+	}
+	left := (w - cw) / 2
+	right := w - cw - left
+	return strings.Repeat(" ", left) + content + strings.Repeat(" ", right)
 }
 
 // tabBarContent renders the provider filter tabs: "All" (as "*", to avoid
@@ -112,7 +153,7 @@ func (m model) renderMainArea(inner, rows int) []string {
 		}
 		e := m.filtered[r.entryIdx]
 		hl := r.entryIdx == m.cursor
-		row := renderEntryLine(e, m.installCol[e.Name], hl)
+		row := renderEntryLine(e, m.providerIcon(e.ModeIDValue()), m.installCol[e.Name], hl)
 		if hl {
 			out = append(out, fitCell("  ▶ "+row, inner, styleCursor))
 		} else {
@@ -126,37 +167,89 @@ func (m model) renderMainArea(inner, rows int) []string {
 // value ("non_standard"); other columns truncate overflow instead of
 // growing, so every row stays aligned regardless of content length.
 const (
+	iconColWidth    = 2 // fits one wide (2-cell) provider icon glyph
 	nameColWidth    = 24
 	kindColWidth    = 7
 	versionColWidth = 8
 	statusColWidth  = 12
 )
 
-// renderEntryLine is one flat list row: name · kind · version · status ·
-// install summary (FR-041). install is the precomputed per-target summary
-// (e.g. "claude,codex" or "—"). Kind, status, and install cells are zone-colored
-// (nnn-style) for non-highlighted rows; the highlighted (cursor) row is plain
-// so the solid cursor background stays clean. Each fixed-width column is
-// truncated (not just padded), so an over-long name/version can't misalign the
-// columns that follow it — only the trailing install column may run long,
-// since it's cut by the outer row-level fitCell instead.
-func renderEntryLine(e *common.Entry, install string, highlighted bool) string {
-	if install == "" {
-		install = "—"
+// installNA marks a target column that structurally cannot receive an
+// entry's kind (the target's Accepts doesn't list it) — distinct from
+// InstallAbsent, which means the target could receive the entry but doesn't
+// have it yet (FR-041 per-target columns).
+const installNA common.InstallState = "na"
+
+// installCell is one target's install-state column for a single entry: the
+// target's name (drives the header label and column width) and its state.
+type installCell struct {
+	name  string
+	state common.InstallState
+}
+
+// targetColWidth is the shared column width for a target's header cell and
+// every entry's cell under it, so the header and the rows always line up.
+func targetColWidth(name string) int {
+	return clampInt(len(name), 3, 16)
+}
+
+// installHeaderRow labels each per-target column above the entry list
+// (FR-041): a plain, blank-padded run under the fixed icon/name/kind/version/
+// status columns, then each target's name over its own cell.
+func installHeaderRow(targets []common.InstallTarget) string {
+	var sb strings.Builder
+	sb.WriteString(truncPad("", iconColWidth) + " " + truncPad("", nameColWidth) + " " + truncPad("", kindColWidth) + " " +
+		truncPad("", versionColWidth) + " " + truncPad("", statusColWidth))
+	for _, t := range targets {
+		sb.WriteString(" " + styleDim.Render(truncPad(t.Name, targetColWidth(t.Name))))
 	}
+	return sb.String()
+}
+
+// renderEntryLine is one flat list row: provider icon · name · kind · version
+// · status · one column per install target (FR-041), each showing that
+// target's install state as a small glyph (installIcon). icon is the
+// provider's declared marker (model.providerIcon; unknownProviderIcon when
+// the provider isn't recognized or declares none). Kind, status, and target cells
+// are zone-colored (nnn-style) for non-highlighted rows; the highlighted
+// (cursor) row is plain so the solid cursor background stays clean. Every
+// column, including each target cell, is truncated to a fixed width (not
+// just padded), so an over-long name/version/target-name can't misalign the
+// columns that follow it.
+func renderEntryLine(e *common.Entry, icon string, cells []installCell, highlighted bool) string {
 	kind := truncPad(string(e.Kind), kindColWidth)
 	status := truncPad(string(e.Status), statusColWidth)
-	installCell := install
 	if !highlighted {
 		kind = styleForKind(e.Kind).Render(kind)
 		status = styleForStatus(e.Status).Render(status)
-		installCell = styleForInstall(install).Render(install)
 	}
-	return truncPad(e.Name, nameColWidth) + " " +
+	var sb strings.Builder
+	sb.WriteString(truncPad(icon, iconColWidth) + " " +
+		truncPad(e.Name, nameColWidth) + " " +
 		kind + " " +
 		truncPad(orDash(e.VersionValue()), versionColWidth) + " " +
-		status + " " +
-		installCell
+		status)
+	for _, c := range cells {
+		icon, style := installIcon(c.state)
+		cell := truncPad(icon, targetColWidth(c.name))
+		if !highlighted {
+			cell = style.Render(cell)
+		}
+		sb.WriteString(" " + cell)
+	}
+	return sb.String()
+}
+
+// installedSomewhere reports whether any of an entry's target cells shows a
+// real install (installed, or a conflict/dangling problem worth letting the
+// user clear) — used to enable/disable the list footer's uninstall key.
+func installedSomewhere(cells []installCell) bool {
+	for _, c := range cells {
+		if c.state == common.InstallInstalled || c.state == common.InstallConflict || c.state == common.InstallDangling {
+			return true
+		}
+	}
+	return false
 }
 
 // truncPad truncates s to at most w cells (ANSI/wide-rune aware) and
@@ -221,6 +314,40 @@ func (m model) detailView() string {
 	sb.WriteString("│" + fitCell(m.detailHint(), inner, lipgloss.NewStyle()) + "│\n")
 	sb.WriteString(frameBottom(inner))
 	return sb.String()
+}
+
+// listHint builds the list-view footer, dimming install/uninstall the same
+// way detailHint does for the highlighted entry, so the bottom bar reads
+// consistently whether you're on the list or the detail page instead of only
+// disclosing unavailability once you press the key and land on a rejection.
+func (m model) listHint() string {
+	var parts []string
+	for _, b := range m.listBindings() {
+		parts = append(parts, hintBinding(b.keys, b.label, b.enabled))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// listBindings is the list footer's availability matrix for the highlighted
+// entry. Install/uninstall reuse the same conditions as installSelected /
+// openTargetPicker and detailBindings so a dimmed key never surprises with a
+// status-bar rejection. Targets() is a pure in-memory lookup (no FS I/O), so
+// it's safe here in View; installed/conflict state comes from m.installCol,
+// cached in Update (computeInstallCols), keeping View pure.
+func (m model) listBindings() []hintItem {
+	install, uninstall := false, false
+	if len(m.filtered) > 0 {
+		e := m.filtered[m.cursor]
+		install = e.Status == common.StatusActive && len(m.svc.Installer.Targets(e)) > 0
+		uninstall = installedSomewhere(m.installCol[e.Name])
+	}
+	return []hintItem{
+		{keys: "j/k", label: "up/down", enabled: true},
+		{keys: "/", label: "search", enabled: true},
+		{keys: "s", label: "install", enabled: install},
+		{keys: "u", label: "uninstall", enabled: uninstall},
+		{keys: "q", label: "quit", enabled: true},
+	}
 }
 
 // detailHint builds the detail-page footer, dimming the bindings that do not
@@ -298,7 +425,7 @@ func (m model) buildDetail() string {
 
 	fmt.Fprintf(&sb, "%-10s %s\n", "kind:", e.Kind)
 	fmt.Fprintf(&sb, "%-10s %s\n", "status:", e.Status)
-	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", orDash(e.ModeIDValue()))
+	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ModeIDValue()), e.ModeIDValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "group:", orDash(e.GroupValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "version:", orDash(e.VersionValue()))
 	if e.Origin != nil {
@@ -329,7 +456,7 @@ func (m model) buildDetail() string {
 
 	sb.WriteString(rule + "\n")
 	sb.WriteString(styleDim.Render("marker preview") + "\n")
-	sb.WriteString(previewMarker(e, 8))
+	sb.WriteString(previewMarker(e))
 
 	return sb.String()
 }
@@ -381,6 +508,12 @@ func orDash(s string) string {
 	return s
 }
 
+// providerLabel renders a provider's mode_id for the detail page, prefixed
+// with its icon (model.providerIcon; unknownProviderIcon when unrecognized).
+func providerLabel(icon, modeID string) string {
+	return icon + " " + orDash(modeID)
+}
+
 // entryFiles lists the relative file paths under an entry, sorted.
 func entryFiles(root string) []string {
 	var out []string
@@ -396,15 +529,13 @@ func entryFiles(root string) []string {
 	return out
 }
 
-// previewMarker shows the first few lines of the entry's marker file.
-func previewMarker(e *common.Entry, n int) string {
+// previewMarker shows the entry's marker file content in full; the detail
+// page's j/k pager (detailView) scrolls through it, so truncating here would
+// hide the tail of the file from view no matter how far the user scrolls.
+func previewMarker(e *common.Entry) string {
 	data, err := os.ReadFile(e.MarkerPath())
 	if err != nil {
 		return styleDim.Render("(unreadable)")
 	}
-	lines := strings.Split(string(data), "\n")
-	if len(lines) > n {
-		lines = lines[:n]
-	}
-	return strings.Join(lines, "\n")
+	return strings.TrimSuffix(string(data), "\n")
 }

@@ -36,6 +36,7 @@ func newTestModel(t *testing.T) model {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
 
+	t.Setenv("HOME", t.TempDir()) // built-in targets now always merge in (config.mergeWithBuiltins): keep their paths out of the real home dir
 	root := t.TempDir()
 	writeFileT(t, root, "skills/local/skill-a/SKILL.md", "---\nname: skill-a\ndescription: alpha skill\n---\nbody\n")
 	writeFileT(t, root, "skills/local/skill-b/SKILL.md", "---\nname: skill-b\ndescription: beta skill\n---\nbody\n")
@@ -52,8 +53,70 @@ func newTestModel(t *testing.T) model {
 	m.width, m.height = 100, 30
 	m.pageSize = 20
 	m.help.Width = m.width
-	m.refreshFiltered()
+	m.loading = false
+	m.applyEntries(svc.Scan())
 	return *m // a value copy for direct model tests; the program runs the pointer
+}
+
+// newLoadingTestModel builds a raw initialModel (loading, unscanned) using the
+// same fixture repo as newTestModel, for tests that exercise the async-scan
+// transition itself rather than a fully-loaded model.
+func newLoadingTestModel(t *testing.T) (*model, *services.Services) {
+	t.Helper()
+	prev := termenv.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	t.Setenv("HOME", t.TempDir()) // built-in targets now always merge in (config.mergeWithBuiltins): keep their paths out of the real home dir
+	root := t.TempDir()
+	writeFileT(t, root, "skills/local/skill-a/SKILL.md", "---\nname: skill-a\ndescription: alpha skill\n---\nbody\n")
+	cfgDir := t.TempDir()
+	cfg, err := config.Load(root, cfgDir)
+	require.NoError(t, err)
+	svc, err := services.New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+	m := initialModel(t.Context(), svc)
+	m.width, m.height = 100, 30
+	m.help.Width = m.width
+	return m, svc
+}
+
+func TestInitialModelStartsLoading(t *testing.T) {
+	m, _ := newLoadingTestModel(t)
+	require.True(t, m.loading)
+	require.Empty(t, m.filtered)
+	require.Contains(t, m.View(), "scanning")
+}
+
+func TestScanDoneMsgStopsLoading(t *testing.T) {
+	m, svc := newLoadingTestModel(t)
+	_, _ = m.Update(scanDoneMsg{entries: svc.Scan()})
+	require.False(t, m.loading)
+	require.NotEmpty(t, m.filtered)
+}
+
+// TestListAndDetailShowProviderIcon: each entry's row and its detail page are
+// prefixed with the icon its provider declared (Capability().Icon) — here the
+// fixture entries live under skills/local/…, so their mode_id is "local" and
+// the built-in Local provider's icon (📂) should appear in both places.
+func TestListAndDetailShowProviderIcon(t *testing.T) {
+	m := newTestModel(t)
+	require.Contains(t, m.View(), "📂", "list row shows the provider icon")
+
+	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Contains(t, m.View(), "📂 local", "detail page shows the icon next to the provider")
+}
+
+// TestProviderIconDistinguishesSelfBuildAndUnknown: an entry moved to the
+// "self-build" bucket (pkg/tui/actions_normalize.go's always-offered move
+// destination) shows the SelfBuild provider's icon; one with a ModeID that
+// resolves to no registered provider (including "", none recorded) falls
+// back to unknownProviderIcon instead of a blank column.
+func TestProviderIconDistinguishesSelfBuildAndUnknown(t *testing.T) {
+	m := newTestModel(t)
+	require.Equal(t, "🍺", m.providerIcon("self-build"))
+	require.Equal(t, unknownProviderIcon, m.providerIcon(""))
+	require.Equal(t, unknownProviderIcon, m.providerIcon("some-unregistered-provider"))
 }
 
 func TestModelRendersListAndOpensDetail(t *testing.T) {
@@ -110,7 +173,7 @@ func TestModelInstallActionRefreshesStatus(t *testing.T) {
 		require.Equal(t, common.InstallInstalled, m.svc.Installer.State(m.filtered[0], tgt))
 	}
 	// After the scan, the install-status column reflects the managed target.
-	require.Contains(t, m.View(), "t", "install column shows the target")
+	require.Contains(t, m.View(), "✓", "install column shows the installed icon")
 }
 
 // TestListShowsInstallStatusForNonStandardEntries: computeInstallCols evaluates
@@ -119,23 +182,28 @@ func TestModelInstallActionRefreshesStatus(t *testing.T) {
 func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/flat-skill/SKILL.md", "---\nname: flat-skill\ndescription: misplaced\n---\nbody\n")
-	m.entries = m.svc.Scan()
-	m.computeInstallCols()
-	require.Equal(t, "—", m.installCol["flat-skill"], "absent install shows the dash, not silently skipped")
+	m.applyEntries(m.svc.Scan())
+	// One cell per configured target: the fixture's custom "t" target plus
+	// the 4 built-ins, always merged in (config.mergeWithBuiltins). Install
+	// into the first (built-in, always within the rendered column width)
+	// rather than "t", which the view truncates off at this test width.
+	require.Len(t, m.installCol["flat-skill"], len(m.svc.Cfg.Targets))
+	tIdx := 0
+	require.Equal(t, "claude-skills", m.svc.Cfg.Targets[tIdx].Name)
+	require.Equal(t, common.InstallAbsent, m.installCol["flat-skill"][tIdx].state, "absent install shows the dash, not silently skipped")
 
 	// Install flat-skill into the skill-accepting target via the installer.
 	entry := m.svc.FindEntry("flat-skill")
 	require.NotNil(t, entry)
-	target := m.svc.Cfg.Targets[0]
+	target := m.svc.Cfg.Targets[tIdx]
 	tx := &dal.FileTransaction{}
 	_, err := m.svc.Installer.Install(tx, entry, target, false)
 	require.NoError(t, err)
 	tx.Commit()
 
-	m.entries = m.svc.Scan()
-	m.computeInstallCols()
-	require.Equal(t, "t", m.installCol["flat-skill"], "a non-standard entry's install state is now visible in the list")
-	require.Contains(t, m.View(), "t", "the install column renders")
+	m.applyEntries(m.svc.Scan())
+	require.Equal(t, common.InstallInstalled, m.installCol["flat-skill"][tIdx].state, "a non-standard entry's install state is now visible in the list")
+	require.Contains(t, m.View(), "✓", "the install column renders the installed icon")
 }
 
 // drainJob waits for one queued job result and applies it.
@@ -314,11 +382,36 @@ func TestPaginationCursorTracksPageAcrossMovesAndResize(t *testing.T) {
 	requireCursorVisible(t, m)
 
 	// Shrinking the terminal shrinks pageSize; the selection stays visible.
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12}) // pageSize -> 5
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12}) // pageSize -> 4
 	m = *updated.(*model)
-	require.Equal(t, 5, m.pageSize)
+	require.Equal(t, 4, m.pageSize)
 	require.Equal(t, 49, m.cursor, "resize keeps the selection")
 	requireCursorVisible(t, m)
+}
+
+// TestListViewNeverExceedsTerminalHeight pins an off-by-one where pageSize
+// (WindowSizeMsg's `m.height-7`) allowed one more row than listView's actual
+// render budget (`h-8`, one more fixed line — the install-target header —
+// than the pageSize comment accounted for). A fully-packed page (Count ==
+// pageSize) then emitted height+1 lines, which in the alt-screen buffer
+// scrolled the frame's own top border out of view — "the first row eaten",
+// most visible on the "All" tab since it has the most entries and so is
+// likeliest to fill a page exactly.
+func TestListViewNeverExceedsTerminalHeight(t *testing.T) {
+	m := newTestModel(t)
+	entries := make([]*common.Entry, 40)
+	for i := range entries {
+		mid := "local"
+		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i), Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid}
+	}
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 35})
+	m = *updated.(*model)
+	m.applyEntries(entries)
+	require.Equal(t, m.pageSize, pagination.Page(len(m.rows), m.pageSize, m.page).Count, "page is fully packed")
+
+	lines := strings.Split(m.View(), "\n")
+	require.LessOrEqual(t, len(lines), 35, "the rendered frame must never exceed the terminal height")
+	require.Contains(t, lines[0], "┌─", "the frame's top border must stay the first line")
 }
 
 // TestListIsFlatWithoutSectionHeaders: the list is a single flat list — no
