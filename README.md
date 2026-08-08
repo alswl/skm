@@ -171,19 +171,30 @@ temp dirs and never touch your real config or targets.
 
 ## Architecture
 
+Core domain concepts (`Entry`, `EntryKind`, `Provider`, `Target`, `InstallStrategy`, `Origin`,
+`Status`, `InstallState`, `InstallReport`) have one canonical definition, relationship model, and
+ownership map in the Concept Reference: `specs/003-engineering-optimization/data-model.md`.
+
 ```
-cmd/skm     → pkg/services → pkg/managers → pkg/dal → {pkg/config, pkg/common}
-pkg/tui → pkg/services   (UI adapter; never writes files directly)
+cmd/skm → pkg/commands → pkg/managers → pkg/services → pkg/dal → {pkg/config, pkg/common}
+pkg/tui → pkg/managers   (UI adapter; never writes files directly)
 ```
 
-- **cmd/skm**: one file per command, self-registered in `init()`; only parses
-  flags/args and calls `services`. `main.go` only calls `os.Exit(Execute())`.
-- **pkg/services**: single orchestration entry shared by CLI and TUI; every
+> Package names swapped in 003-engineering-optimization Round 2 (R3/FR-020) so the name matches
+> granularity: `managers` = larger/scenario orchestration (was named `services` before Round 2),
+> `services` = smaller/single-model (was `managers/*` before Round 2). See
+> `specs/003-engineering-optimization/contracts/layering-rules.md`.
+
+- **cmd/skm**: a thin `main` that calls `os.Exit(commands.Execute())`; all
+  command bodies live in `pkg/commands`.
+- **pkg/commands**: one file per command, self-registered in `init()`; only
+  parses flags/args and calls `managers`.
+- **pkg/managers**: single orchestration entry shared by CLI and TUI; every
   write path flows through it under lock + rollbackable transaction.
-- **pkg/managers**: repository (scan/import/update/lifecycle/convert/discover),
+- **pkg/services**: repository (scan/import/update/lifecycle/convert/discover),
   installer (strategy-dispatched: symlinks/markers/adapters, install-state),
   providers (registry, Local, GitHub/GitLab, Skills.sh, subprocess
-  plugins).
+  plugins via `pkg/plugins`) — each a single-model service.
 - **pkg/dal**: repository lock, `FileTransaction` (staging + rollback),
   frontmatter/meta.json/targets.json IO, content hashing.
 - **pkg/tui**: Bubble Tea list/detail/search; long operations run on a

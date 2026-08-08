@@ -1,12 +1,14 @@
 # skm — adopts alswl/makefile-go (https://github.com/alswl/makefile-go)
 #
 # The core modules live under hack/makefile-go/ (DO NOT EDIT) and are included
-# below. This file only configures them for this project and overrides the
-# build / test / version targets where this project's conventions differ.
+# below. `build`/`test` use the shared recipes unmodified; only `version`
+# is overridden (the shared recipe needs a VERSION file this project doesn't
+# use — see the override below).
 #
 #   make              - default to fmt test build
-#   make build        - build ./bin/skm (version injected via pkg/version)
-#   make test         - run unit tests
+#   make build        - build bin/skm(-$(GOOS)-$(GOARCH)[-$(VERSION)] copies too)
+#   make test         - run unit tests (shared recipe: -race, perf baseline
+#                       recorded under -race — see testdata/perf/baselines/)
 #   make install      - install bin/skm to PATH
 #   make lint         - gofmt + golangci-lint
 #   make help         - list all targets
@@ -51,6 +53,11 @@ UT_COVER_PACKAGES := $(shell go list ./pkg/... | grep -Ev 'pkg/version')
 COVERAGE_PACKAGES := $(shell go list ./pkg/... | awk '{printf "%s%s", sep, $$0; sep=","} END{print ""}')
 COVERAGE_PROFILING_DIR := $(PROJECT_DIR)/.cover
 
+# Generated per-command docs land in docs/cli/ (kept separate from the
+# hand-authored docs/*.md guides); committed so they're browsable on GitHub
+# without running the generator (003-engineering-optimization R1/FR-018).
+CMD_DOCS_DIR := docs/cli
+
 .PHONY: all
 all: fmt test build
 
@@ -60,31 +67,9 @@ include hack/makefile-go/install.mk
 include hack/makefile-go/test.mk
 include hack/makefile-go/general.mk
 include hack/makefile-go/version.mk
-
-##@ Self defined
-.PHONY: run
-run: ## Run the TUI locally
-	go run $(CMD_DIR)/skm
-
-.PHONY: tidy
-tidy: ## Tidy go modules
-	go mod tidy
+include hack/makefile-go/gen.mk
 
 ##@ Override (project conventions)
-
-.PHONY: build
-build: ## Build the skm binary into bin/ with version metadata
-	@mkdir -p $(OUTPUT_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) go build -o $(OUTPUT_DIR)/skm \
-		-ldflags "-s -w \
-		-X $(ROOT)/pkg/version.Version=$(VERSION) \
-		-X $(ROOT)/pkg/version.Commit=$(COMMIT) \
-		-X $(ROOT)/pkg/version.Date=$(DATE)" \
-		$(CMD_DIR)/skm
-
-.PHONY: test
-test: ## Run unit tests (plain go test; makefile-go's -race/-N skews perf baselines)
-	go test ./...
 
 .PHONY: version
 version: ## Print the computed version

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
 )
 
 // updateSelected refreshes the current entry from its origin in the
@@ -21,7 +21,7 @@ func (m *model) updateSelected() {
 	}
 	name := entry.Name
 	m.submitJob("update "+name, func(ctx context.Context) (any, error) {
-		result, err := m.svc.Update(ctx, name, services.UpdateOptions{})
+		result, err := m.svc.Update(ctx, name, managers.UpdateOptions{})
 		if err != nil {
 			return nil, err
 		}

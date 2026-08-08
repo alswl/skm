@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/alswl/skm/skm/pkg/tui/components"
 )
 
 // pickerItem is one selectable row in a picker modal.
@@ -132,9 +134,9 @@ func (m model) pickerView() string {
 		}
 		row := mark + " " + it.label
 		if i == p.cursor {
-			body.WriteString(fitCell("  ▶ "+row, inner, styleCursor) + "\n")
+			body.WriteString(components.FitCell("  ▶ "+row, inner, components.StyleCursor) + "\n")
 		} else {
-			body.WriteString(fitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
+			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
 	return m.framedPage(" skm · "+p.title+" ", strings.TrimRight(body.String(), "\n"), p.hint)
@@ -142,7 +144,7 @@ func (m model) pickerView() string {
 
 // confirmView renders the active confirmation as a full-screen framed page.
 func (m model) confirmView() string {
-	body := stylePrompt.Render(m.confirm.prompt)
+	body := components.StylePrompt.Render(m.confirm.prompt)
 	return m.framedPage(" skm · confirm ", body, "[y] yes   [n/esc/q] no")
 }
 
@@ -154,12 +156,12 @@ func (m model) framedPage(title, body, hint string) string {
 	inner := w - 2
 	rows := maxInt(1, h-4) // top, [body], sep, hint, bottom
 	var sb strings.Builder
-	sb.WriteString(frameTop(inner, title) + "\n")
-	for _, l := range padLines(splitLines(body), inner, rows) {
-		sb.WriteString("│" + fitCell(l, inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString(components.FrameTop(inner, title) + "\n")
+	for _, l := range components.PadLines(components.SplitLines(body), inner, rows) {
+		sb.WriteString("│" + components.FitCell(l, inner, lipgloss.NewStyle()) + "│\n")
 	}
-	sb.WriteString(frameSep(inner) + "\n")
-	sb.WriteString("│" + fitCell(hint, inner, styleStatusBar) + "│\n")
-	sb.WriteString(frameBottom(inner))
+	sb.WriteString(components.FrameSep(inner) + "\n")
+	sb.WriteString("│" + components.FitCell(hint, inner, components.StyleStatusBar) + "│\n")
+	sb.WriteString(components.FrameBottom(inner))
 	return sb.String()
 }

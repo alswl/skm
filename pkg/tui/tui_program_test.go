@@ -14,7 +14,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
 )
 
 // E2E TUI suite: drives a real Bubble Tea program loop (tea.Program + probe
@@ -156,7 +156,7 @@ func fixtureProgramModel(t *testing.T) *model {
 		`[{"name":"claude-skills","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := services.New(cfg, common.NewLogger(false))
+	svc, err := managers.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(context.Background(), svc)
 	return m
@@ -221,7 +221,7 @@ func TestE2ETUIMoveFromDetailTakesEffect(t *testing.T) {
 	}
 	require.NotNil(t, d2, "d2 is still present in the refreshed list")
 	require.Equal(t, common.StatusActive, d2.Status, "d2 is active after the move")
-	require.Equal(t, "local", d2.ModeIDValue(), "d2 now lives under the local provider")
+	require.Equal(t, "local", d2.ProviderIDValue(), "d2 now lives under the local provider")
 }
 
 // TestE2ETUIQAndEscOnlyGoBack: q/esc from detail and from modals return, never

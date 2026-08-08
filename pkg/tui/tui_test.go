@@ -16,8 +16,9 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
-	"github.com/alswl/skm/skm/pkg/pagination"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/utils/pagination"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +48,7 @@ func newTestModel(t *testing.T) model {
 
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := services.New(cfg, common.NewLogger(false))
+	svc, err := managers.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(t.Context(), svc)
 	m.width, m.height = 100, 30
@@ -61,7 +62,7 @@ func newTestModel(t *testing.T) model {
 // newLoadingTestModel builds a raw initialModel (loading, unscanned) using the
 // same fixture repo as newTestModel, for tests that exercise the async-scan
 // transition itself rather than a fully-loaded model.
-func newLoadingTestModel(t *testing.T) (*model, *services.Services) {
+func newLoadingTestModel(t *testing.T) (*model, *managers.Services) {
 	t.Helper()
 	prev := termenv.ColorProfile()
 	lipgloss.SetColorProfile(termenv.Ascii)
@@ -73,7 +74,7 @@ func newLoadingTestModel(t *testing.T) (*model, *services.Services) {
 	cfgDir := t.TempDir()
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := services.New(cfg, common.NewLogger(false))
+	svc, err := managers.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(t.Context(), svc)
 	m.width, m.height = 100, 30
@@ -109,7 +110,7 @@ func TestListAndDetailShowProviderIcon(t *testing.T) {
 
 // TestProviderIconDistinguishesSelfBuildAndUnknown: an entry moved to the
 // "self-build" bucket (pkg/tui/actions_normalize.go's always-offered move
-// destination) shows the SelfBuild provider's icon; one with a ModeID that
+// destination) shows the SelfBuild provider's icon; one with a ProviderID that
 // resolves to no registered provider (including "", none recorded) falls
 // back to unknownProviderIcon instead of a blank column.
 func TestProviderIconDistinguishesSelfBuildAndUnknown(t *testing.T) {
@@ -360,7 +361,7 @@ func TestPaginationCursorTracksPageAcrossMovesAndResize(t *testing.T) {
 	for i := range entries {
 		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i)}
 	}
-	m := model{entries: entries, pageSize: 10, keys: defaultKeys(), help: help.New()}
+	m := model{entries: entries, pageSize: 10, keys: components.DefaultKeys(), help: help.New()}
 	m.refreshFiltered()
 
 	// Walk down across page boundaries; the cursor stays on the rendered page.
@@ -402,7 +403,7 @@ func TestListViewNeverExceedsTerminalHeight(t *testing.T) {
 	entries := make([]*common.Entry, 40)
 	for i := range entries {
 		mid := "local"
-		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i), Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid}
+		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i), Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &mid}
 	}
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 35})
 	m = *updated.(*model)
@@ -419,7 +420,7 @@ func TestListViewNeverExceedsTerminalHeight(t *testing.T) {
 // line, and the detail page). Entries stay sorted by source.
 func TestListIsFlatWithoutSectionHeaders(t *testing.T) {
 	mk := func(name, mid, grp string) *common.Entry {
-		e := &common.Entry{Name: name, Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid}
+		e := &common.Entry{Name: name, Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &mid}
 		if grp != "" {
 			e.Group = &grp
 		}
@@ -448,7 +449,7 @@ func TestListIsFlatWithoutSectionHeaders(t *testing.T) {
 func TestArchivedHiddenUntilToggled(t *testing.T) {
 	mk := func(name string, st common.Status) *common.Entry {
 		mid := "local"
-		return &common.Entry{Name: name, Kind: common.KindSkill, Status: st, ModeID: &mid}
+		return &common.Entry{Name: name, Kind: common.KindSkill, Status: st, ProviderID: &mid}
 	}
 	m := newTestModel(t)
 	m.entries = []*common.Entry{

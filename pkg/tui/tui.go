@@ -14,16 +14,16 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/jobs"
-	"github.com/alswl/skm/skm/pkg/managers/providers"
-	"github.com/alswl/skm/skm/pkg/pagination"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
 
 // Run starts the TUI. It must only be called when the tool was launched with
 // no known subcommand (FR-001). The UI never writes files directly; all
 // mutations go through the shared services layer. A cancelled context stops
 // the program (go-tui-guides.md: tea.WithContext).
-func Run(ctx context.Context, svc *services.Services) error {
+func Run(ctx context.Context, svc *managers.Services) error {
 	if !isTerminal() {
 		return fmt.Errorf("tui: requires an interactive terminal; use a subcommand (e.g. skm list --json) for scriptable output")
 	}
@@ -51,7 +51,7 @@ func isTerminalFile(f *os.File) bool {
 // detail pane on the right (tui-contract.md).
 type model struct {
 	ctx          context.Context
-	svc          *services.Services
+	svc          *managers.Services
 	queue        *jobs.Queue
 	entries      []*common.Entry // full scan result
 	filtered     []*common.Entry // after search filter, sorted by source
@@ -69,7 +69,7 @@ type model struct {
 	width        int
 	height       int
 
-	keys     keyMap
+	keys     components.KeyMap
 	help     help.Model
 	showHelp bool
 
@@ -99,7 +99,7 @@ type model struct {
 	providerTabs   []string
 	providerTabIdx int
 
-	// providerIcons maps a provider id (entry.ModeID) to its declared
+	// providerIcons maps a provider id (entry.ProviderID) to its declared
 	// one-glyph icon, computed once at startup (the registry never changes
 	// after Services.New()). Precomputed here rather than looked up in View,
 	// since a plugin provider's Capability() makes a subprocess call and View
@@ -122,41 +122,29 @@ const (
 // would copy the receiver each Update and closures would mutate stale copies —
 // the modals they open (confirm after a picker, next picker, status lines)
 // would silently never appear in the running program.
-func initialModel(ctx context.Context, svc *services.Services) *model {
+func initialModel(ctx context.Context, svc *managers.Services) *model {
 	m := &model{
 		ctx:           ctx,
 		svc:           svc,
 		queue:         jobs.New(32),
 		pageSize:      20,
-		keys:          defaultKeys(),
+		keys:          components.DefaultKeys(),
 		help:          help.New(),
 		loading:       true,
 		spinner:       spinner.New(),
-		providerIcons: computeProviderIcons(svc.Registry),
+		providerIcons: svc.ProviderIcons(),
 	}
 	return m
 }
 
-// computeProviderIcons collects each registered provider's declared icon
-// (Capability().Icon), keyed by provider id, once at startup.
-func computeProviderIcons(reg *providers.Registry) map[string]string {
-	icons := make(map[string]string, len(reg.Providers()))
-	for _, p := range reg.Providers() {
-		if icon := p.Capability().Icon; icon != "" {
-			icons[p.ID()] = icon
-		}
-	}
-	return icons
-}
-
-// unknownProviderIcon marks an entry whose ModeID (including "", i.e. none
+// unknownProviderIcon marks an entry whose ProviderID (including "", i.e. none
 // recorded) has no registered/loaded provider declaring an icon — e.g. the
-// "self-build" bucket (pkg/managers/providers.SelfBuild) covers ModeID
-// "self-build"; a truly empty or unrecognized ModeID falls back here.
+// "self-build" bucket (pkg/managers/providers.SelfBuild) covers ProviderID
+// "self-build"; a truly empty or unrecognized ProviderID falls back here.
 const unknownProviderIcon = "❓"
 
 // providerIcon returns the icon declared by the provider that imported an
-// entry (its ModeID), or unknownProviderIcon when the ModeID doesn't resolve
+// entry (its ProviderID), or unknownProviderIcon when the ProviderID doesn't resolve
 // to a provider that declared one — a pure map lookup, safe to call from
 // View.
 func (m model) providerIcon(modeID string) string {
@@ -182,7 +170,7 @@ type scanDoneMsg struct{ entries []*common.Entry }
 // scanCmd runs the potentially slow filesystem scan off the Bubble Tea event
 // loop so the program can render the loading spinner immediately instead of
 // blocking before the first frame.
-func scanCmd(svc *services.Services) tea.Cmd {
+func scanCmd(svc *managers.Services) tea.Cmd {
 	return func() tea.Msg { return scanDoneMsg{entries: svc.Scan()} }
 }
 
@@ -194,7 +182,7 @@ func (m *model) computeProviderTabs() {
 	seen := map[string]bool{}
 	hasNone := false
 	for _, e := range m.entries {
-		if mid := e.ModeIDValue(); mid != "" {
+		if mid := e.ProviderIDValue(); mid != "" {
 			seen[mid] = true
 		} else {
 			hasNone = true
@@ -268,7 +256,7 @@ func (m *model) computeInstallCols() {
 		// list ("安装状态无法在 list 页面看到").
 		cells := make([]installCell, len(targets))
 		for i, t := range targets {
-			state := installNA
+			state := components.InstallNA
 			if t.AcceptsKind(e.Kind) {
 				state = m.svc.Installer.State(e, t)
 			}
@@ -291,7 +279,7 @@ func (m *model) refreshFiltered() {
 			continue
 		}
 		if tab != tabAll {
-			mid := e.ModeIDValue()
+			mid := e.ProviderIDValue()
 			if tab == tabNone {
 				if mid != "" {
 					continue
@@ -323,8 +311,8 @@ type dispRow struct {
 func (m *model) buildRows() {
 	sort.SliceStable(m.filtered, func(i, j int) bool {
 		a, b := m.filtered[i], m.filtered[j]
-		if a.ModeIDValue() != b.ModeIDValue() {
-			return a.ModeIDValue() < b.ModeIDValue()
+		if a.ProviderIDValue() != b.ProviderIDValue() {
+			return a.ProviderIDValue() < b.ProviderIDValue()
 		}
 		if a.GroupValue() != b.GroupValue() {
 			return a.GroupValue() < b.GroupValue()
@@ -349,7 +337,7 @@ func (m *model) buildRows() {
 // sectionHeader is the group label for an entry: "mode_id / group", or just
 // "mode_id" when the entry sits directly under its source.
 func sectionHeader(e *common.Entry) string {
-	mid := e.ModeIDValue()
+	mid := e.ProviderIDValue()
 	if mid == "" {
 		mid = "—"
 	}
@@ -506,7 +494,7 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			m.showDetail = false // Esc/q back to the list (Enter does not close detail)
 			return nil
 		case key.Matches(msg, k.MoveDown):
-			lines := splitLines(m.detail)
+			lines := components.SplitLines(m.detail)
 			maxOffset := maxInt(0, len(lines)-maxInt(1, maxInt(10, m.height)-4))
 			m.detailOffset = clampInt(m.detailOffset+1, 0, maxOffset)
 			return nil
@@ -704,8 +692,8 @@ func (m *model) openTargetPicker(action string, entry *common.Entry) {
 // runInstall submits an install/uninstall job scoped to the chosen targets.
 func (m *model) runInstall(action, name string, targets []string) {
 	m.submitJob(action+" "+name, func(ctx context.Context) (any, error) {
-		opts := services.InstallOptions{Targets: targets}
-		var result *services.InstallResult
+		opts := managers.InstallOptions{Targets: targets}
+		var result *managers.InstallResult
 		var err error
 		if action == "install" {
 			result, err = m.svc.Install(ctx, name, opts)

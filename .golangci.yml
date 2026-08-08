@@ -6,6 +6,7 @@ run:
 linters:
   default: standard
   enable:
+    - depguard
     - errcheck
     - govet
     - ineffassign
@@ -20,6 +21,37 @@ linters:
         - fmt.Fprintln
         - fmt.Println
         - fmt.Print
+    # Architecture check (003-engineering-optimization FR-008, R3/FR-020): enforces the
+    # layering rules in specs/003-engineering-optimization/contracts/layering-rules.md.
+    # Vocabulary (Round 2 R3): pkg/managers is the scenario/orchestration layer
+    # (larger granularity — may call multiple services and/or dal); pkg/services
+    # groups the single-model services (smaller granularity — installer,
+    # providers, repository). This is a deliberate swap of the two names used in
+    # Round 1 (data-model.md), not a contradiction. Presentation (cmd, tui) must
+    # reach dal/services only via pkg/managers; services must not import the
+    # orchestration layer. Exceptions are scoped explicitly (never a blanket
+    # disable) with a rationale in that contract.
+    depguard:
+      rules:
+        presentation-no-dal-services:
+          files:
+            - "**/cmd/skm/**"
+            - "**/pkg/commands/**"
+            - "**/pkg/tui/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/alswl/skm/skm/pkg/dal
+              desc: "presentation must reach data access via pkg/managers, not pkg/dal directly (layering-rules.md)"
+            - pkg: github.com/alswl/skm/skm/pkg/services
+              desc: "presentation must reach single-model services via pkg/managers, not pkg/services/* directly (layering-rules.md)"
+            - pkg: github.com/alswl/skm/skm/pkg/plugins
+              desc: "presentation must not reach the plugin protocol layer directly; it is consumed by pkg/services/* (layering-rules.md, R2/FR-019)"
+        services-no-upward:
+          files:
+            - "**/pkg/services/**"
+          deny:
+            - pkg: github.com/alswl/skm/skm/pkg/managers
+              desc: "single-model services must not import the scenario/orchestration layer pkg/managers (layering-rules.md)"
 
 formatters:
   enable:
