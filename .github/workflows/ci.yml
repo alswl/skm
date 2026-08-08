@@ -29,9 +29,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
-          # "latest" resolves to a v1.x release, but .golangci.yml uses the v2
-          # config schema and go.mod targets go 1.26 — pin the v2 release that
-          # matches local dev (`golangci-lint version`).
+          # v6 of this action doesn't support golangci-lint v2 at all; v7 is
+          # required. .golangci.yml uses the v2 config schema and go.mod
+          # targets go 1.26 — pin the v2 release that matches local dev
+          # (`golangci-lint version`).
           version: v2.12.2
