@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alswl/skm/skm/pkg/jobs"
+	"github.com/alswl/skm/skm/pkg/tui/components"
 )
 
 // flattenTasks orders the queue snapshot for the task center: the running job
@@ -57,14 +58,14 @@ func (m model) tasksView() string {
 	inner := maxInt(20, m.width) - 2
 	var body strings.Builder
 	if len(tasks) == 0 {
-		body.WriteString(styleDim.Render("no background jobs"))
+		body.WriteString(components.StyleDim.Render("no background jobs"))
 	}
 	for i, jb := range tasks {
 		row := fmt.Sprintf("#%d  %-10s %s", jb.ID, jb.State, jb.Name)
 		if i == m.tasksCursor {
-			body.WriteString(fitCell("  ▶ "+row, inner, styleCursor) + "\n")
+			body.WriteString(components.FitCell("  ▶ "+row, inner, components.StyleCursor) + "\n")
 		} else {
-			body.WriteString(fitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
+			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
 	hint := "[c] cancel  [C] cancel all  [x] clear done  [j/k] move  [esc/J/q] back"

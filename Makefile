@@ -51,6 +51,11 @@ UT_COVER_PACKAGES := $(shell go list ./pkg/... | grep -Ev 'pkg/version')
 COVERAGE_PACKAGES := $(shell go list ./pkg/... | awk '{printf "%s%s", sep, $$0; sep=","} END{print ""}')
 COVERAGE_PROFILING_DIR := $(PROJECT_DIR)/.cover
 
+# Generated per-command docs land in docs/cli/ (kept separate from the
+# hand-authored docs/*.md guides); committed so they're browsable on GitHub
+# without running the generator (003-engineering-optimization R1/FR-018).
+CMD_DOCS_DIR := docs/cli
+
 .PHONY: all
 all: fmt test build
 
@@ -60,6 +65,7 @@ include hack/makefile-go/install.mk
 include hack/makefile-go/test.mk
 include hack/makefile-go/general.mk
 include hack/makefile-go/version.mk
+include hack/makefile-go/gen.mk
 
 ##@ Self defined
 .PHONY: run

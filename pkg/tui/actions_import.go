@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
 )
 
 // handleImportKey processes keys while the import dialog is active: printable
@@ -90,7 +90,7 @@ func (m *model) openKindPicker(addr, provider string) {
 // background, honoring the chosen provider and kind (FR-037).
 func (m *model) runImport(addr, provider, kind string) {
 	m.submitJob("import "+addr, func(ctx context.Context) (any, error) {
-		result, err := m.svc.Import(ctx, addr, services.ImportOptions{Provider: provider, Kind: kind})
+		result, err := m.svc.Import(ctx, addr, managers.ImportOptions{Provider: provider, Kind: kind})
 		if err != nil {
 			return nil, err
 		}

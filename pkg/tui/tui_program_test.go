@@ -14,7 +14,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
 )
 
 // E2E TUI suite: drives a real Bubble Tea program loop (tea.Program + probe
@@ -156,7 +156,7 @@ func fixtureProgramModel(t *testing.T) *model {
 		`[{"name":"claude-skills","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := services.New(cfg, common.NewLogger(false))
+	svc, err := managers.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(context.Background(), svc)
 	return m

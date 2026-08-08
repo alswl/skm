@@ -57,6 +57,14 @@ func e2eFixture(t *testing.T) (root, cfgDir string) {
 	return root, cfgDir
 }
 
+// writeTestFile writes content to base/rel, creating parent directories.
+func writeTestFile(t *testing.T, base, rel, content string) {
+	t.Helper()
+	p := filepath.Join(base, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+}
+
 // copyTestTree copies the committed fixture dir into dst.
 func copyTestTree(t *testing.T, src, dst string) error {
 	t.Helper()

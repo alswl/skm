@@ -16,8 +16,9 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
-	"github.com/alswl/skm/skm/pkg/pagination"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/utils/pagination"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +48,7 @@ func newTestModel(t *testing.T) model {
 
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := services.New(cfg, common.NewLogger(false))
+	svc, err := managers.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(t.Context(), svc)
 	m.width, m.height = 100, 30
@@ -61,7 +62,7 @@ func newTestModel(t *testing.T) model {
 // newLoadingTestModel builds a raw initialModel (loading, unscanned) using the
 // same fixture repo as newTestModel, for tests that exercise the async-scan
 // transition itself rather than a fully-loaded model.
-func newLoadingTestModel(t *testing.T) (*model, *services.Services) {
+func newLoadingTestModel(t *testing.T) (*model, *managers.Services) {
 	t.Helper()
 	prev := termenv.ColorProfile()
 	lipgloss.SetColorProfile(termenv.Ascii)
@@ -73,7 +74,7 @@ func newLoadingTestModel(t *testing.T) (*model, *services.Services) {
 	cfgDir := t.TempDir()
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := services.New(cfg, common.NewLogger(false))
+	svc, err := managers.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(t.Context(), svc)
 	m.width, m.height = 100, 30
@@ -360,7 +361,7 @@ func TestPaginationCursorTracksPageAcrossMovesAndResize(t *testing.T) {
 	for i := range entries {
 		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i)}
 	}
-	m := model{entries: entries, pageSize: 10, keys: defaultKeys(), help: help.New()}
+	m := model{entries: entries, pageSize: 10, keys: components.DefaultKeys(), help: help.New()}
 	m.refreshFiltered()
 
 	// Walk down across page boundaries; the cursor stays on the rendered page.

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/tui/components"
 )
 
 // targetWizard drives the plain-text steps of adding a target (name,
@@ -268,7 +269,7 @@ func (m model) targetsView() string {
 	inner := maxInt(20, m.width) - 2
 	var body strings.Builder
 	if len(targets) == 0 {
-		body.WriteString(styleDim.Render("no targets configured"))
+		body.WriteString(components.StyleDim.Render("no targets configured"))
 	}
 	for i, t := range targets {
 		accepts := make([]string, len(t.Accepts))
@@ -277,13 +278,13 @@ func (m model) targetsView() string {
 		}
 		row := fmt.Sprintf("%-16s %-10s %-16s %s", t.Name, t.Platform, strings.Join(accepts, ","), t.Path)
 		if i == m.targetsCursor {
-			body.WriteString(fitCell("  ▶ "+row, inner, styleCursor) + "\n")
+			body.WriteString(components.FitCell("  ▶ "+row, inner, components.StyleCursor) + "\n")
 		} else {
-			body.WriteString(fitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
+			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
 	for _, inv := range m.svc.Cfg.InvalidTargets {
-		body.WriteString(fitCell("    "+styleDim.Render("invalid: "+inv.Reason), inner, lipgloss.NewStyle()) + "\n")
+		body.WriteString(components.FitCell("    "+components.StyleDim.Render("invalid: "+inv.Reason), inner, lipgloss.NewStyle()) + "\n")
 	}
 	hint := "[a] add  [enter] edit path  [d] remove  [j/k] move  [esc/t/q] back"
 	return m.framedPage(" skm · targets ", strings.TrimRight(body.String(), "\n"), hint)
@@ -292,7 +293,7 @@ func (m model) targetsView() string {
 // targetWizardView renders the active text-entry step as a full-screen
 // framed page, matching the picker/confirm/tasks views.
 func (m model) targetWizardView() string {
-	body := stylePrompt.Render(m.targetWizard.prompt()+": ") + m.targetWizard.text + "▏"
+	body := components.StylePrompt.Render(m.targetWizard.prompt()+": ") + m.targetWizard.text + "▏"
 	return m.framedPage(" skm · target "+addOrEdit(m.targetWizard.editing), body, "[enter] next  [esc] cancel")
 }
 

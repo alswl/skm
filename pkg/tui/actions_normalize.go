@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
 )
 
 // normalizeSelected starts relocating the currently viewed detail-page
@@ -59,7 +59,7 @@ func (m *model) openNormalizeProviderPicker(name string) {
 // confirmNormalize previews the destination for provider and, once the user
 // confirms, runs the move as a background job.
 func (m *model) confirmNormalize(name, provider string) {
-	preview, err := m.svc.Normalize(m.ctx, name, provider, services.LifecycleOptions{DryRun: true})
+	preview, err := m.svc.Normalize(m.ctx, name, provider, managers.LifecycleOptions{DryRun: true})
 	if err != nil {
 		m.status = "normalize: " + err.Error()
 		return
@@ -68,7 +68,7 @@ func (m *model) confirmNormalize(name, provider string) {
 		prompt: fmt.Sprintf("Move %q to %s?", name, preview.Path),
 		onYes: func() {
 			m.submitJob("normalize "+name, func(ctx context.Context) (any, error) {
-				res, err := m.svc.Normalize(ctx, name, provider, services.LifecycleOptions{})
+				res, err := m.svc.Normalize(ctx, name, provider, managers.LifecycleOptions{})
 				if err != nil {
 					return nil, err
 				}

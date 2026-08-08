@@ -12,7 +12,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/pagination"
+	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
 
 // View renders the nnn-style framed layout: a full-screen single-column list
@@ -51,17 +52,17 @@ func (m model) listView() string {
 	title := " skm · " + m.svc.Repo.Root()
 
 	var sb strings.Builder
-	sb.WriteString(frameTop(inner, title) + "\n")
-	sb.WriteString("│" + fitCell(m.tabBarContent(), inner, lipgloss.NewStyle()) + "│\n")
-	sb.WriteString("│" + fitCell(installHeaderRow(m.svc.Cfg.Targets), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString(components.FrameTop(inner, title) + "\n")
+	sb.WriteString("│" + components.FitCell(m.tabBarContent(), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString("│" + components.FitCell(installHeaderRow(m.svc.Cfg.Targets), inner, lipgloss.NewStyle()) + "│\n")
 	for _, r := range m.renderMainArea(inner, rows) {
 		sb.WriteString("│" + r + "│\n")
 	}
-	sb.WriteString(frameSep(inner) + "\n")
-	sb.WriteString("│" + fitCell(m.statusContent(), inner, styleStatusBar) + "│\n")
-	sb.WriteString(frameSep(inner) + "\n")
-	sb.WriteString("│" + fitCell(m.listHint(), inner, lipgloss.NewStyle()) + "│\n")
-	sb.WriteString(frameBottom(inner))
+	sb.WriteString(components.FrameSep(inner) + "\n")
+	sb.WriteString("│" + components.FitCell(m.statusContent(), inner, components.StyleStatusBar) + "│\n")
+	sb.WriteString(components.FrameSep(inner) + "\n")
+	sb.WriteString("│" + components.FitCell(m.listHint(), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString(components.FrameBottom(inner))
 	return sb.String()
 }
 
@@ -78,25 +79,25 @@ func (m model) loadingView() string {
 	mid := rows / 2
 
 	var sb strings.Builder
-	sb.WriteString(frameTop(inner, title) + "\n")
+	sb.WriteString(components.FrameTop(inner, title) + "\n")
 	for i := 0; i < rows; i++ {
 		if i == mid {
 			sb.WriteString("│" + centerCell(msg, inner) + "│\n")
 		} else {
-			sb.WriteString("│" + fitCell("", inner, lipgloss.NewStyle()) + "│\n")
+			sb.WriteString("│" + components.FitCell("", inner, lipgloss.NewStyle()) + "│\n")
 		}
 	}
-	sb.WriteString(frameBottom(inner))
+	sb.WriteString(components.FrameBottom(inner))
 	return sb.String()
 }
 
 // centerCell horizontally centers content within w cells, padding with
-// spaces on both sides (falls back to fitCell's truncate+pad if content is
+// spaces on both sides (falls back to components.FitCell's truncate+pad if content is
 // too wide to center).
 func centerCell(content string, w int) string {
 	cw := lipgloss.Width(content)
 	if cw >= w {
-		return fitCell(content, w, lipgloss.NewStyle())
+		return components.FitCell(content, w, lipgloss.NewStyle())
 	}
 	left := (w - cw) / 2
 	right := w - cw - left
@@ -126,9 +127,9 @@ func (m model) tabBarContent() string {
 		if i <= 9 {
 			label = strconv.Itoa(i) + label
 		}
-		st := styleDim
+		st := components.StyleDim
 		if i == m.providerTabIdx {
-			st = styleCursor
+			st = components.StyleCursor
 		}
 		sb.WriteString(st.Render(" " + label + " "))
 	}
@@ -141,26 +142,26 @@ func (m model) tabBarContent() string {
 // the terminal height.
 func (m model) renderMainArea(inner, rows int) []string {
 	if m.showHelp {
-		return padLines(splitLines(m.help.FullHelpView(m.keys.FullHelp())), inner, rows)
+		return components.PadLines(components.SplitLines(m.help.FullHelpView(m.keys.FullHelp())), inner, rows)
 	}
 	pageInfo := pagination.Page(len(m.rows), m.pageSize, m.page)
 	var out []string
 	for i := pageInfo.Offset; i < pageInfo.Offset+pageInfo.Count; i++ {
 		r := m.rows[i]
 		if r.header != "" {
-			out = append(out, fitCell(styleGroup.Render("▸ "+r.header), inner, lipgloss.NewStyle()))
+			out = append(out, components.FitCell(components.StyleGroup.Render("▸ "+r.header), inner, lipgloss.NewStyle()))
 			continue
 		}
 		e := m.filtered[r.entryIdx]
 		hl := r.entryIdx == m.cursor
 		row := renderEntryLine(e, m.providerIcon(e.ProviderIDValue()), m.installCol[e.Name], hl)
 		if hl {
-			out = append(out, fitCell("  ▶ "+row, inner, styleCursor))
+			out = append(out, components.FitCell("  ▶ "+row, inner, components.StyleCursor))
 		} else {
-			out = append(out, fitCell("    "+row, inner, lipgloss.NewStyle()))
+			out = append(out, components.FitCell("    "+row, inner, lipgloss.NewStyle()))
 		}
 	}
-	return padLines(out, inner, rows)
+	return components.PadLines(out, inner, rows)
 }
 
 // Column widths for renderEntryLine. statusColWidth fits the longest status
@@ -173,12 +174,6 @@ const (
 	versionColWidth = 8
 	statusColWidth  = 12
 )
-
-// installNA marks a target column that structurally cannot receive an
-// entry's kind (the target's Accepts doesn't list it) — distinct from
-// InstallAbsent, which means the target could receive the entry but doesn't
-// have it yet (FR-041 per-target columns).
-const installNA common.InstallState = "na"
 
 // installCell is one target's install-state column for a single entry: the
 // target's name (drives the header label and column width) and its state.
@@ -201,14 +196,14 @@ func installHeaderRow(targets []common.InstallTarget) string {
 	sb.WriteString(truncPad("", iconColWidth) + " " + truncPad("", nameColWidth) + " " + truncPad("", kindColWidth) + " " +
 		truncPad("", versionColWidth) + " " + truncPad("", statusColWidth))
 	for _, t := range targets {
-		sb.WriteString(" " + styleDim.Render(truncPad(t.Name, targetColWidth(t.Name))))
+		sb.WriteString(" " + components.StyleDim.Render(truncPad(t.Name, targetColWidth(t.Name))))
 	}
 	return sb.String()
 }
 
 // renderEntryLine is one flat list row: provider icon · name · kind · version
 // · status · one column per install target (FR-041), each showing that
-// target's install state as a small glyph (installIcon). icon is the
+// target's install state as a small glyph (components.InstallIcon). icon is the
 // provider's declared marker (model.providerIcon; unknownProviderIcon when
 // the provider isn't recognized or declares none). Kind, status, and target cells
 // are zone-colored (nnn-style) for non-highlighted rows; the highlighted
@@ -220,8 +215,8 @@ func renderEntryLine(e *common.Entry, icon string, cells []installCell, highligh
 	kind := truncPad(string(e.Kind), kindColWidth)
 	status := truncPad(string(e.Status), statusColWidth)
 	if !highlighted {
-		kind = styleForKind(e.Kind).Render(kind)
-		status = styleForStatus(e.Status).Render(status)
+		kind = components.StyleForKind(e.Kind).Render(kind)
+		status = components.StyleForStatus(e.Status).Render(status)
 	}
 	var sb strings.Builder
 	sb.WriteString(truncPad(icon, iconColWidth) + " " +
@@ -230,7 +225,7 @@ func renderEntryLine(e *common.Entry, icon string, cells []installCell, highligh
 		truncPad(orDash(e.VersionValue()), versionColWidth) + " " +
 		status)
 	for _, c := range cells {
-		icon, style := installIcon(c.state)
+		icon, style := components.InstallIcon(c.state)
 		cell := truncPad(icon, targetColWidth(c.name))
 		if !highlighted {
 			cell = style.Render(cell)
@@ -265,9 +260,9 @@ func truncPad(s string, w int) string {
 func (m model) statusContent() string {
 	switch {
 	case m.importing:
-		return stylePrompt.Render("Import address: ") + m.importAddr + "▏"
+		return components.StylePrompt.Render("Import address: ") + m.importAddr + "▏"
 	case m.searching:
-		return styleTitle.Render("Search: ") + m.search + "▏"
+		return components.StyleTitle.Render("Search: ") + m.search + "▏"
 	case m.status != "":
 		return m.status
 	default:
@@ -299,20 +294,20 @@ func (m model) detailView() string {
 	if len(m.filtered) > 0 {
 		title = " skm · " + m.filtered[m.cursor].Name + " · detail "
 	}
-	lines := splitLines(m.detail)
+	lines := components.SplitLines(m.detail)
 	offset := clampInt(m.detailOffset, 0, maxInt(0, len(lines)-rows))
 	var sb strings.Builder
-	sb.WriteString(frameTop(inner, title) + "\n")
+	sb.WriteString(components.FrameTop(inner, title) + "\n")
 	for i := 0; i < rows; i++ {
 		l := ""
 		if offset+i < len(lines) {
 			l = lines[offset+i]
 		}
-		sb.WriteString("│" + fitCell(l, inner, lipgloss.NewStyle()) + "│\n")
+		sb.WriteString("│" + components.FitCell(l, inner, lipgloss.NewStyle()) + "│\n")
 	}
-	sb.WriteString(frameSep(inner) + "\n")
-	sb.WriteString("│" + fitCell(m.detailHint(), inner, lipgloss.NewStyle()) + "│\n")
-	sb.WriteString(frameBottom(inner))
+	sb.WriteString(components.FrameSep(inner) + "\n")
+	sb.WriteString("│" + components.FitCell(m.detailHint(), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString(components.FrameBottom(inner))
 	return sb.String()
 }
 
@@ -370,7 +365,7 @@ func (m model) detailHint() string {
 // for the current selection.
 func hintBinding(keys, label string, enabled bool) string {
 	if !enabled {
-		return styleDim.Render("[" + keys + "] " + label)
+		return components.StyleDim.Render("[" + keys + "] " + label)
 	}
 	return "[" + keys + "] " + label
 }
@@ -393,7 +388,7 @@ func (m model) detailBindings() []hintItem {
 	e := m.filtered[m.cursor]
 	rows := maxInt(1, maxInt(10, m.height)-4)
 	return []hintItem{
-		{keys: "j/k", label: "scroll", enabled: len(splitLines(m.detail)) > rows},
+		{keys: "j/k", label: "scroll", enabled: len(components.SplitLines(m.detail)) > rows},
 		{keys: "esc/q", label: "back", enabled: true},
 		{keys: "s", label: "install", enabled: e.Status == common.StatusActive && m.detailTargets > 0},
 		{keys: "u", label: "uninstall", enabled: m.detailInstalled},
@@ -411,13 +406,13 @@ func (m model) detailBindings() []hintItem {
 // (via openDetail), never in View.
 func (m model) buildDetail() string {
 	if len(m.filtered) == 0 {
-		return styleDim.Render("no entries")
+		return components.StyleDim.Render("no entries")
 	}
 	e := m.filtered[m.cursor]
-	rule := styleDim.Render(strings.Repeat("─", maxInt(20, m.width)-2))
+	rule := components.StyleDim.Render(strings.Repeat("─", maxInt(20, m.width)-2))
 
 	var sb strings.Builder
-	sb.WriteString(styleTitle.Render(e.Name) + "\n")
+	sb.WriteString(components.StyleTitle.Render(e.Name) + "\n")
 	if e.Description != "" {
 		sb.WriteString(e.Description + "\n")
 	}
@@ -438,7 +433,7 @@ func (m model) buildDetail() string {
 	}
 
 	sb.WriteString(rule + "\n")
-	sb.WriteString(styleDim.Render("install status") + "\n")
+	sb.WriteString(components.StyleDim.Render("install status") + "\n")
 	targets := m.svc.Installer.Targets(e)
 	if len(targets) == 0 {
 		sb.WriteString("  (no matching targets)\n")
@@ -449,57 +444,24 @@ func (m model) buildDetail() string {
 	}
 
 	sb.WriteString(rule + "\n")
-	sb.WriteString(styleDim.Render("files") + "\n")
+	sb.WriteString(components.StyleDim.Render("files") + "\n")
 	for _, f := range entryFiles(e.Path) {
 		sb.WriteString("  " + f + "\n")
 	}
 
 	sb.WriteString(rule + "\n")
-	sb.WriteString(styleDim.Render("marker preview") + "\n")
+	sb.WriteString(components.StyleDim.Render("marker preview") + "\n")
 	sb.WriteString(previewMarker(e))
 
 	return sb.String()
 }
 
 // ---- frame helpers (box-drawing) ----
-
-func frameTop(inner int, title string) string {
-	t := ansi.Truncate(title, maxInt(0, inner-2), "")
-	pad := maxInt(1, inner-1-lipgloss.Width(t))
-	return "┌─" + t + strings.Repeat("─", pad) + "┐"
-}
-
-func frameSep(inner int) string {
-	return "├" + strings.Repeat("─", inner) + "┤"
-}
-
-func frameBottom(inner int) string {
-	return "└" + strings.Repeat("─", inner) + "┘"
-}
-
-// fitCell truncates content to w cells (ANSI-aware) and pads it to exactly w
-// cells before applying st, so a background style spans the full row.
-func fitCell(content string, w int, st lipgloss.Style) string {
-	if w <= 0 {
-		return ""
-	}
-	t := ansi.Truncate(content, w, "")
-	t = t + strings.Repeat(" ", maxInt(0, w-lipgloss.Width(t)))
-	return st.Render(t)
-}
-
-func splitLines(s string) []string {
-	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
-}
-
-// padLines fills the slice with blank full-width rows up to n entries so the
-// surrounding frame keeps its height.
-func padLines(lines []string, inner, n int) []string {
-	for len(lines) < n {
-		lines = append(lines, fitCell("", inner, lipgloss.NewStyle()))
-	}
-	return lines
-}
+//
+// components.FrameTop/components.FrameSep/components.FrameBottom/components.FitCell/components.SplitLines/components.PadLines moved to
+// pkg/tui/components (003-engineering-optimization Round 2 R7) — they were
+// used across list.go/modal.go/tasks_view.go/target_editor.go/tui.go with no
+// model dependency, a genuinely shared primitive, not page-specific.
 
 func orDash(s string) string {
 	if s == "" {
@@ -535,7 +497,7 @@ func entryFiles(root string) []string {
 func previewMarker(e *common.Entry) string {
 	data, err := os.ReadFile(e.MarkerPath())
 	if err != nil {
-		return styleDim.Render("(unreadable)")
+		return components.StyleDim.Render("(unreadable)")
 	}
 	return strings.TrimSuffix(string(data), "\n")
 }

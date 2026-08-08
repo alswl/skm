@@ -14,15 +14,16 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/jobs"
-	"github.com/alswl/skm/skm/pkg/pagination"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
 
 // Run starts the TUI. It must only be called when the tool was launched with
 // no known subcommand (FR-001). The UI never writes files directly; all
 // mutations go through the shared services layer. A cancelled context stops
 // the program (go-tui-guides.md: tea.WithContext).
-func Run(ctx context.Context, svc *services.Services) error {
+func Run(ctx context.Context, svc *managers.Services) error {
 	if !isTerminal() {
 		return fmt.Errorf("tui: requires an interactive terminal; use a subcommand (e.g. skm list --json) for scriptable output")
 	}
@@ -50,7 +51,7 @@ func isTerminalFile(f *os.File) bool {
 // detail pane on the right (tui-contract.md).
 type model struct {
 	ctx          context.Context
-	svc          *services.Services
+	svc          *managers.Services
 	queue        *jobs.Queue
 	entries      []*common.Entry // full scan result
 	filtered     []*common.Entry // after search filter, sorted by source
@@ -68,7 +69,7 @@ type model struct {
 	width        int
 	height       int
 
-	keys     keyMap
+	keys     components.KeyMap
 	help     help.Model
 	showHelp bool
 
@@ -121,13 +122,13 @@ const (
 // would copy the receiver each Update and closures would mutate stale copies —
 // the modals they open (confirm after a picker, next picker, status lines)
 // would silently never appear in the running program.
-func initialModel(ctx context.Context, svc *services.Services) *model {
+func initialModel(ctx context.Context, svc *managers.Services) *model {
 	m := &model{
 		ctx:           ctx,
 		svc:           svc,
 		queue:         jobs.New(32),
 		pageSize:      20,
-		keys:          defaultKeys(),
+		keys:          components.DefaultKeys(),
 		help:          help.New(),
 		loading:       true,
 		spinner:       spinner.New(),
@@ -169,7 +170,7 @@ type scanDoneMsg struct{ entries []*common.Entry }
 // scanCmd runs the potentially slow filesystem scan off the Bubble Tea event
 // loop so the program can render the loading spinner immediately instead of
 // blocking before the first frame.
-func scanCmd(svc *services.Services) tea.Cmd {
+func scanCmd(svc *managers.Services) tea.Cmd {
 	return func() tea.Msg { return scanDoneMsg{entries: svc.Scan()} }
 }
 
@@ -255,7 +256,7 @@ func (m *model) computeInstallCols() {
 		// list ("安装状态无法在 list 页面看到").
 		cells := make([]installCell, len(targets))
 		for i, t := range targets {
-			state := installNA
+			state := components.InstallNA
 			if t.AcceptsKind(e.Kind) {
 				state = m.svc.Installer.State(e, t)
 			}
@@ -493,7 +494,7 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 			m.showDetail = false // Esc/q back to the list (Enter does not close detail)
 			return nil
 		case key.Matches(msg, k.MoveDown):
-			lines := splitLines(m.detail)
+			lines := components.SplitLines(m.detail)
 			maxOffset := maxInt(0, len(lines)-maxInt(1, maxInt(10, m.height)-4))
 			m.detailOffset = clampInt(m.detailOffset+1, 0, maxOffset)
 			return nil
@@ -691,8 +692,8 @@ func (m *model) openTargetPicker(action string, entry *common.Entry) {
 // runInstall submits an install/uninstall job scoped to the chosen targets.
 func (m *model) runInstall(action, name string, targets []string) {
 	m.submitJob(action+" "+name, func(ctx context.Context) (any, error) {
-		opts := services.InstallOptions{Targets: targets}
-		var result *services.InstallResult
+		opts := managers.InstallOptions{Targets: targets}
+		var result *managers.InstallResult
 		var err error
 		if action == "install" {
 			result, err = m.svc.Install(ctx, name, opts)

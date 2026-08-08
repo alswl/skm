@@ -1,8 +1,6 @@
-// Package managers is a namespace, not a code-bearing package: it groups the
-// three stateful domain managers — installer (links/adapters/install-state),
-// providers (registry + fetch), and repository (scan/import/update/lifecycle/
-// convert/discover) — as a cohesive unit distinct from pkg/services
-// (orchestration) and pkg/dal (I/O). Nothing is defined directly in this
-// package; import its subpackages (003-engineering-optimization F-08).
-// Intentionally test-free: no logic, nothing to test.
+// Package managers orchestrates CLI and TUI use cases (scenarios) over the
+// single-model pkg/services/* packages and pkg/dal. It is the single write
+// path for all mutations, and the larger-granularity layer in
+// 003-engineering-optimization's manager/service split: a manager may call
+// multiple services and/or dal directly; each service owns one model.
 package managers
