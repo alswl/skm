@@ -14,7 +14,6 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/jobs"
-	"github.com/alswl/skm/skm/pkg/managers/providers"
 	"github.com/alswl/skm/skm/pkg/pagination"
 	"github.com/alswl/skm/skm/pkg/services"
 )
@@ -99,7 +98,7 @@ type model struct {
 	providerTabs   []string
 	providerTabIdx int
 
-	// providerIcons maps a provider id (entry.ModeID) to its declared
+	// providerIcons maps a provider id (entry.ProviderID) to its declared
 	// one-glyph icon, computed once at startup (the registry never changes
 	// after Services.New()). Precomputed here rather than looked up in View,
 	// since a plugin provider's Capability() makes a subprocess call and View
@@ -132,31 +131,19 @@ func initialModel(ctx context.Context, svc *services.Services) *model {
 		help:          help.New(),
 		loading:       true,
 		spinner:       spinner.New(),
-		providerIcons: computeProviderIcons(svc.Registry),
+		providerIcons: svc.ProviderIcons(),
 	}
 	return m
 }
 
-// computeProviderIcons collects each registered provider's declared icon
-// (Capability().Icon), keyed by provider id, once at startup.
-func computeProviderIcons(reg *providers.Registry) map[string]string {
-	icons := make(map[string]string, len(reg.Providers()))
-	for _, p := range reg.Providers() {
-		if icon := p.Capability().Icon; icon != "" {
-			icons[p.ID()] = icon
-		}
-	}
-	return icons
-}
-
-// unknownProviderIcon marks an entry whose ModeID (including "", i.e. none
+// unknownProviderIcon marks an entry whose ProviderID (including "", i.e. none
 // recorded) has no registered/loaded provider declaring an icon — e.g. the
-// "self-build" bucket (pkg/managers/providers.SelfBuild) covers ModeID
-// "self-build"; a truly empty or unrecognized ModeID falls back here.
+// "self-build" bucket (pkg/managers/providers.SelfBuild) covers ProviderID
+// "self-build"; a truly empty or unrecognized ProviderID falls back here.
 const unknownProviderIcon = "❓"
 
 // providerIcon returns the icon declared by the provider that imported an
-// entry (its ModeID), or unknownProviderIcon when the ModeID doesn't resolve
+// entry (its ProviderID), or unknownProviderIcon when the ProviderID doesn't resolve
 // to a provider that declared one — a pure map lookup, safe to call from
 // View.
 func (m model) providerIcon(modeID string) string {
@@ -194,7 +181,7 @@ func (m *model) computeProviderTabs() {
 	seen := map[string]bool{}
 	hasNone := false
 	for _, e := range m.entries {
-		if mid := e.ModeIDValue(); mid != "" {
+		if mid := e.ProviderIDValue(); mid != "" {
 			seen[mid] = true
 		} else {
 			hasNone = true
@@ -291,7 +278,7 @@ func (m *model) refreshFiltered() {
 			continue
 		}
 		if tab != tabAll {
-			mid := e.ModeIDValue()
+			mid := e.ProviderIDValue()
 			if tab == tabNone {
 				if mid != "" {
 					continue
@@ -323,8 +310,8 @@ type dispRow struct {
 func (m *model) buildRows() {
 	sort.SliceStable(m.filtered, func(i, j int) bool {
 		a, b := m.filtered[i], m.filtered[j]
-		if a.ModeIDValue() != b.ModeIDValue() {
-			return a.ModeIDValue() < b.ModeIDValue()
+		if a.ProviderIDValue() != b.ProviderIDValue() {
+			return a.ProviderIDValue() < b.ProviderIDValue()
 		}
 		if a.GroupValue() != b.GroupValue() {
 			return a.GroupValue() < b.GroupValue()
@@ -349,7 +336,7 @@ func (m *model) buildRows() {
 // sectionHeader is the group label for an entry: "mode_id / group", or just
 // "mode_id" when the entry sits directly under its source.
 func sectionHeader(e *common.Entry) string {
-	mid := e.ModeIDValue()
+	mid := e.ProviderIDValue()
 	if mid == "" {
 		mid = "—"
 	}

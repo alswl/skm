@@ -72,7 +72,7 @@ func TestListRowShowsVersionAndStatusColumns(t *testing.T) {
 	ver := "1.2.3"
 	m := newTestModel(t)
 	m.entries = []*common.Entry{
-		{Name: "versioned", Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid, Version: &ver},
+		{Name: "versioned", Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &mid, Version: &ver},
 	}
 	m.refreshFiltered()
 
@@ -108,10 +108,10 @@ func TestListRowColumnsStayAlignedWithLongContent(t *testing.T) {
 func providerTabEntries() []*common.Entry {
 	github, local := "github", "local"
 	return []*common.Entry{
-		{Name: "gh-1", Kind: common.KindSkill, Status: common.StatusActive, ModeID: &github},
-		{Name: "gh-2", Kind: common.KindSkill, Status: common.StatusActive, ModeID: &github},
-		{Name: "loc-1", Kind: common.KindSkill, Status: common.StatusActive, ModeID: &local},
-		{Name: "no-provider", Kind: common.KindSkill, Status: common.StatusNonStandard}, // ModeID nil
+		{Name: "gh-1", Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &github},
+		{Name: "gh-2", Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &github},
+		{Name: "loc-1", Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &local},
+		{Name: "no-provider", Kind: common.KindSkill, Status: common.StatusNonStandard}, // ProviderID nil
 	}
 }
 

@@ -104,7 +104,7 @@ func TestNormalizeMovesSkillMissingProviderLevel(t *testing.T) {
 
 	moved := findEntryByName(t, root, "flat-skill")
 	require.Equal(t, common.StatusActive, moved.Status, "the entry is now in its standard location")
-	require.Equal(t, "local", moved.ModeIDValue())
+	require.Equal(t, "local", moved.ProviderIDValue())
 }
 
 // TestNormalizeMovesLooseCommandFileMissingProviderLevel:
@@ -184,5 +184,5 @@ func TestNormalizeMovesToExplicitProvider(t *testing.T) {
 	require.FileExists(t, filepath.Join(root, "skills/github/flat-skill/SKILL.md"))
 
 	moved := findEntryByName(t, root, "flat-skill")
-	require.Equal(t, "github", moved.ModeIDValue())
+	require.Equal(t, "github", moved.ProviderIDValue())
 }

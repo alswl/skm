@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +32,7 @@ var infoCmd = &cobra.Command{
 		if entry == nil {
 			return common.WithExitCode(fmt.Errorf("info: entry %q not found", args[0]), common.ExitObject)
 		}
-		rep, err := buildInfoReport(entry)
+		rep, err := buildInfoReport(svc, entry)
 		if err != nil {
 			return common.WithExitCode(err, common.ExitObject)
 		}
@@ -49,13 +49,13 @@ var infoCmd = &cobra.Command{
 
 func init() { rootCmd.AddCommand(infoCmd) }
 
-func buildInfoReport(e *common.Entry) (*infoReport, error) {
+func buildInfoReport(svc *services.Services, e *common.Entry) (*infoReport, error) {
 	rep := &infoReport{
 		Type:        e.Kind,
 		Path:        e.Path,
 		Version:     e.Version,
 		Frontmatter: map[string]string{},
-		Files:       dal.ListEntryFiles(e.Path),
+		Files:       svc.EntryFiles(e.Path),
 	}
 	if rep.Files == nil {
 		rep.Files = []string{}
@@ -64,7 +64,7 @@ func buildInfoReport(e *common.Entry) (*infoReport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("info: read marker: %w", err)
 	}
-	fm, _, err := dal.ParseFrontmatter(data)
+	fm, _, err := svc.EntryFrontmatter(data)
 	if err != nil {
 		return nil, fmt.Errorf("info: parse frontmatter: %w", err)
 	}

@@ -257,7 +257,7 @@ func isMarkdown(name string) bool { return strings.HasSuffix(name, ".md") }
 
 // buildDirEntry validates a directory entry (skill or directory command).
 func (r *Repository) buildDirEntry(dir, modeID, group string, kind common.EntryKind, status common.Status) *common.Entry {
-	e := &common.Entry{Status: status, Path: dir, ModeID: strPtr(modeID)}
+	e := &common.Entry{Status: status, Path: dir, ProviderID: strPtr(modeID)}
 	if group != "" {
 		e.Group = strPtr(group)
 	}
@@ -279,7 +279,7 @@ func (r *Repository) buildDirEntry(dir, modeID, group string, kind common.EntryK
 // buildFileEntry validates a single-file command (FR-005: name may fall back
 // to the file stem).
 func (r *Repository) buildFileEntry(path, modeID, group string, status common.Status) *common.Entry {
-	e := &common.Entry{Status: status, Path: path, Kind: common.KindCommand, ModeID: strPtr(modeID)}
+	e := &common.Entry{Status: status, Path: path, Kind: common.KindCommand, ProviderID: strPtr(modeID)}
 	if group != "" {
 		e.Group = strPtr(group)
 	}
@@ -319,8 +319,8 @@ func (r *Repository) finishEntry(e *common.Entry, marker string, requireName boo
 	if dal.IsDir(e.Path) {
 		if o, err := dal.ReadMeta(e.Path); err == nil {
 			e.Origin = o
-			if o.ModeID != nil && *o.ModeID != "" && *o.ModeID != *e.ModeID {
-				return errEntry(e, fmt.Sprintf("mode_id mismatch: origin %q != directory %q", *o.ModeID, *e.ModeID))
+			if o.ProviderID != nil && *o.ProviderID != "" && *o.ProviderID != *e.ProviderID {
+				return errEntry(e, fmt.Sprintf("mode_id mismatch: origin %q != directory %q", *o.ProviderID, *e.ProviderID))
 			}
 		}
 	}

@@ -109,7 +109,7 @@ func TestListAndDetailShowProviderIcon(t *testing.T) {
 
 // TestProviderIconDistinguishesSelfBuildAndUnknown: an entry moved to the
 // "self-build" bucket (pkg/tui/actions_normalize.go's always-offered move
-// destination) shows the SelfBuild provider's icon; one with a ModeID that
+// destination) shows the SelfBuild provider's icon; one with a ProviderID that
 // resolves to no registered provider (including "", none recorded) falls
 // back to unknownProviderIcon instead of a blank column.
 func TestProviderIconDistinguishesSelfBuildAndUnknown(t *testing.T) {
@@ -402,7 +402,7 @@ func TestListViewNeverExceedsTerminalHeight(t *testing.T) {
 	entries := make([]*common.Entry, 40)
 	for i := range entries {
 		mid := "local"
-		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i), Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid}
+		entries[i] = &common.Entry{Name: fmt.Sprintf("e%02d", i), Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &mid}
 	}
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 35})
 	m = *updated.(*model)
@@ -419,7 +419,7 @@ func TestListViewNeverExceedsTerminalHeight(t *testing.T) {
 // line, and the detail page). Entries stay sorted by source.
 func TestListIsFlatWithoutSectionHeaders(t *testing.T) {
 	mk := func(name, mid, grp string) *common.Entry {
-		e := &common.Entry{Name: name, Kind: common.KindSkill, Status: common.StatusActive, ModeID: &mid}
+		e := &common.Entry{Name: name, Kind: common.KindSkill, Status: common.StatusActive, ProviderID: &mid}
 		if grp != "" {
 			e.Group = &grp
 		}
@@ -448,7 +448,7 @@ func TestListIsFlatWithoutSectionHeaders(t *testing.T) {
 func TestArchivedHiddenUntilToggled(t *testing.T) {
 	mk := func(name string, st common.Status) *common.Entry {
 		mid := "local"
-		return &common.Entry{Name: name, Kind: common.KindSkill, Status: st, ModeID: &mid}
+		return &common.Entry{Name: name, Kind: common.KindSkill, Status: st, ProviderID: &mid}
 	}
 	m := newTestModel(t)
 	m.entries = []*common.Entry{

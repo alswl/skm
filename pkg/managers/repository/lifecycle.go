@@ -136,7 +136,7 @@ func (r *Repository) ConvertContent(ctx context.Context, entry *common.Entry, ne
 		Status:      common.StatusActive,
 		Path:        dest,
 		Version:     entry.Version,
-		ModeID:      entry.ModeID,
+		ProviderID:  entry.ProviderID,
 		Group:       entry.Group,
 	}, nil
 }

@@ -100,7 +100,7 @@ func (s *Services) fetchProvider(ctx context.Context, p providers.Provider, sour
 		return "", "", nil, func() {}, common.WithExitCode(ferr, common.ExitError)
 	}
 	modeID := p.ID()
-	return tmp, p.ID(), &common.Origin{Address: source, ModeID: &modeID}, func() { _ = os.RemoveAll(tmp) }, nil
+	return tmp, p.ID(), &common.Origin{Address: source, ProviderID: &modeID}, func() { _ = os.RemoveAll(tmp) }, nil
 }
 
 // isLocalSource reports whether source is a real local path the import should

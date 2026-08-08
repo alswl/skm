@@ -171,6 +171,10 @@ temp dirs and never touch your real config or targets.
 
 ## Architecture
 
+Core domain concepts (`Entry`, `EntryKind`, `Provider`, `Target`, `InstallStrategy`, `Origin`,
+`Status`, `InstallState`, `InstallReport`) have one canonical definition, relationship model, and
+ownership map in the Concept Reference: `specs/003-engineering-optimization/data-model.md`.
+
 ```
 cmd/skm     → pkg/services → pkg/managers → pkg/dal → {pkg/config, pkg/common}
 pkg/tui → pkg/services   (UI adapter; never writes files directly)

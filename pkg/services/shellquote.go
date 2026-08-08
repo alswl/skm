@@ -1,10 +1,10 @@
-package common
+package services
 
 import "strings"
 
-// ShellQuote quotes s for safe embedding in a POSIX shell command line using
+// shellQuote quotes s for safe embedding in a POSIX shell command line using
 // single quotes, escaping embedded single quotes (FR-028 / export).
-func ShellQuote(s string) string {
+func shellQuote(s string) string {
 	if s == "" {
 		return "''"
 	}

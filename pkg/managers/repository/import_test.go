@@ -51,7 +51,7 @@ func TestImportProviderRecordsOrigin(t *testing.T) {
 	staged := filepath.Join(t.TempDir(), "fetched")
 	writeFile(t, staged, "SKILL.md", frontmatter("remote-skill", "from a remote"))
 	mode := "github"
-	origin := &common.Origin{Address: "https://github.com/x/y", ModeID: &mode}
+	origin := &common.Origin{Address: "https://github.com/x/y", ProviderID: &mode}
 
 	res, err := New(root).ImportStaged(context.Background(), staged, "github", false, origin)
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestImportProviderRecordsOrigin(t *testing.T) {
 	require.Equal(t, filepath.Join(root, "skills", "github", "remote-skill"), res.Path)
 	require.NotNil(t, res.Origin)
 	require.Equal(t, "https://github.com/x/y", res.Origin.Address)
-	require.Equal(t, "github", *res.Origin.ModeID)
+	require.Equal(t, "github", *res.Origin.ProviderID)
 	require.Equal(t, "skills/github/remote-skill", res.Origin.Path, "meta.json tracks the installed path relative to the repo root")
 	require.FileExists(t, filepath.Join(res.Path, "meta.json"))
 
@@ -67,7 +67,7 @@ func TestImportProviderRecordsOrigin(t *testing.T) {
 	stored, err := dal.ReadMeta(res.Path)
 	require.NoError(t, err)
 	require.Equal(t, "https://github.com/x/y", stored.Address)
-	require.Equal(t, "github", *stored.ModeID)
+	require.Equal(t, "github", *stored.ProviderID)
 	require.Equal(t, "skills/github/remote-skill", stored.Path)
 }
 

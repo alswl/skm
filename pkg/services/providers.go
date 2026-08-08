@@ -72,6 +72,20 @@ func (s *Services) ProviderValidate(id string) *ProviderValidateResult {
 	return res
 }
 
+// ProviderIcons collects each registered provider's declared icon
+// (Capability().Icon), keyed by provider id — a presentation view-model so
+// the TUI never has to import pkg/managers/providers directly (003
+// engineering-optimization F-05).
+func (s *Services) ProviderIcons() map[string]string {
+	icons := make(map[string]string, len(s.Registry.Providers()))
+	for _, p := range s.Registry.Providers() {
+		if icon := p.Capability().Icon; icon != "" {
+			icons[p.ID()] = icon
+		}
+	}
+	return icons
+}
+
 // providerKind reports "plugin" for subprocess providers and "builtin" for
 // everything else.
 func providerKind(p providers.Provider) string {

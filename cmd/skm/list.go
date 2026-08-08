@@ -11,13 +11,13 @@ import (
 
 // listEntry is one catalog row (contract/cli-json.md).
 type listEntry struct {
-	Name      string           `json:"name"`
-	Type      common.EntryKind `json:"type"`
-	ModeID    *string          `json:"mode_id"`
-	Group     *string          `json:"group"`
-	Status    common.Status    `json:"status"`
-	Installed bool             `json:"installed"`
-	Error     *string          `json:"error"`
+	Name       string           `json:"name"`
+	Type       common.EntryKind `json:"type"`
+	ProviderID *string          `json:"mode_id"`
+	Group      *string          `json:"group"`
+	Status     common.Status    `json:"status"`
+	Installed  bool             `json:"installed"`
+	Error      *string          `json:"error"`
 }
 
 type listReport struct {
@@ -26,11 +26,11 @@ type listReport struct {
 	Entries []listEntry `json:"entries"`
 }
 
-func (e listEntry) ModeIDValue() string {
-	if e.ModeID == nil {
+func (e listEntry) ProviderIDValue() string {
+	if e.ProviderID == nil {
 		return ""
 	}
-	return *e.ModeID
+	return *e.ProviderID
 }
 
 var listCmd = &cobra.Command{
@@ -48,7 +48,7 @@ var listCmd = &cobra.Command{
 			return printJSON(cmd, rep)
 		}
 		for _, e := range rep.Entries {
-			fmt.Fprintf(cmd.OutOrStdout(), "%-24s %-8s %-8s %s\n", e.Name, e.Type, e.Status, e.ModeIDValue())
+			fmt.Fprintf(cmd.OutOrStdout(), "%-24s %-8s %-8s %s\n", e.Name, e.Type, e.Status, e.ProviderIDValue())
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%d entries\n", rep.Total)
 		return nil
@@ -65,13 +65,13 @@ func buildListReport(svc *services.Services) *listReport {
 	rep := &listReport{Root: svc.Cfg.Root, Total: len(entries), Entries: []listEntry{}}
 	for _, e := range entries {
 		rep.Entries = append(rep.Entries, listEntry{
-			Name:      e.Name,
-			Type:      e.Kind,
-			ModeID:    e.ModeID,
-			Group:     e.Group,
-			Status:    e.Status,
-			Installed: entryInstalled(svc, e),
-			Error:     e.Error,
+			Name:       e.Name,
+			Type:       e.Kind,
+			ProviderID: e.ProviderID,
+			Group:      e.Group,
+			Status:     e.Status,
+			Installed:  entryInstalled(svc, e),
+			Error:      e.Error,
 		})
 	}
 	return rep

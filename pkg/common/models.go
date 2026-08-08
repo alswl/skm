@@ -66,13 +66,14 @@ const (
 
 // Origin records the provenance of a remote-fetched entry, stored in
 // <entry>/meta.json. It is present only for remote imports/updates (I3).
-// Address is the source url, ModeID the provider that fetched it, and Path the
-// entry's location relative to the repository root — together they let an
+// Address is the source url, ProviderID the id of the Provider that fetched
+// it (persisted as "mode_id" for backward compatibility — 003 A-1), and Path
+// the entry's location relative to the repository root — together they let an
 // installed skill's meta.json track url / provider / path.
 type Origin struct {
-	Address string  `json:"address"`
-	ModeID  *string `json:"mode_id,omitempty"`
-	Path    string  `json:"path,omitempty"`
+	Address    string  `json:"address"`
+	ProviderID *string `json:"mode_id,omitempty"`
+	Path       string  `json:"path,omitempty"`
 }
 
 // InstallStrategy is the on-disk shape a target uses to place an asset
@@ -207,7 +208,7 @@ type Entry struct {
 	Status      Status
 	Path        string
 	Version     *string
-	ModeID      *string
+	ProviderID  *string
 	Group       *string
 	Error       *string
 	Origin      *Origin
@@ -229,12 +230,12 @@ func (e *Entry) MarkerPath() string {
 	return filepath.Join(e.Path, e.Kind.MarkerFile())
 }
 
-// ModeIDValue returns the mode_id, or "" when unset.
-func (e *Entry) ModeIDValue() string {
-	if e.ModeID == nil {
+// ProviderIDValue returns the provider id (persisted as "mode_id"), or "" when unset.
+func (e *Entry) ProviderIDValue() string {
+	if e.ProviderID == nil {
 		return ""
 	}
-	return *e.ModeID
+	return *e.ProviderID
 }
 
 // GroupValue returns the group, or "" when unset.
@@ -262,9 +263,6 @@ func (e *Entry) IsActive() bool { return e.Status == StatusActive }
 func (e *Entry) IsDirectory() bool {
 	return !strings.HasSuffix(e.Path, ".md")
 }
-
-// MatchTarget reports whether a target receives this kind of entry.
-func (e *Entry) MatchTarget(t InstallTarget) bool { return t.Kind == e.Kind }
 
 // DescriptionLower returns the lowercased description for search matching.
 func (e *Entry) DescriptionLower() string { return strings.ToLower(e.Description) }

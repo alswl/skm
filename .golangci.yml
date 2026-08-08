@@ -6,6 +6,7 @@ run:
 linters:
   default: standard
   enable:
+    - depguard
     - errcheck
     - govet
     - ineffassign
@@ -20,6 +21,29 @@ linters:
         - fmt.Fprintln
         - fmt.Println
         - fmt.Print
+    # Architecture check (003-engineering-optimization FR-008): enforces the
+    # layering rules in specs/003-engineering-optimization/contracts/layering-rules.md.
+    # Presentation (cmd, tui) must reach dal/managers only via pkg/services;
+    # managers must not import the coordination layer. Exceptions are scoped
+    # explicitly (never a blanket disable) with a rationale in that contract.
+    depguard:
+      rules:
+        presentation-no-dal-managers:
+          files:
+            - "**/cmd/skm/**"
+            - "**/pkg/tui/**"
+            - "!$test"
+          deny:
+            - pkg: github.com/alswl/skm/skm/pkg/dal
+              desc: "presentation must reach data access via pkg/services, not pkg/dal directly (layering-rules.md)"
+            - pkg: github.com/alswl/skm/skm/pkg/managers
+              desc: "presentation must reach managers via pkg/services, not pkg/managers/* directly (layering-rules.md)"
+        managers-no-upward:
+          files:
+            - "**/pkg/managers/**"
+          deny:
+            - pkg: github.com/alswl/skm/skm/pkg/services
+              desc: "managers must not import the coordination layer pkg/services (layering-rules.md)"
 
 formatters:
   enable:

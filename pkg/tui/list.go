@@ -153,7 +153,7 @@ func (m model) renderMainArea(inner, rows int) []string {
 		}
 		e := m.filtered[r.entryIdx]
 		hl := r.entryIdx == m.cursor
-		row := renderEntryLine(e, m.providerIcon(e.ModeIDValue()), m.installCol[e.Name], hl)
+		row := renderEntryLine(e, m.providerIcon(e.ProviderIDValue()), m.installCol[e.Name], hl)
 		if hl {
 			out = append(out, fitCell("  ▶ "+row, inner, styleCursor))
 		} else {
@@ -425,7 +425,7 @@ func (m model) buildDetail() string {
 
 	fmt.Fprintf(&sb, "%-10s %s\n", "kind:", e.Kind)
 	fmt.Fprintf(&sb, "%-10s %s\n", "status:", e.Status)
-	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ModeIDValue()), e.ModeIDValue()))
+	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ProviderIDValue()), e.ProviderIDValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "group:", orDash(e.GroupValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "version:", orDash(e.VersionValue()))
 	if e.Origin != nil {

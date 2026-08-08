@@ -21,7 +21,7 @@ func TestScanMixedRepository(t *testing.T) {
 	require.NotNil(t, skillA)
 	require.Equal(t, common.KindSkill, skillA.Kind)
 	require.Equal(t, common.StatusActive, skillA.Status)
-	require.Equal(t, "local", skillA.ModeIDValue())
+	require.Equal(t, "local", skillA.ProviderIDValue())
 	require.Nil(t, skillA.Error)
 
 	// Grouped skill
@@ -33,7 +33,7 @@ func TestScanMixedRepository(t *testing.T) {
 	cmdA := byName["cmd-a"]
 	require.NotNil(t, cmdA)
 	require.Equal(t, common.KindCommand, cmdA.Kind)
-	require.Equal(t, "github", cmdA.ModeIDValue())
+	require.Equal(t, "github", cmdA.ProviderIDValue())
 	require.NotNil(t, cmdA.Origin)
 	require.Equal(t, "https://github.com/x/y", cmdA.Origin.Address)
 
@@ -56,7 +56,7 @@ func TestScanMixedRepository(t *testing.T) {
 	require.NotNil(t, bad.Error)
 }
 
-func TestScanModeIDMismatchIsError(t *testing.T) {
+func TestScanProviderIDMismatchIsError(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/github/weird/SKILL.md", frontmatter("weird", "origin says local"))
 	writeFile(t, root, "skills/github/weird/meta.json", `{"address":"https://x","mode_id":"local"}`)

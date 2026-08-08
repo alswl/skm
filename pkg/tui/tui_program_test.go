@@ -221,7 +221,7 @@ func TestE2ETUIMoveFromDetailTakesEffect(t *testing.T) {
 	}
 	require.NotNil(t, d2, "d2 is still present in the refreshed list")
 	require.Equal(t, common.StatusActive, d2.Status, "d2 is active after the move")
-	require.Equal(t, "local", d2.ModeIDValue(), "d2 now lives under the local provider")
+	require.Equal(t, "local", d2.ProviderIDValue(), "d2 now lives under the local provider")
 }
 
 // TestE2ETUIQAndEscOnlyGoBack: q/esc from detail and from modals return, never

@@ -52,9 +52,9 @@ func (s *Services) Export() (*ExportResult, error) {
 	names := sortedKeys(nameSet)
 
 	cmd := "skm deploy" +
-		" --repo " + common.ShellQuote(repo) +
-		" --target " + common.ShellQuote(strings.Join(targets, ",")) +
-		" --only " + common.ShellQuote(strings.Join(names, ","))
+		" --repo " + shellQuote(repo) +
+		" --target " + shellQuote(strings.Join(targets, ",")) +
+		" --only " + shellQuote(strings.Join(names, ","))
 	return &ExportResult{Command: cmd}, nil
 }
 

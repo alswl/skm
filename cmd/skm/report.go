@@ -1,12 +1,17 @@
 package main
 
 import (
-	"github.com/alswl/skm/skm/pkg/common"
+	"encoding/json"
+
 	"github.com/spf13/cobra"
 )
 
-// printJSON encodes v as JSON to the command's stdout. It is the single
-// stdout writer for --json commands, keeping stdout clean (FR-030).
+// printJSON encodes v as a single JSON object to the command's stdout,
+// followed by a newline. Struct field order is preserved, which keeps golden
+// fixtures deterministic (SC-002). It is the single stdout writer for --json
+// commands, keeping stdout clean (FR-030).
 func printJSON(cmd *cobra.Command, v any) error {
-	return common.PrintJSON(cmd.OutOrStdout(), v)
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	enc.SetEscapeHTML(false)
+	return enc.Encode(v)
 }
