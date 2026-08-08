@@ -70,9 +70,9 @@ cmd/            (builds deps, starts tea.Program)
       ↓
 pkg/tui/        (Model / Update / View; screens, styles, keys)
       ↓
-pkg/services/   (business use cases — same as CLI/server guides)
+pkg/services/   (business operations used by CLI and TUI)
       ↓
-pkg/managers/ → pkg/dal/ → store
+pkg/dal/ → store
 
 pkg/common/     (cross-cutting: errors, constants, utils)
 ```
@@ -80,7 +80,7 @@ pkg/common/     (cross-cutting: errors, constants, utils)
 Rules:
 
 - **Thin entry point**: `main.go` only calls `os.Exit(Execute())`; the `tui` command wires services and runs `tea.NewProgram(app.New(deps)).Run()`.
-- **All UI code lives under `pkg/tui/`**; business logic stays in `services / managers / dal`, unchanged and reusable by the CLI.
+- **All UI code lives under `pkg/tui/`**; business logic stays in `services / dal`, unchanged and reusable by the CLI.
 - **The TUI is the presentation layer only** — models call **services**, never `dal` or the network directly. A model must never contain business rules.
 - **One model per screen**, one file each under `screens/`. A root model in `app.go` composes them and routes global messages/keys.
 - **Styles, keys, and custom messages each have one home** (`styles.go`, `keys.go`, `messages.go`) — don't scatter `lipgloss.NewStyle()` or magic key strings across screens.

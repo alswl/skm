@@ -50,3 +50,33 @@ func ExitCodeOf(err error, defaultCode int) int {
 func Errf(format string, args ...any) error {
 	return fmt.Errorf(format, args...)
 }
+
+// NeedsForcer is implemented by errors that would succeed if the same
+// operation were retried with force enabled (a same-named non-managed object
+// exists at the destination).
+type NeedsForcer interface {
+	NeedsForce() bool
+}
+
+type needsForceError struct{ err error }
+
+func (e *needsForceError) Error() string    { return e.err.Error() }
+func (e *needsForceError) Unwrap() error    { return e.err }
+func (e *needsForceError) NeedsForce() bool { return true }
+
+// WithNeedsForce marks err as resolvable by retrying with force=true, so a
+// caller (e.g. the TUI) can offer a confirm-then-retry path instead of a dead
+// end. A nil err returns nil.
+func WithNeedsForce(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &needsForceError{err: err}
+}
+
+// IsNeedsForce reports whether err (or any error it wraps) was marked via
+// WithNeedsForce.
+func IsNeedsForce(err error) bool {
+	var nf NeedsForcer
+	return errors.As(err, &nf) && nf.NeedsForce()
+}

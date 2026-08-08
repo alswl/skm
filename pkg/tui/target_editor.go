@@ -13,6 +13,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/tui/pages"
 )
 
 // targetWizard drives the plain-text steps of adding a target (name,
@@ -49,7 +50,9 @@ func (w *targetWizard) prompt() string {
 }
 
 // handleTargetsKey drives the target list (FR-011): navigate, add, edit
-// (path), remove, or return to the main list.
+// (path), remove, or return to the main list. Edit/remove check the same
+// selection condition their footer binding advertises (targetsBindings) and
+// set a specific reason instead of a silent no-op when unavailable (FR-002).
 func (m *model) handleTargetsKey(msg tea.KeyMsg) tea.Cmd {
 	targets := m.svc.Cfg.Targets
 	switch {
@@ -64,22 +67,50 @@ func (m *model) handleTargetsKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.TargetAdd):
 		m.targetWizard = &targetWizard{step: wizardStepName}
 	case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Detail):
-		if m.targetsCursor < len(targets) {
-			t := targets[m.targetsCursor]
-			m.targetWizard = &targetWizard{editing: true, draft: t, text: t.Path}
+		if m.targetsCursor >= len(targets) {
+			m.status = "edit path: no target selected"
+			return nil
 		}
+		t := targets[m.targetsCursor]
+		m.targetWizard = &targetWizard{editing: true, draft: t, text: t.Path}
 	case key.Matches(msg, m.keys.Delete):
-		if m.targetsCursor < len(targets) {
-			name := targets[m.targetsCursor].Name
-			m.confirm = &confirm{
-				prompt: fmt.Sprintf("Remove target %q? Installed assets are left untouched.", name),
-				onYes:  func() { m.submitTargetRemove(name) },
-			}
+		if m.targetsCursor >= len(targets) {
+			m.status = "remove target: no target selected"
+			return nil
+		}
+		name := targets[m.targetsCursor].Name
+		m.confirm = &pages.Confirm{
+			Prompt: fmt.Sprintf("Remove target %q? Installed assets are left untouched.", name),
+			OnYes:  func() { m.submitTargetRemove(name) },
 		}
 	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Targets), key.Matches(msg, m.keys.Quit):
 		m.showTargets = false
 	}
 	return nil
+}
+
+// targetsBindings is the target-editor footer's availability matrix,
+// mirroring listBindings/detailBindings (FR-009): edit path and remove need a
+// selected target.
+func (m model) targetsBindings() []pages.HintItem {
+	selected := m.targetsCursor < len(m.svc.Cfg.Targets)
+	return []pages.HintItem{
+		{Keys: "a", Label: "add", Enabled: true},
+		{Keys: "enter", Label: "edit path", Enabled: selected},
+		{Keys: "d", Label: "remove", Enabled: selected},
+		{Keys: "j/k", Label: "move", Enabled: true},
+		{Keys: "esc/t/q", Label: "back", Enabled: true},
+	}
+}
+
+// targetsHint renders the target-editor footer, dimming bindings unavailable
+// for the current selection (mirrors listHint/detailHint).
+func (m model) targetsHint() string {
+	var parts []string
+	for _, b := range m.targetsBindings() {
+		parts = append(parts, pages.HintBinding(b.Keys, b.Label, b.Enabled))
+	}
+	return strings.Join(parts, "  ")
 }
 
 // handleTargetWizardKey drives the active text-entry step.
@@ -148,21 +179,21 @@ func (m *model) advanceTargetWizard() {
 // per-kind strategy selection (auto-resolved when only one strategy is
 // kind-compatible).
 func (m *model) openAcceptsPicker(draft common.InstallTarget) {
-	m.picker = &picker{
-		title: "target accepts",
-		hint:  "[space] toggle  [enter] confirm  [esc/q] cancel",
-		items: []pickerItem{
-			{label: "skill", value: string(common.KindSkill)},
-			{label: "command", value: string(common.KindCommand)},
+	m.picker = &pages.Picker{
+		Title: "target accepts",
+		Hint:  "[space] toggle  [enter] confirm  [esc/q] cancel",
+		Items: []pages.PickerItem{
+			{Label: "skill", Value: string(common.KindSkill)},
+			{Label: "command", Value: string(common.KindCommand)},
 		},
-		onConfirm: func(sel []pickerItem) {
+		OnConfirm: func(sel []pages.PickerItem) {
 			if len(sel) == 0 {
 				m.status = "target add: cancelled (no kinds selected)"
 				return
 			}
 			kinds := make([]common.EntryKind, len(sel))
 			for i, it := range sel {
-				kinds[i] = common.EntryKind(it.value)
+				kinds[i] = common.EntryKind(it.Value)
 			}
 			draft.Accepts = kinds
 			draft.Strategies = map[common.EntryKind]common.InstallStrategy{}
@@ -212,21 +243,21 @@ func (m *model) resolveStrategy(draft common.InstallTarget, kinds []common.Entry
 		m.resolveStrategy(draft, kinds, idx+1)
 		return
 	}
-	items := make([]pickerItem, len(options))
+	items := make([]pages.PickerItem, len(options))
 	for i, s := range options {
-		items[i] = pickerItem{label: string(s), value: string(s)}
+		items[i] = pages.PickerItem{Label: string(s), Value: string(s)}
 	}
-	m.picker = &picker{
-		title:  "strategy for " + string(kind),
-		hint:   "[j/k] move  [enter] choose  [esc/q] cancel",
-		single: true,
-		items:  items,
-		onConfirm: func(sel []pickerItem) {
+	m.picker = &pages.Picker{
+		Title:  "strategy for " + string(kind),
+		Hint:   "[j/k] move  [enter] choose  [esc/q] cancel",
+		Single: true,
+		Items:  items,
+		OnConfirm: func(sel []pages.PickerItem) {
 			if len(sel) == 0 {
 				m.status = "target add: cancelled"
 				return
 			}
-			draft.Strategies[kind] = common.InstallStrategy(sel[0].value)
+			draft.Strategies[kind] = common.InstallStrategy(sel[0].Value)
 			m.resolveStrategy(draft, kinds, idx+1)
 		},
 	}
@@ -286,8 +317,7 @@ func (m model) targetsView() string {
 	for _, inv := range m.svc.Cfg.InvalidTargets {
 		body.WriteString(components.FitCell("    "+components.StyleDim.Render("invalid: "+inv.Reason), inner, lipgloss.NewStyle()) + "\n")
 	}
-	hint := "[a] add  [enter] edit path  [d] remove  [j/k] move  [esc/t/q] back"
-	return m.framedPage(" skm · targets ", strings.TrimRight(body.String(), "\n"), hint)
+	return m.framedPage(" skm · targets ", strings.TrimRight(body.String(), "\n"), m.targetsHint())
 }
 
 // targetWizardView renders the active text-entry step as a full-screen

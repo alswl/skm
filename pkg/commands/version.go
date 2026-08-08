@@ -12,7 +12,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("skm %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
+		fmt.Printf("skm %s (commit %s, built %s)\n", version.Version, version.Commit, version.BuildDate())
 		return nil
 	},
 }

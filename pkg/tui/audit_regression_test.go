@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alswl/skm/skm/pkg/common"
@@ -51,7 +52,7 @@ func TestModelDiscoverConfirmDelete(t *testing.T) {
 
 	_ = m.handleKey(runeKey('o'))
 	require.NotNil(t, m.picker)
-	m.picker.items[0].checked = true
+	m.picker.Items[0].Checked = true
 	_ = m.handlePickerKey(runeKey('d')) // request delete
 	require.Nil(t, m.picker, "picker closes when delete is requested")
 	require.NotNil(t, m.confirm, "delete requires an explicit confirmation (FR-040)")
@@ -101,6 +102,26 @@ func TestListRowColumnsStayAlignedWithLongContent(t *testing.T) {
 
 	nonStandard := renderEntryLine(&common.Entry{Name: "x", Kind: common.KindSkill, Status: common.StatusNonStandard}, "", cells, false)
 	require.Contains(t, nonStandard, "non_standard", "the widened status column fits the longest status value in full")
+}
+
+func TestInstallTargetHeadersStayCompactAndAligned(t *testing.T) {
+	targets := []common.InstallTarget{
+		{Name: "claude-skills"},
+		{Name: "claude-commands"},
+		{Name: "codex"},
+		{Name: "pi"},
+	}
+	header := installHeaderRow(targets)
+	require.Contains(t, header, "Claude Claude* Codex Pi")
+
+	cells := []installCell{
+		{name: "claude-skills", state: common.InstallInstalled},
+		{name: "claude-commands", state: common.InstallAbsent},
+		{name: "codex", state: common.InstallDangling},
+		{name: "pi", state: common.InstallConflict},
+	}
+	row := renderEntryLine(&common.Entry{Name: "skill", Kind: common.KindSkill, Status: common.StatusActive}, "", cells, false)
+	require.Equal(t, lipgloss.Width(header), lipgloss.Width(row), "target headers and target cells share a fixed compact layout")
 }
 
 // providerTabEntries builds a fixture spanning two providers plus one
@@ -280,15 +301,15 @@ func TestNormalizeFromDetailPageAsksConfirmationThenMoves(t *testing.T) {
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail
 	require.True(t, m.showDetail)
 
-	_ = m.handleKey(runeKey('m'))
+	_ = m.handleKey(runeKey('n'))
 	require.NotNil(t, m.picker, "normalize offers a choice of provider")
-	require.Contains(t, m.picker.title, "flat-skill")
-	require.Equal(t, "local", m.picker.items[0].value, "local is offered as the safe default")
+	require.Contains(t, m.picker.Title, "flat-skill")
+	require.Equal(t, "local", m.picker.Items[0].Value, "local is offered as the safe default")
 
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter}) // choose "local" (the highlighted default)
 	require.Nil(t, m.picker)
 	require.NotNil(t, m.confirm, "normalize previews the destination behind a confirmation")
-	require.Contains(t, m.confirm.prompt, "skills/local/flat-skill")
+	require.Contains(t, m.confirm.Prompt, "skills/local/flat-skill")
 
 	_ = m.handleConfirmKey(tea.KeyMsg{Type: tea.KeyEnter})
 	drainJob(t, &m)
@@ -304,9 +325,9 @@ func TestNormalizeFromDetailPageAsksConfirmationThenMoves(t *testing.T) {
 	require.True(t, m.showDetail, "the detail page stays open across the move")
 	avail := map[string]bool{}
 	for _, b := range m.detailBindings() {
-		avail[b.keys] = b.enabled
+		avail[b.Keys] = b.Enabled
 	}
-	require.False(t, avail["m"], "move is disabled for the now-standard entry")
+	require.False(t, avail["n"], "move is disabled for the now-standard entry")
 }
 
 // TestNormalizeProviderPickerListsExistingProviders: candidate providers
@@ -321,12 +342,12 @@ func TestNormalizeProviderPickerListsExistingProviders(t *testing.T) {
 
 	selectEntry(t, &m, "flat-skill")
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail
-	_ = m.handleKey(runeKey('m'))
+	_ = m.handleKey(runeKey('n'))
 	require.NotNil(t, m.picker)
 
 	var values []string
-	for _, it := range m.picker.items {
-		values = append(values, it.value)
+	for _, it := range m.picker.Items {
+		values = append(values, it.Value)
 	}
 	require.Contains(t, values, "local")
 	require.Contains(t, values, "self-build", "self-build is always offered, even when absent from the repo")
@@ -345,12 +366,12 @@ func TestNormalizeProviderPickerAlwaysOffersSelfBuild(t *testing.T) {
 
 	selectEntry(t, &m, "flat-skill")
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail
-	_ = m.handleKey(runeKey('m'))
+	_ = m.handleKey(runeKey('n'))
 	require.NotNil(t, m.picker)
 
 	var values []string
-	for _, it := range m.picker.items {
-		values = append(values, it.value)
+	for _, it := range m.picker.Items {
+		values = append(values, it.Value)
 	}
 	require.Contains(t, values, "self-build")
 	require.Equal(t, "local", values[0], "local stays the first (safe default) choice")
@@ -361,7 +382,7 @@ func TestNormalizeProviderPickerAlwaysOffersSelfBuild(t *testing.T) {
 // top-level list's q is the app-wide quit (nnn convention).
 func TestQBacksOutOfPickerAndConfirm(t *testing.T) {
 	m := newTestModel(t)
-	_ = m.handleKey(runeKey('s')) // install opens a target picker
+	_ = m.handleKey(runeKey('i')) // install opens a target picker
 	require.NotNil(t, m.picker)
 	cmd := m.handlePickerKey(runeKey('q'))
 	require.Nil(t, cmd, "q does not quit from an open picker")
@@ -501,10 +522,10 @@ func TestDetailHintDisablesUnavailableActions(t *testing.T) {
 
 	enabled := map[string]bool{}
 	for _, b := range m.detailBindings() {
-		enabled[b.keys] = b.enabled
+		enabled[b.Keys] = b.Enabled
 	}
-	require.True(t, enabled["m"], "move is offered for a non-standard entry")
-	require.False(t, enabled["s"], "install is disabled for a non-standard entry")
+	require.True(t, enabled["n"], "move is offered for a non-standard entry")
+	require.False(t, enabled["i"], "install is disabled for a non-standard entry")
 	require.False(t, enabled["u"], "uninstall is disabled when nothing is installed")
 	require.False(t, enabled["p"], "update is disabled for an entry with no origin")
 	require.True(t, enabled["a"], "archive is always offered")
@@ -519,10 +540,10 @@ func TestDetailHintDisablesUnavailableActions(t *testing.T) {
 	require.True(t, m2.showDetail)
 	enabled2 := map[string]bool{}
 	for _, b := range m2.detailBindings() {
-		enabled2[b.keys] = b.enabled
+		enabled2[b.Keys] = b.Enabled
 	}
-	require.True(t, enabled2["s"], "install is offered for an active entry with kind-matching targets")
-	require.False(t, enabled2["m"], "move is disabled for an already-standard entry")
+	require.True(t, enabled2["i"], "install is offered for an active entry with kind-matching targets")
+	require.False(t, enabled2["n"], "move is disabled for an already-standard entry")
 	require.False(t, enabled2["u"], "uninstall stays disabled until something is actually installed")
 }
 
@@ -535,9 +556,12 @@ func TestDetailPageOffersInstallAndOtherActions(t *testing.T) {
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail for skill-a
 	require.True(t, m.showDetail)
 
-	_ = m.handleKey(runeKey('s')) // install, from the detail page
+	_ = m.handleKey(runeKey('i')) // install, from the detail page
 	require.NotNil(t, m.picker, "install opens a target picker even from the detail page")
-	require.Contains(t, m.picker.title, "install")
+	require.Contains(t, m.picker.Title, "Installs")
+	for i := range m.picker.Items {
+		m.picker.Items[i].Checked = true
+	}
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	drainJob(t, &m)
 	require.Contains(t, m.status, "installed")
@@ -552,7 +576,185 @@ func TestNormalizeNotApplicableForStandardEntry(t *testing.T) {
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail
 	require.True(t, m.showDetail)
 
-	_ = m.handleKey(runeKey('m'))
+	_ = m.handleKey(runeKey('n'))
 	require.Nil(t, m.confirm, "an already-standard entry has nothing to move")
 	require.Contains(t, m.status, "only non-standard entries can be moved")
+}
+
+// TestDestructiveConfirmPromptsStateExactConsequence locks the exact wording
+// of every destructive-action confirmation (US3/FR-006/FR-007): each must
+// name the specific target and, where the action has a side effect beyond its
+// literal name, state that side effect explicitly. Before this test, none of
+// these four strings had a regression test asserting the exact text
+// (/speckit-analyze finding).
+func TestDestructiveConfirmPromptsStateExactConsequence(t *testing.T) {
+	m := newTestModel(t)
+
+	m.archiveSelected() // skill-a is active, sorts first
+	require.Equal(t, `Archive "skill-a"? It will be uninstalled from all targets first.`, m.confirm.Prompt)
+	m.confirm = nil
+
+	m.deleteSelected()
+	require.Equal(t, `Delete "skill-a" from the repository permanently?`, m.confirm.Prompt)
+	m.confirm = nil
+
+	_ = m.handleKey(runeKey('t')) // open target editor
+	require.True(t, m.showTargets)
+	targetName := m.svc.Cfg.Targets[m.targetsCursor].Name
+	_ = m.handleKey(runeKey('d'))
+	require.Equal(t, fmt.Sprintf("Remove target %q? Installed assets are left untouched.", targetName), m.confirm.Prompt)
+	m.confirm = nil
+	m.showTargets = false
+
+	tgt := m.svc.Cfg.Targets[0].Path
+	ext := filepath.Join(tgt, "ext-skill")
+	writeFileT(t, ext, "SKILL.md", "---\nname: ext-skill\ndescription: external\n---\nbody\n")
+	_ = m.handleKey(runeKey('o'))
+	require.NotNil(t, m.picker)
+	m.picker.Items[0].Checked = true
+	_ = m.handlePickerKey(runeKey('d'))
+	require.Equal(t, "Delete 1 external skill director(y/ies)? This removes real files.", m.confirm.Prompt)
+}
+
+// TestTargetRemoveConfirmHandlesZeroImpact: the remove-target confirm prompt
+// ("Installed assets are left untouched") is a fixed string that never claims
+// an install count, so removing a target used by zero installed entries is
+// already handled correctly by construction — this locks it in (spec.md Edge
+// Case 3), not new behavior.
+func TestTargetRemoveConfirmHandlesZeroImpact(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('t'))
+	require.True(t, m.showTargets)
+	// Built-in targets refuse removal server-side; select the fixture's custom
+	// "t" target, which has never had anything installed to it (zero impact).
+	idx := -1
+	for i, tgt := range m.svc.Cfg.Targets {
+		if tgt.Name == "t" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0, "fixture's custom target is present")
+	m.targetsCursor = idx
+	name := m.svc.Cfg.Targets[m.targetsCursor].Name
+
+	_ = m.handleKey(runeKey('d'))
+	require.NotNil(t, m.confirm)
+	require.Equal(t, fmt.Sprintf("Remove target %q? Installed assets are left untouched.", name), m.confirm.Prompt)
+
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.Contains(t, m.status, "removed target")
+	for _, tgt := range m.svc.Cfg.Targets {
+		require.NotEqual(t, name, tgt.Name, "the zero-impact target is actually gone")
+	}
+}
+
+// TestDeclineConfirmLeavesAllOtherStateUnchanged: FR-008 requires that
+// declining a confirm only clears m.confirm — cursor, search, and the
+// filtered list must be unchanged afterward.
+func TestDeclineConfirmLeavesAllOtherStateUnchanged(t *testing.T) {
+	m := newTestModel(t)
+	beforeCursor, beforeSearch, beforeArchived := m.cursor, m.search, m.showArchived
+	beforeNames := make([]string, len(m.filtered))
+	for i, e := range m.filtered {
+		beforeNames[i] = e.Name
+	}
+
+	_ = m.handleKey(runeKey('d'))
+	require.NotNil(t, m.confirm)
+	_ = m.handleConfirmKey(runeKey('n'))
+	require.Nil(t, m.confirm)
+
+	require.Equal(t, beforeCursor, m.cursor)
+	require.Equal(t, beforeSearch, m.search)
+	require.Equal(t, beforeArchived, m.showArchived)
+	require.Len(t, m.filtered, len(beforeNames))
+	for i, name := range beforeNames {
+		require.Equal(t, name, m.filtered[i].Name)
+	}
+}
+
+// TestRapidDestructiveKeyPressesNeverDoubleExecute: Bubble Tea processes one
+// tea.KeyMsg per Update call, and m.confirm is set synchronously within the
+// same Update as the triggering keypress — so a second, rapid press of the
+// same destructive key is always routed to handleConfirmKey (where "d" isn't
+// bound to yes/no, so it's a no-op), never re-triggering deleteSelected. No
+// race window exists for a confirm to be bypassed or duplicated (spec.md Edge
+// Case 4), verified by construction, not new behavior.
+func TestRapidDestructiveKeyPressesNeverDoubleExecute(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('d'))
+	require.NotNil(t, m.confirm)
+	firstPrompt := m.confirm.Prompt
+
+	_ = m.handleKey(runeKey('d')) // rapid second press before any response
+	require.NotNil(t, m.confirm, "confirm is still active, not cleared by the second press")
+	require.Equal(t, firstPrompt, m.confirm.Prompt, "the second press did not open a fresh/duplicate confirm")
+
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.Nil(t, m.svc.FindEntry("skill-a"), "deleted exactly once")
+}
+
+// TestHelpToggleLeavesNavigationStateUnchanged: FR-010 requires that closing
+// the help overlay returns the user to the exact state/selection they had
+// before opening it. showHelp (tui.go) is a pure boolean flag only checked in
+// View() and only reachable from the list screen; this locks in that opening
+// and closing it never touches cursor/filtered/screen-flag state (contract
+// §5), verified by construction (R6), not new behavior.
+func TestHelpToggleLeavesNavigationStateUnchanged(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('j')) // move cursor off zero so a reset would be detectable
+	beforeCursor := m.cursor
+	beforeNames := make([]string, len(m.filtered))
+	for i, e := range m.filtered {
+		beforeNames[i] = e.Name
+	}
+
+	_ = m.handleKey(runeKey('?'))
+	require.True(t, m.showHelp)
+	_ = m.handleKey(runeKey('?'))
+	require.False(t, m.showHelp)
+
+	require.Equal(t, beforeCursor, m.cursor)
+	require.False(t, m.showDetail)
+	require.False(t, m.showTasks)
+	require.False(t, m.showTargets)
+	require.Len(t, m.filtered, len(beforeNames))
+	for i, name := range beforeNames {
+		require.Equal(t, name, m.filtered[i].Name)
+	}
+}
+
+// TestTUILabelsMatchCLIVerbNames locks FR-011: where the TUI exposes an
+// action that also exists as a CLI verb, the TUI's displayed label must match
+// (hyphen/space formatting aside — "batch update" vs "batch-update" are the
+// same words, not a different term a user could be confused by). Confirmed no
+// discrepancy exists (R6); this guards against a future regression.
+func TestTUILabelsMatchCLIVerbNames(t *testing.T) {
+	m := newTestModel(t)
+	normalize := func(s string) string {
+		s = strings.ToLower(s)
+		s = strings.ReplaceAll(s, "-", "")
+		return strings.ReplaceAll(s, " ", "")
+	}
+	cases := []struct {
+		tuiLabel string
+		cliVerb  string
+	}{
+		{m.keys.Update.Help().Desc, "update"},
+		{m.keys.BatchUpdate.Help().Desc, "batch-update"},
+		{m.keys.Archive.Help().Desc, "archive"},
+		{m.keys.Delete.Help().Desc, "delete"},
+		{m.keys.Import.Help().Desc, "import"},
+		{m.keys.Discover.Help().Desc, "discover"},
+	}
+	for _, c := range cases {
+		require.Equal(t, normalize(c.cliVerb), normalize(c.tuiLabel),
+			"TUI label %q must match CLI verb %q", c.tuiLabel, c.cliVerb)
+	}
+
+	// normalize/move is TUI-only: no CLI verb exists for it to diverge from.
+	require.Contains(t, m.keys.Normalize.Help().Desc, "move")
+	require.Equal(t, "installs", m.keys.Install.Help().Desc)
 }

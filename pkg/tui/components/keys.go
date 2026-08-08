@@ -21,7 +21,6 @@ type KeyMap struct {
 	TabPrev      key.Binding
 
 	Install     key.Binding
-	Uninstall   key.Binding
 	Update      key.Binding
 	BatchUpdate key.Binding
 	Archive     key.Binding
@@ -66,17 +65,16 @@ func DefaultKeys() KeyMap {
 		ShowArchived: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "toggle archived")),
 		TabNext:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next provider tab")),
 		TabPrev:      key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev provider tab")),
-		Install:      key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "install")),
-		Uninstall:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "uninstall")),
+		Install:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "installs")),
 		Update:       key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "update")),
 		BatchUpdate:  key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "batch update")),
 		Archive:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "archive")),
 		Delete:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		Discover:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "discover")),
-		Import:       key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "import")),
+		Import:       key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "import")),
 		Targets:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "targets")),
 		TargetAdd:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add target")),
-		Normalize:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move to standard location")),
+		Normalize:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "move to standard location")),
 		Queue:        key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "job queue")),
 		Cancel:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel task")),
 		Detail:       key.NewBinding(key.WithKeys("enter", "v"), key.WithHelp("enter", "detail")),
@@ -98,7 +96,7 @@ func DefaultKeys() KeyMap {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.MoveDown, k.MoveUp, k.PagePrev, k.PageNext, k.First, k.Last, k.Search, k.ClearSearch, k.ShowArchived, k.TabNext, k.TabPrev},
-		{k.Detail, k.Install, k.Uninstall, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize},
+		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize},
 		{k.Queue, k.Cancel, k.Help, k.Quit},
 	}
 }

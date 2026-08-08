@@ -40,7 +40,7 @@ func TestTargetEditorAddFlow(t *testing.T) {
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // path -> accepts picker
 	require.Nil(t, m.targetWizard)
 	require.NotNil(t, m.picker, "path entry opens the accepts picker")
-	require.Contains(t, m.picker.title, "accepts")
+	require.Contains(t, m.picker.Title, "accepts")
 
 	// Toggle both skill and command on, then confirm.
 	_ = m.handlePickerKey(runeKey(' ')) // check skill (cursor starts at 0)
@@ -50,7 +50,7 @@ func TestTargetEditorAddFlow(t *testing.T) {
 
 	// skill auto-resolves (only one compatible strategy); command needs a pick.
 	require.NotNil(t, m.picker, "command strategy needs an explicit choice")
-	require.Contains(t, m.picker.title, "command")
+	require.Contains(t, m.picker.Title, "command")
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter}) // pick the first (command-marker)
 
 	drainJob(t, &m)

@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +26,7 @@ var deployCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := svc.Deploy(cmd.Context(), managers.DeployOptions{
+		result, err := svc.Deploy(cmd.Context(), services.DeployOptions{
 			Repo:    deployFlags.repo,
 			Targets: deployFlags.targets,
 			Only:    deployFlags.only,

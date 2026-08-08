@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	isatty "github.com/mattn/go-isatty"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/jobs"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/tui/pages"
 	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
 
@@ -23,7 +24,7 @@ import (
 // no known subcommand (FR-001). The UI never writes files directly; all
 // mutations go through the shared services layer. A cancelled context stops
 // the program (go-tui-guides.md: tea.WithContext).
-func Run(ctx context.Context, svc *managers.Services) error {
+func Run(ctx context.Context, svc *services.Services) error {
 	if !isTerminal() {
 		return fmt.Errorf("tui: requires an interactive terminal; use a subcommand (e.g. skm list --json) for scriptable output")
 	}
@@ -51,7 +52,7 @@ func isTerminalFile(f *os.File) bool {
 // detail pane on the right (tui-contract.md).
 type model struct {
 	ctx          context.Context
-	svc          *managers.Services
+	svc          *services.Services
 	queue        *jobs.Queue
 	entries      []*common.Entry // full scan result
 	filtered     []*common.Entry // after search filter, sorted by source
@@ -83,11 +84,12 @@ type model struct {
 	detailInstalled bool   // whether the entry is installed in any matching target (cached in Update)
 
 	// req-2 §1 modals and task center.
-	picker      *picker                  // active multi/single-select modal (nil when closed)
-	confirm     *confirm                 // active confirmation modal (nil when closed)
-	showTasks   bool                     // task-center view (J)
-	tasksCursor int                      // cursor into the flattened task list
-	installCol  map[string][]installCell // entry name -> one cell per configured target, in Cfg.Targets order (FR-041)
+	picker       *pages.Picker            // active multi/single-select modal (nil when closed)
+	confirm      *pages.Confirm           // active confirmation modal (nil when closed)
+	showTasks    bool                     // task-center view (J)
+	tasksCursor  int                      // cursor into the flattened task list
+	installCol   map[string][]installCell // entry name -> one cell per configured target, in Cfg.Targets order (FR-041)
+	forceRetries map[int64]forceRetry     // job id -> force-retry offer, for jobs that failed needing --force
 
 	// 002-open-provider-target US2: Target configuration editor.
 	showTargets   bool          // target list/editor view (t)
@@ -122,7 +124,7 @@ const (
 // would copy the receiver each Update and closures would mutate stale copies —
 // the modals they open (confirm after a picker, next picker, status lines)
 // would silently never appear in the running program.
-func initialModel(ctx context.Context, svc *managers.Services) *model {
+func initialModel(ctx context.Context, svc *services.Services) *model {
 	m := &model{
 		ctx:           ctx,
 		svc:           svc,
@@ -139,7 +141,7 @@ func initialModel(ctx context.Context, svc *managers.Services) *model {
 
 // unknownProviderIcon marks an entry whose ProviderID (including "", i.e. none
 // recorded) has no registered/loaded provider declaring an icon — e.g. the
-// "self-build" bucket (pkg/managers/providers.SelfBuild) covers ProviderID
+// "self-build" bucket (services.NewSelfBuild) covers ProviderID
 // "self-build"; a truly empty or unrecognized ProviderID falls back here.
 const unknownProviderIcon = "❓"
 
@@ -170,7 +172,7 @@ type scanDoneMsg struct{ entries []*common.Entry }
 // scanCmd runs the potentially slow filesystem scan off the Bubble Tea event
 // loop so the program can render the loading spinner immediately instead of
 // blocking before the first frame.
-func scanCmd(svc *managers.Services) tea.Cmd {
+func scanCmd(svc *services.Services) tea.Cmd {
 	return func() tea.Msg { return scanDoneMsg{entries: svc.Scan()} }
 }
 
@@ -487,111 +489,10 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if m.showTargets {
 		return m.handleTargetsKey(msg)
 	}
-	k := m.keys
 	if m.showDetail {
-		switch {
-		case key.Matches(msg, k.ClearSearch), key.Matches(msg, k.Quit):
-			m.showDetail = false // Esc/q back to the list (Enter does not close detail)
-			return nil
-		case key.Matches(msg, k.MoveDown):
-			lines := components.SplitLines(m.detail)
-			maxOffset := maxInt(0, len(lines)-maxInt(1, maxInt(10, m.height)-4))
-			m.detailOffset = clampInt(m.detailOffset+1, 0, maxOffset)
-			return nil
-		case key.Matches(msg, k.MoveUp):
-			m.detailOffset = maxInt(0, m.detailOffset-1)
-			return nil
-		case key.Matches(msg, k.Normalize):
-			m.normalizeSelected()
-			return nil
-		case key.Matches(msg, k.Install):
-			m.installSelected()
-			return nil
-		case key.Matches(msg, k.Uninstall):
-			m.uninstallSelected()
-			return nil
-		case key.Matches(msg, k.Update):
-			m.updateSelected()
-			return nil
-		case key.Matches(msg, k.Archive):
-			m.archiveSelected()
-			return nil
-		case key.Matches(msg, k.Delete):
-			m.deleteSelected()
-			return nil
-		}
-		return nil
+		return m.handleDetailKey(msg)
 	}
-	switch {
-	case key.Matches(msg, k.Quit):
-		return tea.Quit
-	case key.Matches(msg, k.Cancel):
-		m.cancelRunningTask()
-		return nil
-	case key.Matches(msg, k.Queue):
-		m.showTasks = true
-		m.tasksCursor = 0
-		return nil
-	case key.Matches(msg, k.MoveDown):
-		m.cursor++
-		m.clampView()
-	case key.Matches(msg, k.MoveUp):
-		m.cursor--
-		m.clampView()
-	case key.Matches(msg, k.PagePrev):
-		m.moveByRows(-m.pageSize)
-	case key.Matches(msg, k.PageNext):
-		m.moveByRows(m.pageSize)
-	case key.Matches(msg, k.First):
-		m.cursor = 0
-		m.clampView()
-	case key.Matches(msg, k.Last):
-		m.cursor = len(m.filtered) - 1
-		m.clampView()
-	case key.Matches(msg, k.Search):
-		m.searching = true
-	case key.Matches(msg, k.ShowArchived):
-		m.showArchived = !m.showArchived
-		m.refreshFiltered()
-		if m.showArchived {
-			m.status = "archived shown"
-		} else {
-			m.status = "archived hidden"
-		}
-	case key.Matches(msg, k.TabNext):
-		m.cycleProviderTab(1)
-	case key.Matches(msg, k.TabPrev):
-		m.cycleProviderTab(-1)
-	case isDigitKey(msg):
-		m.jumpToProviderTab(int(msg.Runes[0] - '0'))
-	case key.Matches(msg, k.ClearSearch):
-		m.clearSearch()
-	case key.Matches(msg, k.Detail):
-		m.openDetail()
-	case key.Matches(msg, k.Import):
-		m.importing = true
-		m.importAddr = ""
-	case key.Matches(msg, k.Install):
-		m.installSelected()
-	case key.Matches(msg, k.Uninstall):
-		m.uninstallSelected()
-	case key.Matches(msg, k.Update):
-		m.updateSelected()
-	case key.Matches(msg, k.BatchUpdate):
-		m.batchUpdate()
-	case key.Matches(msg, k.Archive):
-		m.archiveSelected()
-	case key.Matches(msg, k.Delete):
-		m.deleteSelected()
-	case key.Matches(msg, k.Discover):
-		m.discoverExternal()
-	case key.Matches(msg, k.Targets):
-		m.showTargets = true
-		m.targetsCursor = 0
-	case key.Matches(msg, k.Help):
-		m.showHelp = !m.showHelp
-	}
-	return nil
+	return m.handleListKey(msg)
 }
 
 // openDetail builds and shows the full-screen detail page for the selected
@@ -635,8 +536,8 @@ func (m *model) clearSearch() {
 	}
 }
 
-// installSelected opens a target picker (all kind-matching targets checked by
-// default) and installs into the chosen subset in the background (FR-036).
+// installSelected opens one installs picker. Its checked state is the desired
+// state for each target: checked means installed; unchecked means removed.
 func (m *model) installSelected() {
 	if m.cursor >= len(m.filtered) {
 		return
@@ -646,65 +547,142 @@ func (m *model) installSelected() {
 		m.status = fmt.Sprintf("%s is %s; only active entries can be installed", entry.Name, entry.Status)
 		return
 	}
-	m.openTargetPicker("install", entry)
+	m.openInstallsPicker(entry)
 }
 
-// uninstallSelected opens a target picker and uninstalls from the chosen subset
-// in the background (FR-036).
-func (m *model) uninstallSelected() {
-	if m.cursor >= len(m.filtered) {
-		return
-	}
-	m.openTargetPicker("uninstall", m.filtered[m.cursor])
-}
-
-// openTargetPicker presents the entry's kind-matching targets for selection and
-// runs the install/uninstall action on the chosen ones.
-func (m *model) openTargetPicker(action string, entry *common.Entry) {
+// openInstallsPicker presents the entry's kind-matching targets. Each checkbox
+// expresses the desired installation state, initialized from the real state.
+func (m *model) openInstallsPicker(entry *common.Entry) {
 	targets := m.svc.Installer.Targets(entry)
 	if len(targets) == 0 {
 		m.status = fmt.Sprintf("%s: no targets accept a %s", entry.Name, entry.Kind)
 		return
 	}
-	items := make([]pickerItem, len(targets))
+	items := make([]pages.PickerItem, len(targets))
 	for i, t := range targets {
-		items[i] = pickerItem{label: fmt.Sprintf("%s (%s)", t.Name, m.svc.Installer.State(entry, t)), value: t.Name, checked: true}
+		state := m.svc.Installer.State(entry, t)
+		items[i] = pages.PickerItem{Label: fmt.Sprintf("%s (%s)", t.Name, state), Value: t.Name, Checked: state == common.InstallInstalled}
 	}
 	name := entry.Name
-	m.picker = &picker{
-		title: action + " " + name + " → targets",
-		hint:  "[space] toggle  [enter] confirm  [esc/q] cancel",
-		items: items,
-		onConfirm: func(sel []pickerItem) {
-			if len(sel) == 0 {
-				m.status = action + ": no targets selected"
-				return
+	m.picker = &pages.Picker{
+		Title: "Installs · " + name,
+		Hint:  "[space] set installed  [enter] apply  [esc/q] cancel",
+		Items: items,
+		OnConfirm: func(sel []pages.PickerItem) {
+			desired := make(map[string]bool, len(sel))
+			for _, it := range sel {
+				desired[it.Value] = true
 			}
-			names := make([]string, len(sel))
-			for i, it := range sel {
-				names[i] = it.value
+			var installTargets, uninstallTargets []string
+			for _, target := range targets {
+				state := m.svc.Installer.State(entry, target)
+				if desired[target.Name] && state != common.InstallInstalled {
+					installTargets = append(installTargets, target.Name)
+				}
+				if !desired[target.Name] && (state == common.InstallInstalled || state == common.InstallDangling) {
+					uninstallTargets = append(uninstallTargets, target.Name)
+				}
 			}
-			m.runInstall(action, name, names)
+			m.applyInstallChanges(name, installTargets, uninstallTargets)
 		},
 	}
 }
 
+func (m *model) applyInstallChanges(name string, installTargets, uninstallTargets []string) {
+	if len(installTargets) == 0 && len(uninstallTargets) == 0 {
+		m.status = "installs: no changes for " + name
+		return
+	}
+	if len(uninstallTargets) == 0 {
+		m.runInstallChanges(name, installTargets, nil)
+		return
+	}
+	prompt := "Apply install changes for " + name + "?"
+	if len(installTargets) > 0 {
+		prompt += "\nInstall: " + strings.Join(installTargets, ", ")
+	}
+	prompt += "\nRemove: " + strings.Join(uninstallTargets, ", ")
+	m.confirm = &pages.Confirm{Prompt: prompt, OnYes: func() {
+		m.runInstallChanges(name, installTargets, uninstallTargets)
+	}}
+}
+
+// runInstallChanges reconciles the selected targets with their requested
+// install state. Removals run first and only managed installs are removed.
+func (m *model) runInstallChanges(name string, installTargets, uninstallTargets []string) {
+	attempt := func(force bool) func(ctx context.Context) (any, error) {
+		return func(ctx context.Context) (any, error) {
+			var messages []string
+			if len(uninstallTargets) > 0 {
+				result, err := m.svc.Uninstall(ctx, name, services.InstallOptions{Targets: uninstallTargets})
+				if err != nil {
+					return nil, err
+				}
+				messages = append(messages, installStatusMessage("uninstall", name, result))
+			}
+			if len(installTargets) > 0 {
+				result, err := m.svc.Install(ctx, name, services.InstallOptions{Targets: installTargets, Force: force})
+				if err != nil {
+					return nil, err
+				}
+				messages = append(messages, installStatusMessage("install", name, result))
+			}
+			return strings.Join(messages, "; "), nil
+		}
+	}
+	if len(installTargets) > 0 {
+		m.submitJobForce("installs "+name, attempt(false), attempt(true))
+		return
+	}
+	m.submitJob("installs "+name, attempt(false))
+}
+
 // runInstall submits an install/uninstall job scoped to the chosen targets.
+// An install that hits a same-named non-managed object at the destination
+// fails with a needs-force error (Installer.Install); submitJobForce turns
+// that into a confirm-then-retry offer instead of a dead end. Uninstall never
+// needs force (it only ever removes a managed install, never a real file), so
+// it runs as a plain job.
 func (m *model) runInstall(action, name string, targets []string) {
-	m.submitJob(action+" "+name, func(ctx context.Context) (any, error) {
-		opts := managers.InstallOptions{Targets: targets}
-		var result *managers.InstallResult
-		var err error
-		if action == "install" {
-			result, err = m.svc.Install(ctx, name, opts)
-		} else {
-			result, err = m.svc.Uninstall(ctx, name, opts)
+	attempt := func(force bool) func(ctx context.Context) (any, error) {
+		return func(ctx context.Context) (any, error) {
+			opts := services.InstallOptions{Targets: targets, Force: force}
+			var result *services.InstallResult
+			var err error
+			if action == "install" {
+				result, err = m.svc.Install(ctx, name, opts)
+			} else {
+				result, err = m.svc.Uninstall(ctx, name, opts)
+			}
+			if err != nil {
+				return nil, err
+			}
+			return installStatusMessage(action, name, result), nil
 		}
-		if err != nil {
-			return nil, err
+	}
+	if action == "install" {
+		m.submitJobForce(action+" "+name, attempt(false), attempt(true))
+		return
+	}
+	m.submitJob(action+" "+name, attempt(false))
+}
+
+func installStatusMessage(action, name string, result *services.InstallResult) string {
+	changed := 0
+	for _, report := range result.Results {
+		if report.Changed {
+			changed++
 		}
-		return fmt.Sprintf("%sed %s across %d target(s)", action, name, len(result.Results)), nil
-	})
+	}
+	unchanged := len(result.Results) - changed
+	if changed == 0 {
+		return fmt.Sprintf("%s %s: no managed installs changed", action, name)
+	}
+	message := fmt.Sprintf("%sed %s across %d target(s)", action, name, changed)
+	if unchanged > 0 {
+		message += fmt.Sprintf("; %d unchanged", unchanged)
+	}
+	return message
 }
 
 func maxInt(a, b int) int {

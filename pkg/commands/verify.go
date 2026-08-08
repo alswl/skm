@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -74,7 +74,7 @@ func init() {
 	rootCmd.AddCommand(verifyCmd)
 }
 
-func buildVerifyReport(svc *managers.Services) *verifyReport {
+func buildVerifyReport(svc *services.Services) *verifyReport {
 	entries := svc.Scan()
 	rep := &verifyReport{
 		Total:           len(entries),

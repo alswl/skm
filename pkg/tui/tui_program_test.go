@@ -14,7 +14,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 )
 
 // E2E TUI suite: drives a real Bubble Tea program loop (tea.Program + probe
@@ -156,7 +156,7 @@ func fixtureProgramModel(t *testing.T) *model {
 		`[{"name":"claude-skills","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := managers.New(cfg, common.NewLogger(false))
+	svc, err := services.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(context.Background(), svc)
 	return m
@@ -197,7 +197,7 @@ func TestE2ETUIMoveFromDetailTakesEffect(t *testing.T) {
 	require.True(t, s.showDetail, "Enter opens the detail page")
 	require.Equal(t, "d2", s.filtered[s.cursor].Name)
 
-	s = pp.send(keyRunes('m'))
+	s = pp.send(keyRunes('n'))
 	require.NotNil(t, s.picker, "m opens the provider picker from the detail page")
 
 	s = pp.send(tea.KeyMsg{Type: tea.KeyEnter}) // choose "local" (first item)
@@ -243,7 +243,7 @@ func TestE2ETUIQAndEscOnlyGoBack(t *testing.T) {
 	// Program still alive: reopen detail and drive a picker, then q closes it.
 	s = pp.send(tea.KeyMsg{Type: tea.KeyEnter})
 	require.True(t, s.showDetail)
-	s = pp.send(keyRunes('m')) // d2 is non-standard, so move opens a provider picker
+	s = pp.send(keyRunes('n')) // d2 is non-standard, so move opens a provider picker
 	require.NotNil(t, s.picker)
 	s = pp.send(keyRunes('q'))
 	require.Nil(t, s.picker, "q closes the picker, like esc")
@@ -279,7 +279,7 @@ func TestE2ETUIDetailScrollsWithJK(t *testing.T) {
 
 	avail := map[string]bool{}
 	for _, b := range s.detailBindings() {
-		avail[b.keys] = b.enabled
+		avail[b.Keys] = b.Enabled
 	}
 	require.True(t, avail["j/k"], "scroll is offered because repo-analyzer's detail overflows")
 
@@ -317,10 +317,10 @@ func TestE2ETUIDetailFooterDimsUnavailableActions(t *testing.T) {
 	require.True(t, s.showDetail)
 	avail := map[string]bool{}
 	for _, b := range s.detailBindings() {
-		avail[b.keys] = b.enabled
+		avail[b.Keys] = b.Enabled
 	}
-	require.True(t, avail["m"], "move is offered for the non-standard entry")
-	require.False(t, avail["s"], "install is disabled for a non-standard entry")
+	require.True(t, avail["n"], "move is offered for the non-standard entry")
+	require.False(t, avail["i"], "install is disabled for a non-standard entry")
 	require.False(t, avail["u"], "uninstall is disabled when nothing is installed")
 	require.False(t, avail["p"], "update is disabled for an entry with no origin")
 	require.True(t, avail["a"], "archive is always offered")

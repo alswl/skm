@@ -204,3 +204,56 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 	out, _, _ = e2eRun(t, "target", "list", "--config", cfgDir, "--json")
 	require.Len(t, e2eJSON(t, out)["targets"].([]any), 4, "back to the fixture's merged built-ins")
 }
+
+// TestE2ECLISingleFileCommandFullLifecycle drives the real skm binary through
+// install/uninstall/archive/list/unarchive/delete for a properly-nested
+// single-file command (commands/<provider>/<name>.md — entry.Path is the .md
+// file itself, not a directory, per Entry.MarkerPath). This is the exact
+// shape that crashed command-adapter install with "list resources for %q:
+// ...: not a directory" (a real user hit this installing a self-built
+// "kms.log" command — see the fixture's own non-standard commands/kms.log.md,
+// used elsewhere in this file for the *missing-provider-level* case) and,
+// separately, disappeared entirely from `list` once archived (scanTop's
+// flat-file branch required kind == KindCommand exactly, but the archived
+// tree is scanned with an empty kind since it mixes skills and commands).
+// Both are fixed in pkg/services/command_adapter.go and
+// pkg/services/repository_scan.go; this is the end-to-end lock via the real
+// subprocess binary, not just the unit tests in those packages.
+func TestE2ECLISingleFileCommandFullLifecycle(t *testing.T) {
+	root, cfgDir := e2eFixture(t)
+	writeTestFile(t, root, "commands/self-build/flatcmd.md",
+		"---\nname: flatcmd\ndescription: a hand-authored single-file command\n---\nbody\n")
+
+	_, stderr, code := e2eRun(t, "target", "add", "--config", cfgDir,
+		"--name", "adapter-target", "--platform", "darwin", "--path", filepath.Join(t.TempDir(), "adapter"),
+		"--accepts", "command", "--strategy", "command=command-adapter")
+	require.Equal(t, 0, code, "target add fails: %s", stderr)
+
+	out, _, code := e2eRun(t, "install", "flatcmd", "--root", root, "--config", cfgDir, "--target", "adapter-target", "--json")
+	require.Equal(t, 0, code, "install must not crash on a single-file command: %s", out)
+	require.Equal(t, true, e2eJSON(t, out)["success"])
+
+	out, _, code = e2eRun(t, "uninstall", "flatcmd", "--root", root, "--config", cfgDir, "--json")
+	require.Equal(t, 0, code, "uninstall must not crash: %s", out)
+
+	out, _, code = e2eRun(t, "archive", "flatcmd", "--root", root, "--config", cfgDir, "--json")
+	require.Equal(t, 0, code, "archive must not crash: %s", out)
+
+	out, _, code = e2eRun(t, "list", "--root", root, "--config", cfgDir, "--json")
+	require.Equal(t, 0, code)
+	var found map[string]any
+	for _, e := range e2eJSON(t, out)["entries"].([]any) {
+		em := e.(map[string]any)
+		if em["name"] == "flatcmd" {
+			found = em
+		}
+	}
+	require.NotNil(t, found, "an archived single-file command must still appear in `list` (previously silently dropped)")
+	require.Equal(t, "archived", found["status"])
+
+	out, _, code = e2eRun(t, "unarchive", "flatcmd", "--root", root, "--config", cfgDir, "--json")
+	require.Equal(t, 0, code, "unarchive must not crash: %s", out)
+
+	out, _, code = e2eRun(t, "delete", "flatcmd", "--root", root, "--config", cfgDir, "--force", "--json")
+	require.Equal(t, 0, code, "delete must not crash: %s", out)
+}

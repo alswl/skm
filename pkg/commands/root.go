@@ -9,7 +9,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/alswl/skm/skm/pkg/tui"
 	"github.com/spf13/cobra"
 )
@@ -75,19 +75,19 @@ func init() {
 
 // servicesFor builds a Services instance from the global flags, resolving the
 // repository root and config. Command files call this from their RunE.
-func servicesFor(cmd *cobra.Command) (*managers.Services, error) {
+func servicesFor(cmd *cobra.Command) (*services.Services, error) {
 	cfg, err := config.Load(flagRoot, flagConfig)
 	if err != nil {
 		return nil, common.WithExitCode(err, common.ExitError)
 	}
-	return managers.New(cfg, common.NewLogger(flagTiming))
+	return services.New(cfg, common.NewLogger(flagTiming))
 }
 
 // deployServicesFor builds Services for the deploy command without requiring a
 // local repository root (the deploy source is on the target machine).
-func deployServicesFor(cmd *cobra.Command) (*managers.Services, error) {
+func deployServicesFor(cmd *cobra.Command) (*services.Services, error) {
 	cfg := config.LoadForDeploy(flagConfig)
-	return managers.New(cfg, common.NewLogger(flagTiming))
+	return services.New(cfg, common.NewLogger(flagTiming))
 }
 
 // runTUI starts the Bubble Tea interface. It is only reachable when no known
@@ -97,7 +97,7 @@ func runTUI(ctx context.Context) error {
 	if err != nil {
 		return common.WithExitCode(err, common.ExitError)
 	}
-	svc, err := managers.New(cfg, common.NewLogger(flagTiming))
+	svc, err := services.New(cfg, common.NewLogger(flagTiming))
 	if err != nil {
 		return common.WithExitCode(err, common.ExitError)
 	}

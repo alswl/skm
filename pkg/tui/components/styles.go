@@ -38,8 +38,8 @@ var (
 	styleStatusArchived    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})
 	styleStatusError       = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "203"})
 	styleInstallInstalled  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "28", Dark: "71"})
-	styleInstallAbsent     = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})
-	styleInstallProblem    = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "203"})
+	styleInstallConflict   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "124", Dark: "203"})
+	styleInstallDangling   = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "178"})
 )
 
 // InstallNA marks a target column that structurally cannot receive an
@@ -58,19 +58,20 @@ func StyleForKind(k common.EntryKind) lipgloss.Style {
 }
 
 // InstallIcon renders one target cell's glyph and color (FR-041 per-target
-// columns): a check when installed, a cross for a conflict/dangling problem,
-// a dash when the target could receive the entry but doesn't have it, and a
-// dim middle-dot when the target's kind doesn't match at all.
+// columns): a check when installed, a cross for a conflict, a warning sign
+// for a dangling link, and an empty cell for both absent installs and targets
+// whose kind doesn't match. Keeping every non-problem, non-installed cell
+// blank makes the per-target columns easy to scan.
 func InstallIcon(s common.InstallState) (string, lipgloss.Style) {
 	switch s {
 	case common.InstallInstalled:
 		return "✓", styleInstallInstalled
-	case common.InstallConflict, common.InstallDangling:
-		return "✗", styleInstallProblem
-	case InstallNA:
-		return "·", StyleDim
+	case common.InstallConflict:
+		return "✗", styleInstallConflict
+	case common.InstallDangling:
+		return "⚠", styleInstallDangling
 	default:
-		return "—", styleInstallAbsent
+		return "", lipgloss.NewStyle()
 	}
 }
 

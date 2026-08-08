@@ -8,13 +8,127 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/tui/pages"
 	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
+
+// handleDetailKey drives the detail page: scroll, back, and the actions also
+// reachable from the list page (installs/update/archive/delete are
+// shared with handleListKey — list and detail are one page's worth of
+// selection state with two renderings, not two independent pages, so these
+// actions stay here rather than in pkg/tui/pages).
+func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
+	k := m.keys
+	switch {
+	case key.Matches(msg, k.ClearSearch), key.Matches(msg, k.Quit):
+		m.showDetail = false // Esc/q back to the list (Enter does not close detail)
+	case key.Matches(msg, k.MoveDown):
+		lines := components.SplitLines(m.detail)
+		maxOffset := maxInt(0, len(lines)-maxInt(1, maxInt(10, m.height)-4))
+		m.detailOffset = clampInt(m.detailOffset+1, 0, maxOffset)
+	case key.Matches(msg, k.MoveUp):
+		m.detailOffset = maxInt(0, m.detailOffset-1)
+	case key.Matches(msg, k.Normalize):
+		m.normalizeSelected()
+	case key.Matches(msg, k.Install):
+		m.installSelected()
+	case key.Matches(msg, k.Update):
+		m.updateSelected()
+	case key.Matches(msg, k.Archive):
+		m.archiveSelected()
+	case key.Matches(msg, k.Delete):
+		m.deleteSelected()
+	}
+	return nil
+}
+
+// handleListKey drives the main list: navigation, search, provider tabs, and
+// every action also reachable from the detail page (see handleDetailKey).
+func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
+	k := m.keys
+	if m.showHelp {
+		switch {
+		case key.Matches(msg, k.Help), key.Matches(msg, k.ClearSearch), key.Matches(msg, k.Quit):
+			m.showHelp = false
+		}
+		return nil
+	}
+	switch {
+	case key.Matches(msg, k.Quit):
+		return tea.Quit
+	case key.Matches(msg, k.Cancel):
+		m.cancelRunningTask()
+		return nil
+	case key.Matches(msg, k.Queue):
+		m.showTasks = true
+		m.tasksCursor = 0
+		return nil
+	case key.Matches(msg, k.MoveDown):
+		m.cursor++
+		m.clampView()
+	case key.Matches(msg, k.MoveUp):
+		m.cursor--
+		m.clampView()
+	case key.Matches(msg, k.PagePrev):
+		m.moveByRows(-m.pageSize)
+	case key.Matches(msg, k.PageNext):
+		m.moveByRows(m.pageSize)
+	case key.Matches(msg, k.First):
+		m.cursor = 0
+		m.clampView()
+	case key.Matches(msg, k.Last):
+		m.cursor = len(m.filtered) - 1
+		m.clampView()
+	case key.Matches(msg, k.Search):
+		m.searching = true
+	case key.Matches(msg, k.ShowArchived):
+		m.showArchived = !m.showArchived
+		m.refreshFiltered()
+		if m.showArchived {
+			m.status = "archived shown"
+		} else {
+			m.status = "archived hidden"
+		}
+	case key.Matches(msg, k.TabNext):
+		m.cycleProviderTab(1)
+	case key.Matches(msg, k.TabPrev):
+		m.cycleProviderTab(-1)
+	case isDigitKey(msg):
+		m.jumpToProviderTab(int(msg.Runes[0] - '0'))
+	case key.Matches(msg, k.ClearSearch):
+		m.clearSearch()
+	case key.Matches(msg, k.Detail):
+		m.openDetail()
+	case key.Matches(msg, k.Import):
+		m.importing = true
+		m.importAddr = ""
+	case key.Matches(msg, k.Install):
+		m.installSelected()
+	case key.Matches(msg, k.Update):
+		m.updateSelected()
+	case key.Matches(msg, k.BatchUpdate):
+		m.batchUpdate()
+	case key.Matches(msg, k.Archive):
+		m.archiveSelected()
+	case key.Matches(msg, k.Delete):
+		m.deleteSelected()
+	case key.Matches(msg, k.Discover):
+		m.discoverExternal()
+	case key.Matches(msg, k.Targets):
+		m.showTargets = true
+		m.targetsCursor = 0
+	case key.Matches(msg, k.Help):
+		m.showHelp = !m.showHelp
+	}
+	return nil
+}
 
 // View renders the nnn-style framed layout: a full-screen single-column list
 // with a bottom status/help bar, or the full-screen detail page when open.
@@ -142,7 +256,14 @@ func (m model) tabBarContent() string {
 // the terminal height.
 func (m model) renderMainArea(inner, rows int) []string {
 	if m.showHelp {
-		return components.PadLines(components.SplitLines(m.help.FullHelpView(m.keys.FullHelp())), inner, rows)
+		help := "Install status: ✓ installed  ⚠ dangling link (source missing)  ✗ conflict (not managed)  blank not installed or unsupported\n" +
+			"Target columns: Claude Claude* (Commands) Codex Pi\n" +
+			m.help.FullHelpView(m.keys.FullHelp())
+		lines := components.SplitLines(help)
+		if len(lines) > rows {
+			lines = lines[:rows]
+		}
+		return components.PadLines(lines, inner, rows)
 	}
 	pageInfo := pagination.Page(len(m.rows), m.pageSize, m.page)
 	var out []string
@@ -182,10 +303,28 @@ type installCell struct {
 	state common.InstallState
 }
 
-// targetColWidth is the shared column width for a target's header cell and
-// every entry's cell under it, so the header and the rows always line up.
+// targetColWidth follows the visible header label, keeping each header and its
+// status cells aligned without reserving the much longer configuration name.
 func targetColWidth(name string) int {
-	return clampInt(len(name), 3, 16)
+	return lipgloss.Width(targetLabel(name))
+}
+
+// targetLabel is the visible header for a target status column.
+// The default targets have stable, unambiguous labels; custom targets fall
+// back to their uppercased prefix.
+func targetLabel(name string) string {
+	switch name {
+	case "claude-skills":
+		return "Claude"
+	case "claude-commands":
+		return "Claude*"
+	case "codex":
+		return "Codex"
+	case "pi":
+		return "Pi"
+	default:
+		return ansi.Truncate(name, 7, "")
+	}
 }
 
 // installHeaderRow labels each per-target column above the entry list
@@ -196,7 +335,7 @@ func installHeaderRow(targets []common.InstallTarget) string {
 	sb.WriteString(truncPad("", iconColWidth) + " " + truncPad("", nameColWidth) + " " + truncPad("", kindColWidth) + " " +
 		truncPad("", versionColWidth) + " " + truncPad("", statusColWidth))
 	for _, t := range targets {
-		sb.WriteString(" " + components.StyleDim.Render(truncPad(t.Name, targetColWidth(t.Name))))
+		sb.WriteString(" " + components.StyleDim.Render(truncPad(targetLabel(t.Name), targetColWidth(t.Name))))
 	}
 	return sb.String()
 }
@@ -233,18 +372,6 @@ func renderEntryLine(e *common.Entry, icon string, cells []installCell, highligh
 		sb.WriteString(" " + cell)
 	}
 	return sb.String()
-}
-
-// installedSomewhere reports whether any of an entry's target cells shows a
-// real install (installed, or a conflict/dangling problem worth letting the
-// user clear) — used to enable/disable the list footer's uninstall key.
-func installedSomewhere(cells []installCell) bool {
-	for _, c := range cells {
-		if c.state == common.InstallInstalled || c.state == common.InstallConflict || c.state == common.InstallDangling {
-			return true
-		}
-	}
-	return false
 }
 
 // truncPad truncates s to at most w cells (ANSI/wide-rune aware) and
@@ -289,7 +416,7 @@ func (m model) detailView() string {
 	w := maxInt(20, m.width)
 	h := maxInt(10, m.height)
 	inner := w - 2
-	rows := maxInt(1, h-4) // top, [content], sep, footer, bottom
+	rows := maxInt(1, h-6) // top, [content], sep, status, sep, footer, bottom
 	title := " skm · detail "
 	if len(m.filtered) > 0 {
 		title = " skm · " + m.filtered[m.cursor].Name + " · detail "
@@ -306,6 +433,8 @@ func (m model) detailView() string {
 		sb.WriteString("│" + components.FitCell(l, inner, lipgloss.NewStyle()) + "│\n")
 	}
 	sb.WriteString(components.FrameSep(inner) + "\n")
+	sb.WriteString("│" + components.FitCell(m.status, inner, components.StyleStatusBar) + "│\n")
+	sb.WriteString(components.FrameSep(inner) + "\n")
 	sb.WriteString("│" + components.FitCell(m.detailHint(), inner, lipgloss.NewStyle()) + "│\n")
 	sb.WriteString(components.FrameBottom(inner))
 	return sb.String()
@@ -318,30 +447,29 @@ func (m model) detailView() string {
 func (m model) listHint() string {
 	var parts []string
 	for _, b := range m.listBindings() {
-		parts = append(parts, hintBinding(b.keys, b.label, b.enabled))
+		parts = append(parts, pages.HintBinding(b.Keys, b.Label, b.Enabled))
 	}
 	return strings.Join(parts, "  ")
 }
 
 // listBindings is the list footer's availability matrix for the highlighted
-// entry. Install/uninstall reuse the same conditions as installSelected /
-// openTargetPicker and detailBindings so a dimmed key never surprises with a
+// entry. Installs reuse the same conditions as installSelected /
+// openInstallsPicker and detailBindings so a dimmed key never surprises with a
 // status-bar rejection. Targets() is a pure in-memory lookup (no FS I/O), so
 // it's safe here in View; installed/conflict state comes from m.installCol,
 // cached in Update (computeInstallCols), keeping View pure.
-func (m model) listBindings() []hintItem {
-	install, uninstall := false, false
+func (m model) listBindings() []pages.HintItem {
+	install := false
 	if len(m.filtered) > 0 {
 		e := m.filtered[m.cursor]
 		install = e.Status == common.StatusActive && len(m.svc.Installer.Targets(e)) > 0
-		uninstall = installedSomewhere(m.installCol[e.Name])
 	}
-	return []hintItem{
-		{keys: "j/k", label: "up/down", enabled: true},
-		{keys: "/", label: "search", enabled: true},
-		{keys: "s", label: "install", enabled: install},
-		{keys: "u", label: "uninstall", enabled: uninstall},
-		{keys: "q", label: "quit", enabled: true},
+	return []pages.HintItem{
+		{Keys: "j/k", Label: "up/down", Enabled: true},
+		{Keys: "/", Label: "search", Enabled: true},
+		{Keys: "i", Label: "installs", Enabled: install},
+		{Keys: "m", Label: "import", Enabled: true},
+		{Keys: "q", Label: "quit", Enabled: true},
 	}
 }
 
@@ -356,46 +484,29 @@ func (m model) listBindings() []hintItem {
 func (m model) detailHint() string {
 	var parts []string
 	for _, b := range m.detailBindings() {
-		parts = append(parts, hintBinding(b.keys, b.label, b.enabled))
+		parts = append(parts, pages.HintBinding(b.Keys, b.Label, b.Enabled))
 	}
 	return strings.Join(parts, "  ")
-}
-
-// hintBinding renders a key binding, dimmed when the action is not available
-// for the current selection.
-func hintBinding(keys, label string, enabled bool) string {
-	if !enabled {
-		return components.StyleDim.Render("[" + keys + "] " + label)
-	}
-	return "[" + keys + "] " + label
-}
-
-// hintItem is one footer binding and whether it applies to the current entry.
-type hintItem struct {
-	keys    string
-	label   string
-	enabled bool
 }
 
 // detailBindings is the detail footer's availability matrix for the currently
 // selected entry (tested directly; detailHint renders it). FS-derived
 // availability comes from fields cached in refreshDetail (Update), so View
 // stays pure.
-func (m model) detailBindings() []hintItem {
+func (m model) detailBindings() []pages.HintItem {
 	if len(m.filtered) == 0 {
-		return []hintItem{{keys: "esc/q", label: "back", enabled: true}}
+		return []pages.HintItem{{Keys: "esc/q", Label: "back", Enabled: true}}
 	}
 	e := m.filtered[m.cursor]
 	rows := maxInt(1, maxInt(10, m.height)-4)
-	return []hintItem{
-		{keys: "j/k", label: "scroll", enabled: len(components.SplitLines(m.detail)) > rows},
-		{keys: "esc/q", label: "back", enabled: true},
-		{keys: "s", label: "install", enabled: e.Status == common.StatusActive && m.detailTargets > 0},
-		{keys: "u", label: "uninstall", enabled: m.detailInstalled},
-		{keys: "p", label: "update", enabled: e.Status == common.StatusActive && e.Origin != nil},
-		{keys: "a", label: "archive", enabled: true},
-		{keys: "d", label: "delete", enabled: true},
-		{keys: "m", label: "move", enabled: e.Status == common.StatusNonStandard},
+	return []pages.HintItem{
+		{Keys: "j/k", Label: "scroll", Enabled: len(components.SplitLines(m.detail)) > rows},
+		{Keys: "esc/q", Label: "back", Enabled: true},
+		{Keys: "i", Label: "installs", Enabled: e.Status == common.StatusActive && m.detailTargets > 0},
+		{Keys: "p", Label: "update", Enabled: e.Status == common.StatusActive && e.Origin != nil},
+		{Keys: "a", Label: "archive", Enabled: true},
+		{Keys: "d", Label: "delete", Enabled: true},
+		{Keys: "n", Label: "move", Enabled: e.Status == common.StatusNonStandard},
 	}
 }
 

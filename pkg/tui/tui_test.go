@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,8 +18,9 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/tui/pages"
 	"github.com/alswl/skm/skm/pkg/utils/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +51,7 @@ func newTestModel(t *testing.T) model {
 
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := managers.New(cfg, common.NewLogger(false))
+	svc, err := services.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(t.Context(), svc)
 	m.width, m.height = 100, 30
@@ -62,7 +65,7 @@ func newTestModel(t *testing.T) model {
 // newLoadingTestModel builds a raw initialModel (loading, unscanned) using the
 // same fixture repo as newTestModel, for tests that exercise the async-scan
 // transition itself rather than a fully-loaded model.
-func newLoadingTestModel(t *testing.T) (*model, *managers.Services) {
+func newLoadingTestModel(t *testing.T) (*model, *services.Services) {
 	t.Helper()
 	prev := termenv.ColorProfile()
 	lipgloss.SetColorProfile(termenv.Ascii)
@@ -74,7 +77,7 @@ func newLoadingTestModel(t *testing.T) (*model, *managers.Services) {
 	cfgDir := t.TempDir()
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
-	svc, err := managers.New(cfg, common.NewLogger(false))
+	svc, err := services.New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 	m := initialModel(t.Context(), svc)
 	m.width, m.height = 100, 30
@@ -153,11 +156,14 @@ func TestModelSearchFilters(t *testing.T) {
 
 func TestModelInstallActionRefreshesStatus(t *testing.T) {
 	m := newTestModel(t)
-	// `s` opens the target picker (all targets checked by default, FR-036).
-	_ = m.handleKey(runeKey('s'))
-	require.NotNil(t, m.picker, "install opens a target picker")
-	require.Contains(t, m.picker.title, "install")
-	// Confirm the picker to submit the install job.
+	// `i` opens the installs picker; checking a target requests installation.
+	_ = m.handleKey(runeKey('i'))
+	require.NotNil(t, m.picker, "installs opens a target picker")
+	require.Contains(t, m.picker.Title, "Installs")
+	for i := range m.picker.Items {
+		m.picker.Items[i].Checked = true
+	}
+	// Confirm the picker to submit the requested installation changes.
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	require.Nil(t, m.picker, "picker closes on confirm")
 
@@ -177,6 +183,50 @@ func TestModelInstallActionRefreshesStatus(t *testing.T) {
 	require.Contains(t, m.View(), "✓", "install column shows the installed icon")
 }
 
+func TestInstallStatusMessageReportsActualChanges(t *testing.T) {
+	result := &services.InstallResult{Results: []common.InstallReport{
+		{Target: "a", Changed: true},
+		{Target: "b", Changed: false},
+		{Target: "c", Changed: true},
+	}}
+	require.Equal(t, "uninstalled demo across 2 target(s); 1 unchanged", installStatusMessage("uninstall", "demo", result))
+
+	result.Results = []common.InstallReport{{Target: "a", Changed: false}}
+	require.Equal(t, "uninstall demo: no managed installs changed", installStatusMessage("uninstall", "demo", result))
+}
+
+func TestListFooterShowsInstallAndImportBindings(t *testing.T) {
+	m := newTestModel(t)
+	hint := m.listHint()
+	require.Contains(t, hint, "[i] installs")
+	require.Contains(t, hint, "[m] import")
+	require.NotContains(t, hint, "[u] uninstall")
+}
+
+func TestInstallsPickerRemovesUncheckedManagedTarget(t *testing.T) {
+	m := newTestModel(t)
+	m.runInstall("install", "skill-a", []string{"t"})
+	drainJob(t, &m)
+
+	_ = m.handleKey(runeKey('i'))
+	require.NotNil(t, m.picker)
+	for i := range m.picker.Items {
+		if m.picker.Items[i].Value == "t" {
+			m.picker.Items[i].Checked = false
+		}
+	}
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, m.confirm, "removing an installed target requires confirmation")
+	require.Contains(t, m.confirm.Prompt, "Remove: t")
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+
+	entry := m.svc.FindEntry("skill-a")
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	require.Equal(t, common.InstallAbsent, m.svc.Installer.State(entry, target))
+}
+
 // TestListShowsInstallStatusForNonStandardEntries: computeInstallCols evaluates
 // every entry (not just active ones), so a non-standard entry's install state
 // is visible in the list ("安装状态无法在 list 页面看到" fix).
@@ -191,7 +241,7 @@ func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
 	require.Len(t, m.installCol["flat-skill"], len(m.svc.Cfg.Targets))
 	tIdx := 0
 	require.Equal(t, "claude-skills", m.svc.Cfg.Targets[tIdx].Name)
-	require.Equal(t, common.InstallAbsent, m.installCol["flat-skill"][tIdx].state, "absent install shows the dash, not silently skipped")
+	require.Equal(t, common.InstallAbsent, m.installCol["flat-skill"][tIdx].state, "absent install remains visible in model state")
 
 	// Install flat-skill into the skill-accepting target via the installer.
 	entry := m.svc.FindEntry("flat-skill")
@@ -225,18 +275,18 @@ func TestModelImportSelectsProviderAndKind(t *testing.T) {
 	src := t.TempDir()
 	writeFileT(t, src, "SKILL.md", "---\nname: imported\ndescription: imported skill\n---\nbody\n")
 
-	_ = m.handleKey(runeKey('i'))
+	_ = m.handleKey(runeKey('m'))
 	require.True(t, m.importing)
 	for _, r := range src {
 		_ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // finish address -> provider picker
 	require.NotNil(t, m.picker)
-	require.Contains(t, m.picker.title, "provider")
+	require.Contains(t, m.picker.Title, "provider")
 
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter}) // auto provider -> kind picker
 	require.NotNil(t, m.picker)
-	require.Contains(t, m.picker.title, "kind")
+	require.Contains(t, m.picker.Title, "kind")
 
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter}) // auto kind -> run import
 	require.Nil(t, m.picker)
@@ -298,7 +348,7 @@ func TestModelDiscoverAdopts(t *testing.T) {
 
 	_ = m.handleKey(runeKey('o'))
 	require.NotNil(t, m.picker, "discover opens a selection modal")
-	m.picker.items[0].checked = true
+	m.picker.Items[0].Checked = true
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter}) // adopt selected
 	require.Nil(t, m.picker)
 	drainJob(t, &m)
@@ -312,16 +362,30 @@ func TestModelDiscoverAdopts(t *testing.T) {
 // TestModelHelpToggle: `?` toggles the full help table, which shows keys that
 // are absent from the compact bar (e.g. "batch update").
 func TestModelHelpToggle(t *testing.T) {
-	m := newTestModel(t)
-	require.False(t, m.showHelp)
+	for _, closeKey := range []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune{'?'}},
+		{Type: tea.KeyEsc},
+		{Type: tea.KeyRunes, Runes: []rune{'q'}},
+	} {
+		t.Run(closeKey.String(), func(t *testing.T) {
+			m := newTestModel(t)
+			require.False(t, m.showHelp)
 
-	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
-	require.True(t, m.showHelp)
-	require.Contains(t, m.View(), "batch update")
+			_ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+			require.True(t, m.showHelp)
+			require.Contains(t, m.View(), "batch update")
+			require.Contains(t, m.View(), "Install status: ✓ installed")
+			require.Contains(t, m.View(), "dangling link (source missing)")
+			require.Contains(t, m.View(), "conflict (not managed)")
+			require.Contains(t, m.View(), "blank not installed or unsupported")
+			require.Contains(t, m.View(), "Target columns: Claude Claude* (Commands) Codex Pi")
 
-	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
-	require.False(t, m.showHelp)
-	require.NotContains(t, m.View(), "batch update")
+			cmd := m.handleKey(closeKey)
+			require.Nil(t, cmd, "closing help must not quit the TUI")
+			require.False(t, m.showHelp)
+			require.NotContains(t, m.View(), "batch update")
+		})
+	}
 }
 
 // TestModelDetailOpensForSelectedEntry: Enter/v builds the detail page for the
@@ -471,6 +535,253 @@ func TestArchivedHiddenUntilToggled(t *testing.T) {
 	_ = m.handleKey(runeKey('.'))
 	require.False(t, m.showArchived)
 	require.Len(t, m.filtered, 1)
+}
+
+// bindingMap collects a []pages.HintItem into a keys->enabled map for assertions.
+func bindingMap(items []pages.HintItem) map[string]bool {
+	out := map[string]bool{}
+	for _, b := range items {
+		out[b.Keys] = b.Enabled
+	}
+	return out
+}
+
+// TestTasksBindingsDimUnavailableActions: the task center's footer must dim
+// cancel/cancel-all/clear-done the same way list/detail already dim
+// install/uninstall, instead of always showing them as available (FR-009).
+func TestTasksBindingsDimUnavailableActions(t *testing.T) {
+	m := newTestModel(t)
+	a := bindingMap(m.tasksBindings())
+	require.False(t, a["c"], "cancel disabled: no job selected")
+	require.False(t, a["C"], "cancel all disabled: nothing running or queued")
+	require.False(t, a["x"], "clear done disabled: no completed history")
+
+	m.runInstall("install", "skill-a", []string{"t"})
+	drainJob(t, &m)
+	a = bindingMap(m.tasksBindings())
+	require.True(t, a["x"], "clear done enabled once a job has completed")
+	require.False(t, a["c"], "cancel still disabled: the completed job can't be cancelled")
+}
+
+// TestTasksCenterDisabledKeyGivesReason: pressing cancel/cancel-all/clear-done
+// with nothing to act on must set a specific reason, never a silent no-op
+// (FR-002, contract §1).
+func TestTasksCenterDisabledKeyGivesReason(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('J'))
+	require.True(t, m.showTasks)
+
+	_ = m.handleKey(runeKey('c'))
+	require.Contains(t, m.status, "no job", "cancel with nothing selected gives a reason")
+
+	m.status = ""
+	_ = m.handleKey(runeKey('C'))
+	require.Contains(t, m.status, "no jobs", "cancel all with nothing running/queued gives a reason")
+
+	m.status = ""
+	_ = m.handleKey(runeKey('x'))
+	require.Contains(t, m.status, "no completed", "clear done with no history gives a reason")
+}
+
+// TestTargetsBindingsDimWhenNoneSelected: the target editor's footer must dim
+// edit-path/remove when no target is selected, the same way list/detail dim
+// unavailable actions (FR-009).
+func TestTargetsBindingsDimWhenNoneSelected(t *testing.T) {
+	m := newTestModel(t)
+	require.NotEmpty(t, m.svc.Cfg.Targets, "fixture always has at least the merged built-in targets")
+	a := bindingMap(m.targetsBindings())
+	require.True(t, a["enter"], "edit path enabled: a target is selected")
+	require.True(t, a["d"], "remove enabled: a target is selected")
+
+	m.targetsCursor = len(m.svc.Cfg.Targets) // push past the end: nothing selected
+	a = bindingMap(m.targetsBindings())
+	require.False(t, a["enter"], "edit path disabled when nothing is selected")
+	require.False(t, a["d"], "remove disabled when nothing is selected")
+}
+
+// TestTargetsEditRemoveDisabledKeyGivesReason: pressing edit-path/remove with
+// no target selected must set a specific reason, never a silent no-op.
+func TestTargetsEditRemoveDisabledKeyGivesReason(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('t'))
+	require.True(t, m.showTargets)
+	m.targetsCursor = len(m.svc.Cfg.Targets)
+
+	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Contains(t, m.status, "no target selected", "edit path with nothing selected gives a reason")
+	require.Nil(t, m.targetWizard, "no wizard opens when nothing is selected")
+
+	_ = m.handleKey(runeKey('d'))
+	require.Contains(t, m.status, "no target selected", "remove with nothing selected gives a reason")
+	require.Nil(t, m.confirm, "no confirm opens when nothing is selected")
+}
+
+// TestInstallReasonPrecedenceWhenTwoUnavailableConditionsApply: an entry that
+// is both archived and has no matching targets must show the archived reason
+// specifically — installSelected checks status before targets, so the two
+// conditions can never race (spec.md Edge Case 5, verified by construction,
+// not a new behavior).
+func TestInstallReasonPrecedenceWhenTwoUnavailableConditionsApply(t *testing.T) {
+	m := newTestModel(t)
+	_, err := m.svc.Archive(m.ctx, "skill-a", services.LifecycleOptions{})
+	require.NoError(t, err)
+	m.showArchived = true // archived entries are hidden by default; make skill-a visible
+	m.applyEntries(m.svc.Scan())
+	idx := -1
+	for i, e := range m.filtered {
+		if e.Name == "skill-a" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0, "archived skill-a is visible once showArchived is set")
+	m.cursor = idx
+
+	m.installSelected()
+	require.Contains(t, m.status, "archived", "the archived-status reason wins regardless of target availability")
+}
+
+// TestJobFailureVisibleRegardlessOfActiveScreen: a background job's failure
+// used to only be visible on the list screen (statusContent() was the only
+// caller of model.status); a user who opened the detail page, task center, or
+// target editor before the job finished had no way to see it without
+// navigating back. framedPage() and detailView() now render model.status
+// directly, so the failure is visible on whichever screen is active when the
+// job completes (FR-003, FR-004, contract §2).
+func TestJobFailureVisibleRegardlessOfActiveScreen(t *testing.T) {
+	screens := []struct {
+		name  string
+		open  rune
+		check func(t *testing.T, m model)
+	}{
+		{"task center", 'J', func(t *testing.T, m model) { require.True(t, m.showTasks) }},
+		{"target editor", 't', func(t *testing.T, m model) { require.True(t, m.showTargets) }},
+	}
+	for _, sc := range screens {
+		t.Run(sc.name, func(t *testing.T) {
+			m := newTestModel(t)
+			_ = m.handleKey(runeKey(sc.open))
+			sc.check(t, m)
+			m.submitJob("boom job", func(ctx context.Context) (any, error) { return nil, errors.New("boom") })
+			drainJob(t, &m)
+			require.Contains(t, m.status, "boom", "job failure sets model.status regardless of active screen")
+			require.Contains(t, m.View(), "boom", "the active screen's View() renders the failure")
+		})
+	}
+
+	t.Run("detail", func(t *testing.T) {
+		m := newTestModel(t)
+		_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+		require.True(t, m.showDetail)
+		m.submitJob("boom job", func(ctx context.Context) (any, error) { return nil, errors.New("boom") })
+		drainJob(t, &m)
+		require.Contains(t, m.status, "boom")
+		require.Contains(t, m.View(), "boom", "the detail page also renders the failure, not just list")
+	})
+}
+
+// TestBatchUpdateSurfacesFailureReason: the TUI batch-update status message
+// must name which entries failed and why, not just an aggregate count
+// (FR-005) — previously services.BatchUpdateResult.Failed discarded the
+// reason before it ever reached the TUI.
+func TestBatchUpdateSurfacesFailureReason(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\ndescription: broken\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/meta.json", `{"address":"/does/not/exist/anywhere","mode_id":"local"}`)
+	m.applyEntries(m.svc.Scan())
+
+	m.batchUpdate()
+	drainJob(t, &m)
+	require.Contains(t, m.status, "failed=1")
+	require.Contains(t, m.status, "broken", "the failing entry's name is reachable, not just the count")
+	require.Contains(t, m.status, "failed:", "a reason is reachable alongside the name")
+}
+
+// TestDiscoverSurfacesProviderLoadFailure: a provider plugin that fails to
+// load during discovery used to be visible only through the CLI's `provider
+// list`/`validate` (providers.Registry.LoadFailures() had zero references
+// anywhere in pkg/tui). Running discover (`o`) must now show the specific
+// plugin path and reason (FR-003; R3).
+func TestDiscoverSurfacesProviderLoadFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	writeFileT(t, root, "skills/local/skill-a/SKILL.md", "---\nname: skill-a\ndescription: alpha\n---\nbody\n")
+	cfgDir := t.TempDir()
+
+	pluginsDir := t.TempDir()
+	providersDir := filepath.Join(pluginsDir, "providers")
+	require.NoError(t, os.MkdirAll(providersDir, 0o755))
+	// A plugin that replies with non-JSON fails its handshake fast (protocol
+	// error), mirroring pkg/services/provider_plugins_test.go's fixture.
+	brokenPath := filepath.Join(providersDir, "broken.sh")
+	require.NoError(t, os.WriteFile(brokenPath, []byte("#!/bin/sh\necho 'not json'\n"), 0o755))
+	t.Setenv("SKM_PLUGINS_DIR", pluginsDir)
+
+	cfg, err := config.Load(root, cfgDir)
+	require.NoError(t, err)
+	svc, err := services.New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+	require.NotEmpty(t, svc.Registry.LoadFailures(), "fixture actually produces a load failure")
+
+	m := initialModel(t.Context(), svc)
+	m.width, m.height = 100, 30
+	m.pageSize = 20
+	m.help.Width = m.width
+	m.loading = false
+	m.applyEntries(svc.Scan())
+
+	m.discoverExternal()
+	require.Contains(t, m.status, "provider plugin(s) failed to load")
+	require.Contains(t, m.status, brokenPath)
+}
+
+// TestRunInstallConflictOffersForceRetry: installing into a target that
+// already has a same-named non-managed object used to fail forever with no
+// way to proceed from the TUI (the underlying Force flag was never wired up,
+// see pkg/services/skill_install.go's "use --force" error). The job must
+// now surface as a confirm-then-retry offer instead of a dead-end failure,
+// and confirming must retry with force and succeed.
+func TestRunInstallConflictOffersForceRetry(t *testing.T) {
+	m := newTestModel(t)
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	require.NoError(t, os.MkdirAll(filepath.Join(target.Path, "skill-a"), 0o755))
+
+	m.runInstall("install", "skill-a", []string{"t"})
+	drainJob(t, &m)
+
+	require.NotNil(t, m.confirm, "a needs-force failure must offer a confirm-then-retry, not a dead end")
+	require.Contains(t, m.confirm.Prompt, "install skill-a")
+	_ = m.handleConfirmKey(runeKey('y'))
+	require.Nil(t, m.confirm, "confirm closes on yes")
+	drainJob(t, &m)
+
+	require.Contains(t, m.status, "installed", "confirming the retry must succeed with force")
+	entry := m.svc.FindEntry("skill-a")
+	require.NotNil(t, entry)
+	require.Equal(t, common.InstallInstalled, m.svc.Installer.State(entry, target))
+}
+
+// TestRunImportConflictOffersForceRetry: importing a name that already exists
+// in the repo used to fail forever with no way to proceed from the TUI (the
+// underlying Force flag was never wired up, see
+// pkg/services/repository_import.go's "use --force to overwrite" error). The
+// job must now surface as a confirm-then-retry offer, and confirming must
+// retry with force and succeed.
+func TestRunImportConflictOffersForceRetry(t *testing.T) {
+	m := newTestModel(t)
+	src := t.TempDir()
+	writeFileT(t, src, "SKILL.md", "---\nname: skill-a\ndescription: a colliding import\n---\nnew body\n")
+
+	m.runImport(src, "", "auto")
+	drainJob(t, &m)
+
+	require.NotNil(t, m.confirm, "a needs-force failure must offer a confirm-then-retry, not a dead end")
+	require.Contains(t, m.confirm.Prompt, "import "+src)
+	_ = m.handleConfirmKey(runeKey('y'))
+	require.Nil(t, m.confirm, "confirm closes on yes")
+	drainJob(t, &m)
+
+	require.Contains(t, m.status, "imported", "confirming the retry must succeed with force")
 }
 
 // TestNonTTYGuard: a non-terminal file is not treated as interactive.

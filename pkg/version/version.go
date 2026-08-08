@@ -5,9 +5,30 @@
 // no logic.
 package version
 
+import "runtime/debug"
+
 // Build metadata, populated by the Makefile (alswl/makefile-go) at link time.
 var (
 	Version = "dev"
 	Commit  = "none"
 	Date    = "unknown"
 )
+
+// BuildDate returns the explicitly injected build date when available. Local
+// builds use Go's embedded VCS timestamp as a reliable fallback instead of
+// exposing the unhelpful "built unknown" placeholder.
+func BuildDate() string {
+	if Date != "unknown" {
+		return Date
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return Date
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.time" && setting.Value != "" {
+			return setting.Value
+		}
+	}
+	return Date
+}

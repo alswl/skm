@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,7 @@ var importCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := svc.Import(cmd.Context(), args[0], managers.ImportOptions{
+		result, err := svc.Import(cmd.Context(), args[0], services.ImportOptions{
 			Provider: importFlags.provider,
 			Kind:     importFlags.kind,
 			Force:    flagForce,

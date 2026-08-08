@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/tui/pages"
 )
 
 // archiveSelected archives or unarchives the current entry (key "a"). Archiving
@@ -19,22 +20,22 @@ func (m *model) archiveSelected() {
 	name := entry.Name
 	if entry.Status == common.StatusArchived {
 		m.submitJob("unarchive "+name, func(ctx context.Context) (any, error) {
-			if _, err := m.svc.Unarchive(ctx, name, managers.LifecycleOptions{}); err != nil {
+			if _, err := m.svc.Unarchive(ctx, name, services.LifecycleOptions{}); err != nil {
 				return nil, err
 			}
 			return "unarchived " + name, nil
 		})
 		return
 	}
-	m.confirm = &confirm{
-		prompt: fmt.Sprintf("Archive %q? It will be uninstalled from all targets first.", name),
-		onYes: func() {
+	m.confirm = &pages.Confirm{
+		Prompt: fmt.Sprintf("Archive %q? It will be uninstalled from all targets first.", name),
+		OnYes: func() {
 			m.submitJob("archive "+name, func(ctx context.Context) (any, error) {
 				// Uninstall first (managed installs only), then archive (FR-013).
-				if _, err := m.svc.Uninstall(ctx, name, managers.InstallOptions{}); err != nil {
+				if _, err := m.svc.Uninstall(ctx, name, services.InstallOptions{}); err != nil {
 					return nil, err
 				}
-				if _, err := m.svc.Archive(ctx, name, managers.LifecycleOptions{}); err != nil {
+				if _, err := m.svc.Archive(ctx, name, services.LifecycleOptions{}); err != nil {
 					return nil, err
 				}
 				return "archived " + name, nil
@@ -51,11 +52,11 @@ func (m *model) deleteSelected() {
 		return
 	}
 	name := m.filtered[m.cursor].Name
-	m.confirm = &confirm{
-		prompt: fmt.Sprintf("Delete %q from the repository permanently?", name),
-		onYes: func() {
+	m.confirm = &pages.Confirm{
+		Prompt: fmt.Sprintf("Delete %q from the repository permanently?", name),
+		OnYes: func() {
 			m.submitJob("delete "+name, func(ctx context.Context) (any, error) {
-				if _, err := m.svc.Delete(ctx, name, managers.LifecycleOptions{Force: true}); err != nil {
+				if _, err := m.svc.Delete(ctx, name, services.LifecycleOptions{Force: true}); err != nil {
 					return nil, err
 				}
 				return "deleted " + name, nil

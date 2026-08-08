@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -49,7 +49,7 @@ var infoCmd = &cobra.Command{
 
 func init() { rootCmd.AddCommand(infoCmd) }
 
-func buildInfoReport(svc *managers.Services, e *common.Entry) (*infoReport, error) {
+func buildInfoReport(svc *services.Services, e *common.Entry) (*infoReport, error) {
 	rep := &infoReport{
 		Type:        e.Kind,
 		Path:        e.Path,

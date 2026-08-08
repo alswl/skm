@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ var installCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := svc.Install(cmd.Context(), args[0], managers.InstallOptions{
+		result, err := svc.Install(cmd.Context(), args[0], services.InstallOptions{
 			Targets: installTargets,
 			Force:   flagForce,
 			DryRun:  flagDryRun,
@@ -42,7 +42,7 @@ var uninstallCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := svc.Uninstall(cmd.Context(), args[0], managers.InstallOptions{
+		result, err := svc.Uninstall(cmd.Context(), args[0], services.InstallOptions{
 			Targets: installTargets,
 			DryRun:  flagDryRun,
 		})
@@ -62,7 +62,7 @@ func init() {
 
 // printInstallReport emits the install/uninstall JSON contract or a compact
 // human summary.
-func printInstallReport(cmd *cobra.Command, r *managers.InstallResult) error {
+func printInstallReport(cmd *cobra.Command, r *services.InstallResult) error {
 	if flagJSON {
 		return printJSON(cmd, r)
 	}

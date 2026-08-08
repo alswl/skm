@@ -3,7 +3,7 @@ package commands
 import (
 	"fmt"
 
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var updateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := svc.Update(cmd.Context(), args[0], managers.UpdateOptions{DryRun: flagDryRun})
+		result, err := svc.Update(cmd.Context(), args[0], services.UpdateOptions{DryRun: flagDryRun})
 		if err != nil {
 			return err
 		}

@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +57,7 @@ var listCmd = &cobra.Command{
 
 func init() { rootCmd.AddCommand(listCmd) }
 
-func buildListReport(svc *managers.Services) *listReport {
+func buildListReport(svc *services.Services) *listReport {
 	entries := svc.Scan()
 	sort.SliceStable(entries, func(i, j int) bool {
 		return entries[i].Name < entries[j].Name
@@ -79,7 +79,7 @@ func buildListReport(svc *managers.Services) *listReport {
 
 // entryInstalled reports whether the entry has a healthy install in any
 // matching target.
-func entryInstalled(svc *managers.Services, e *common.Entry) bool {
+func entryInstalled(svc *services.Services, e *common.Entry) bool {
 	for _, t := range svc.Installer.Targets(e) {
 		if svc.Installer.State(e, t) == common.InstallInstalled {
 			return true

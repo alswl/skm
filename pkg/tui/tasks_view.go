@@ -10,6 +10,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/jobs"
 	"github.com/alswl/skm/skm/pkg/tui/components"
+	"github.com/alswl/skm/skm/pkg/tui/pages"
 )
 
 // flattenTasks orders the queue snapshot for the task center: the running job
@@ -25,7 +26,10 @@ func flattenTasks(s jobs.Snapshot) []jobs.JobInfo {
 }
 
 // handleTasksKey drives the task center (FR-039): navigate jobs, cancel the
-// selected job, cancel all, clear completed, or return to the list.
+// selected job, cancel all, clear completed, or return to the list. Each
+// mutating key checks the same availability its footer binding advertises
+// (tasksBindings) and sets a specific reason instead of a silent no-op when
+// unavailable (FR-002).
 func (m *model) handleTasksKey(msg tea.KeyMsg) tea.Cmd {
 	tasks := flattenTasks(m.queue.Snapshot())
 	switch {
@@ -38,18 +42,62 @@ func (m *model) handleTasksKey(msg tea.KeyMsg) tea.Cmd {
 			m.tasksCursor--
 		}
 	case key.Matches(msg, m.keys.CancelSel):
-		if m.tasksCursor < len(tasks) {
-			m.queue.Cancel(tasks[m.tasksCursor].ID)
+		if m.tasksCursor >= len(tasks) {
+			m.status = "cancel: no job selected"
+			return nil
 		}
+		t := tasks[m.tasksCursor]
+		if t.State != jobs.JobQueued && t.State != jobs.JobRunning {
+			m.status = fmt.Sprintf("cancel: %s is already %s", t.Name, t.State)
+			return nil
+		}
+		m.queue.Cancel(t.ID)
 	case key.Matches(msg, m.keys.CancelAll):
+		snap := m.queue.Snapshot()
+		if snap.Running == nil && len(snap.Pending) == 0 {
+			m.status = "cancel all: no jobs running or queued"
+			return nil
+		}
 		m.queue.CancelAll()
 	case key.Matches(msg, m.keys.ClearDone):
+		if len(m.queue.Snapshot().Completed) == 0 {
+			m.status = "clear done: no completed jobs"
+			return nil
+		}
 		m.queue.ClearCompleted()
 		m.tasksCursor = 0
 	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Queue), key.Matches(msg, m.keys.Quit):
 		m.showTasks = false
 	}
 	return nil
+}
+
+// tasksBindings is the task-center footer's availability matrix, mirroring
+// listBindings/detailBindings (FR-009) so all four major screens dim
+// unavailable actions consistently. Snapshot() is a pure in-memory read (no
+// I/O), safe here in View.
+func (m model) tasksBindings() []pages.HintItem {
+	snap := m.queue.Snapshot()
+	tasks := flattenTasks(snap)
+	cancellable := m.tasksCursor < len(tasks) &&
+		(tasks[m.tasksCursor].State == jobs.JobQueued || tasks[m.tasksCursor].State == jobs.JobRunning)
+	return []pages.HintItem{
+		{Keys: "c", Label: "cancel", Enabled: cancellable},
+		{Keys: "C", Label: "cancel all", Enabled: snap.Running != nil || len(snap.Pending) > 0},
+		{Keys: "x", Label: "clear done", Enabled: len(snap.Completed) > 0},
+		{Keys: "j/k", Label: "move", Enabled: true},
+		{Keys: "esc/J/q", Label: "back", Enabled: true},
+	}
+}
+
+// tasksHint renders the task-center footer, dimming bindings unavailable for
+// the current queue state (mirrors listHint/detailHint).
+func (m model) tasksHint() string {
+	var parts []string
+	for _, b := range m.tasksBindings() {
+		parts = append(parts, pages.HintBinding(b.Keys, b.Label, b.Enabled))
+	}
+	return strings.Join(parts, "  ")
 }
 
 // tasksView renders the task center as a full-screen framed page.
@@ -68,6 +116,5 @@ func (m model) tasksView() string {
 			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
-	hint := "[c] cancel  [C] cancel all  [x] clear done  [j/k] move  [esc/J/q] back"
-	return m.framedPage(" skm · tasks ", strings.TrimRight(body.String(), "\n"), hint)
+	return m.framedPage(" skm · tasks ", strings.TrimRight(body.String(), "\n"), m.tasksHint())
 }

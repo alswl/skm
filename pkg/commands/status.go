@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/managers"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +50,7 @@ var statusCmd = &cobra.Command{
 
 func init() { rootCmd.AddCommand(statusCmd) }
 
-func buildStatusReport(svc *managers.Services, e *common.Entry) *statusReport {
+func buildStatusReport(svc *services.Services, e *common.Entry) *statusReport {
 	rep := &statusReport{
 		Path:            e.Path,
 		Status:          e.Status,
