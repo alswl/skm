@@ -10,7 +10,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/jobs"
 	"github.com/alswl/skm/skm/pkg/tui/components"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
 // flattenTasks orders the queue snapshot for the task center: the running job
@@ -43,25 +43,25 @@ func (m *model) handleTasksKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	case key.Matches(msg, m.keys.CancelSel):
 		if m.tasksCursor >= len(tasks) {
-			m.status = "cancel: no job selected"
+			m.setStatus("cancel: no job selected")
 			return nil
 		}
 		t := tasks[m.tasksCursor]
 		if t.State != jobs.JobQueued && t.State != jobs.JobRunning {
-			m.status = fmt.Sprintf("cancel: %s is already %s", t.Name, t.State)
+			m.setStatus(fmt.Sprintf("cancel: %s is already %s", t.Name, t.State))
 			return nil
 		}
 		m.queue.Cancel(t.ID)
 	case key.Matches(msg, m.keys.CancelAll):
 		snap := m.queue.Snapshot()
 		if snap.Running == nil && len(snap.Pending) == 0 {
-			m.status = "cancel all: no jobs running or queued"
+			m.setStatus("cancel all: no jobs running or queued")
 			return nil
 		}
 		m.queue.CancelAll()
 	case key.Matches(msg, m.keys.ClearDone):
 		if len(m.queue.Snapshot().Completed) == 0 {
-			m.status = "clear done: no completed jobs"
+			m.setStatus("clear done: no completed jobs")
 			return nil
 		}
 		m.queue.ClearCompleted()
@@ -100,20 +100,41 @@ func (m model) tasksHint() string {
 	return strings.Join(parts, "  ")
 }
 
+// Column widths for the task table, following the entry list's rule: the id
+// is padded to a fixed width rather than printed inline, so reaching job #10
+// does not shove state and name one cell right of the header and of every
+// earlier row.
+const (
+	taskIDColWidth    = 6 // "#99999"
+	taskStateColWidth = 10
+)
+
+// tasksHeaderRow labels the task table, like installHeaderRow does for the
+// entry list. Its caller prefixes rowGutter.
+func tasksHeaderRow() string {
+	return components.StyleDim.Render(
+		truncPad("id", taskIDColWidth) + " " + truncPad("state", taskStateColWidth) + " task")
+}
+
+func taskRow(id, state, name string) string {
+	return truncPad(id, taskIDColWidth) + " " + truncPad(state, taskStateColWidth) + " " + name
+}
+
 // tasksView renders the task center as a full-screen framed page.
 func (m model) tasksView() string {
 	tasks := flattenTasks(m.queue.Snapshot())
 	inner := maxInt(20, m.width) - 2
 	var body strings.Builder
+	body.WriteString(components.FitCell(rowGutter+tasksHeaderRow(), inner, lipgloss.NewStyle()) + "\n")
 	if len(tasks) == 0 {
 		body.WriteString(components.StyleDim.Render("no background jobs"))
 	}
 	for i, jb := range tasks {
-		row := fmt.Sprintf("#%d  %-10s %s", jb.ID, jb.State, jb.Name)
+		row := taskRow(fmt.Sprintf("#%d", jb.ID), jb.State.String(), jb.Name)
 		if i == m.tasksCursor {
-			body.WriteString(components.FitCell("  ▶ "+row, inner, components.StyleCursor) + "\n")
+			body.WriteString(components.FitCell(cursorGutter+row, inner, components.StyleCursor) + "\n")
 		} else {
-			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
+			body.WriteString(components.FitCell(rowGutter+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
 	return m.framedPage(" skm · tasks ", strings.TrimRight(body.String(), "\n"), m.tasksHint())

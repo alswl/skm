@@ -1,4 +1,4 @@
-package pages
+package widgets
 
 import "github.com/alswl/skm/skm/pkg/tui/components"
 

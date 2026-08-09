@@ -6,7 +6,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/services"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
 // normalizeSelected starts relocating the currently viewed detail-page
@@ -18,7 +18,7 @@ func (m *model) normalizeSelected() {
 	}
 	entry := m.filtered[m.cursor]
 	if entry.Status != common.StatusNonStandard {
-		m.status = fmt.Sprintf("%s is %s; only non-standard entries can be moved", entry.Name, entry.Status)
+		m.setStatus(fmt.Sprintf("%s is %s; only non-standard entries can be moved", entry.Name, entry.Status))
 		return
 	}
 	m.openNormalizeProviderPicker(entry.Name)
@@ -62,7 +62,7 @@ func (m *model) openNormalizeProviderPicker(name string) {
 func (m *model) confirmNormalize(name, provider string) {
 	preview, err := m.svc.Normalize(m.ctx, name, provider, services.LifecycleOptions{DryRun: true})
 	if err != nil {
-		m.status = "normalize: " + err.Error()
+		m.setStatus("normalize: " + err.Error())
 		return
 	}
 	m.confirm = &pages.Confirm{

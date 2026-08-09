@@ -13,7 +13,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/tui/components"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
 // targetWizard drives the plain-text steps of adding a target (name,
@@ -68,14 +68,14 @@ func (m *model) handleTargetsKey(msg tea.KeyMsg) tea.Cmd {
 		m.targetWizard = &targetWizard{step: wizardStepName}
 	case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.Detail):
 		if m.targetsCursor >= len(targets) {
-			m.status = "edit path: no target selected"
+			m.setStatus("edit path: no target selected")
 			return nil
 		}
 		t := targets[m.targetsCursor]
 		m.targetWizard = &targetWizard{editing: true, draft: t, text: t.Path}
 	case key.Matches(msg, m.keys.Delete):
 		if m.targetsCursor >= len(targets) {
-			m.status = "remove target: no target selected"
+			m.setStatus("remove target: no target selected")
 			return nil
 		}
 		name := targets[m.targetsCursor].Name
@@ -121,7 +121,7 @@ func (m *model) handleTargetWizardKey(msg tea.KeyMsg) tea.Cmd {
 		m.advanceTargetWizard()
 	case key.Matches(msg, m.keys.Esc):
 		m.targetWizard = nil
-		m.status = "target: cancelled"
+		m.setStatus("target: cancelled")
 	case key.Matches(msg, m.keys.Backspace):
 		if len(w.text) > 0 {
 			w.text = w.text[:len(w.text)-1]
@@ -144,7 +144,7 @@ func (m *model) advanceTargetWizard() {
 		name := w.draft.Name
 		m.targetWizard = nil
 		if value == "" {
-			m.status = "target update: path must be non-empty"
+			m.setStatus("target update: path must be non-empty")
 			return
 		}
 		m.submitTargetPathUpdate(name, value)
@@ -153,7 +153,7 @@ func (m *model) advanceTargetWizard() {
 	switch w.step {
 	case wizardStepName:
 		if value == "" {
-			m.status = "target add: name must be non-empty"
+			m.setStatus("target add: name must be non-empty")
 			return
 		}
 		w.draft.Name = value
@@ -165,7 +165,7 @@ func (m *model) advanceTargetWizard() {
 		w.step = wizardStepPath
 	default: // wizardStepPath
 		if value == "" {
-			m.status = "target add: path must be non-empty"
+			m.setStatus("target add: path must be non-empty")
 			return
 		}
 		w.draft.Path = value
@@ -188,7 +188,7 @@ func (m *model) openAcceptsPicker(draft common.InstallTarget) {
 		},
 		OnConfirm: func(sel []pages.PickerItem) {
 			if len(sel) == 0 {
-				m.status = "target add: cancelled (no kinds selected)"
+				m.setStatus("target add: cancelled (no kinds selected)")
 				return
 			}
 			kinds := make([]common.EntryKind, len(sel))
@@ -254,7 +254,7 @@ func (m *model) resolveStrategy(draft common.InstallTarget, kinds []common.Entry
 		Items:  items,
 		OnConfirm: func(sel []pages.PickerItem) {
 			if len(sel) == 0 {
-				m.status = "target add: cancelled"
+				m.setStatus("target add: cancelled")
 				return
 			}
 			draft.Strategies[kind] = common.InstallStrategy(sel[0].Value)
@@ -295,10 +295,36 @@ func (m *model) submitTargetRemove(name string) {
 }
 
 // targetsView renders the target list as a full-screen framed page.
+// Column widths for the targets table, following the entry list's rule: every
+// column but the last truncates rather than grows, so one long name cannot
+// push the columns after it out of line with the header and with the other
+// rows. Path is last and takes whatever is left.
+const (
+	targetNameColWidth     = 16
+	targetPlatformColWidth = 10
+	targetAcceptsColWidth  = 16
+)
+
+// targetsHeaderRow labels the targets table, like installHeaderRow does for
+// the entry list. Its caller prefixes rowGutter.
+func targetsHeaderRow() string {
+	return components.StyleDim.Render(
+		truncPad("name", targetNameColWidth) + " " +
+			truncPad("platform", targetPlatformColWidth) + " " +
+			truncPad("accepts", targetAcceptsColWidth) + " path")
+}
+
+func targetRow(name, platform, accepts, path string) string {
+	return truncPad(name, targetNameColWidth) + " " +
+		truncPad(platform, targetPlatformColWidth) + " " +
+		truncPad(accepts, targetAcceptsColWidth) + " " + path
+}
+
 func (m model) targetsView() string {
 	targets := m.svc.Cfg.Targets
 	inner := maxInt(20, m.width) - 2
 	var body strings.Builder
+	body.WriteString(components.FitCell(rowGutter+targetsHeaderRow(), inner, lipgloss.NewStyle()) + "\n")
 	if len(targets) == 0 {
 		body.WriteString(components.StyleDim.Render("no targets configured"))
 	}
@@ -307,15 +333,15 @@ func (m model) targetsView() string {
 		for j, k := range t.Accepts {
 			accepts[j] = string(k)
 		}
-		row := fmt.Sprintf("%-16s %-10s %-16s %s", t.Name, t.Platform, strings.Join(accepts, ","), t.Path)
+		row := targetRow(t.Name, t.Platform, strings.Join(accepts, ","), t.Path)
 		if i == m.targetsCursor {
-			body.WriteString(components.FitCell("  ▶ "+row, inner, components.StyleCursor) + "\n")
+			body.WriteString(components.FitCell(cursorGutter+row, inner, components.StyleCursor) + "\n")
 		} else {
-			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
+			body.WriteString(components.FitCell(rowGutter+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
 	for _, inv := range m.svc.Cfg.InvalidTargets {
-		body.WriteString(components.FitCell("    "+components.StyleDim.Render("invalid: "+inv.Reason), inner, lipgloss.NewStyle()) + "\n")
+		body.WriteString(components.FitCell(rowGutter+components.StyleDim.Render("invalid: "+inv.Reason), inner, lipgloss.NewStyle()) + "\n")
 	}
 	return m.framedPage(" skm · targets ", strings.TrimRight(body.String(), "\n"), m.targetsHint())
 }

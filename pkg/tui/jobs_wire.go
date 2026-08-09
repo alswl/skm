@@ -8,7 +8,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/jobs"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
 // forceRetry is a queued job's offer to retry with force enabled, kept until
@@ -21,7 +21,7 @@ type forceRetry struct {
 
 // submitJob enqueues a long operation onto the FIFO single-concurrency queue.
 func (m *model) submitJob(name string, run func(ctx context.Context) (any, error)) {
-	m.status = "queued: " + name
+	m.setStatus("queued: " + name)
 	m.queue.Submit(name, run)
 }
 
@@ -31,7 +31,7 @@ func (m *model) submitJob(name string, run func(ctx context.Context) (any, error
 // retry the same operation with force enabled — instead of a failure the TUI
 // has no way to recover from.
 func (m *model) submitJobForce(name string, run, forceRun func(ctx context.Context) (any, error)) {
-	m.status = "queued: " + name
+	m.setStatus("queued: " + name)
 	id := m.queue.Submit(name, run)
 	if m.forceRetries == nil {
 		m.forceRetries = map[int64]forceRetry{}
@@ -40,12 +40,17 @@ func (m *model) submitJobForce(name string, run, forceRun func(ctx context.Conte
 }
 
 // handleJobDone applies a completed job result, discarding stale results from
-// cancelled jobs (FR-011).
+// cancelled jobs (FR-011). The caller (Update's jobDoneMsg case) is
+// responsible for re-arming the queue's result listener; this only ever
+// returns the follow-up rescan command (or nil), so it never blocks Update
+// with the synchronous filesystem walk that used to happen here directly
+// ("job 动作进行时候，UI 会被卡住" — every job completion froze rendering and
+// input for as long as m.svc.Scan() took).
 func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 	retry, hasRetry := m.forceRetries[r.ID]
 	delete(m.forceRetries, r.ID)
 	if m.queue.IsStale(r.ID) {
-		return waitForResult(m.queue) // discard late result, keep listening
+		return nil // discard late result
 	}
 	if r.Err != nil && hasRetry && common.IsNeedsForce(r.Err) {
 		m.confirm = &pages.Confirm{
@@ -54,20 +59,16 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 				m.submitJob(retry.name, retry.run)
 			},
 		}
-		return waitForResult(m.queue)
+		return nil
 	}
 	if r.Err != nil {
-		m.status = "task failed: " + r.Err.Error()
+		m.setStatus("task failed: " + r.Err.Error())
 	} else if s, ok := r.Value.(string); ok {
-		m.status = s
+		m.setStatus(s)
 	} else {
-		m.status = "task completed"
+		m.setStatus("task completed")
 	}
-	m.applyEntries(m.svc.Scan())
-	if m.showDetail && m.cursor < len(m.filtered) {
-		m.refreshDetail() // the entry may have moved/installed; show the new state
-	}
-	return waitForResult(m.queue)
+	return scanCmd(m.svc, scanAfterJob)
 }
 
 // cancelRunningTask marks the running job stale and cancels it cooperatively
@@ -75,6 +76,6 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 func (m *model) cancelRunningTask() {
 	if id := m.queue.RunningID(); id != 0 {
 		m.queue.Cancel(id)
-		m.status = fmt.Sprintf("cancelled task #%d; continuing with the next", id)
+		m.setStatus(fmt.Sprintf("cancelled task #%d; continuing with the next", id))
 	}
 }

@@ -17,7 +17,7 @@ func (m *model) updateSelected() {
 	}
 	entry := m.filtered[m.cursor]
 	if entry.Status != common.StatusActive || entry.Origin == nil {
-		m.status = fmt.Sprintf("%s has no origin; nothing to update", entry.Name)
+		m.setStatus(fmt.Sprintf("%s has no origin; nothing to update", entry.Name))
 		return
 	}
 	name := entry.Name

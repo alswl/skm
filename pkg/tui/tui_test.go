@@ -20,7 +20,7 @@ import (
 	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/alswl/skm/skm/pkg/tui/components"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 	"github.com/alswl/skm/skm/pkg/utils/pagination"
 	"github.com/stretchr/testify/require"
 )
@@ -58,8 +58,16 @@ func newTestModel(t *testing.T) model {
 	m.pageSize = 20
 	m.help.Width = m.width
 	m.loading = false
-	m.applyEntries(svc.Scan())
+	m.applyScan(svc.Scan())
 	return *m // a value copy for direct model tests; the program runs the pointer
+}
+
+// applyScan is the direct-model-test counterpart of the scanDoneMsg path:
+// production derives the install columns in scanCmd, off the event
+// loop (scanInstallStates), and hands them to applyEntries. Tests that drive
+// the model directly have no such command, so they derive them inline.
+func (m *model) applyScan(entries []*common.Entry) {
+	m.applyEntries(entries, scanInstallStates(m.svc, entries))
 }
 
 // newLoadingTestModel builds a raw initialModel (loading, unscanned) using the
@@ -97,6 +105,67 @@ func TestScanDoneMsgStopsLoading(t *testing.T) {
 	_, _ = m.Update(scanDoneMsg{entries: svc.Scan()})
 	require.False(t, m.loading)
 	require.NotEmpty(t, m.filtered)
+}
+
+// TestScanDoneMsgDoesNotDoubleArmResultListener: Init's initial Batch
+// (spinner.Tick, scanCmd, waitForResult) already starts the one persistent
+// listener on the job-results channel. scanDoneMsg used to also return a
+// second waitForResult, leaving a permanent orphan goroutine blocked on
+// m.queue.Results() after every startup (jobs_wire.go handleJobDone re-arms
+// its own listener on every job completion, so this second one is never
+// needed and never consumed).
+func TestScanDoneMsgDoesNotDoubleArmResultListener(t *testing.T) {
+	m, svc := newLoadingTestModel(t)
+	_, cmd := m.Update(scanDoneMsg{entries: svc.Scan()})
+	require.Nil(t, cmd, "scanDoneMsg must not arm a second result listener; Init already started one")
+}
+
+// TestScanReasonDecidesWhatApplyingAScanReportsBesidesTheEntries: the three
+// occasions that trigger a scan (startup, a finished job, the manual R) share
+// one command and one message and differ only by reason — startup is the only
+// one that clears the loading spinner, and R is the only one that reports a
+// count, so a job's rescan never steals the status line from whatever the job
+// itself just reported.
+func TestScanReasonDecidesWhatApplyingAScanReportsBesidesTheEntries(t *testing.T) {
+	entriesOf := func(svc *services.Services) []*common.Entry { return svc.Scan() }
+
+	t.Run("initial clears loading and says nothing", func(t *testing.T) {
+		m, svc := newLoadingTestModel(t)
+		_, _ = m.Update(scanDoneMsg{reason: scanInitial, entries: entriesOf(svc)})
+		require.False(t, m.loading)
+		require.Empty(t, m.status)
+	})
+
+	t.Run("after a job keeps the job's own status", func(t *testing.T) {
+		m, svc := newLoadingTestModel(t)
+		m.loading = false
+		m.setStatus("installed skill-a into claude")
+		_, _ = m.Update(scanDoneMsg{reason: scanAfterJob, entries: entriesOf(svc)})
+		require.Equal(t, "installed skill-a into claude", m.status,
+			"a post-job rescan must not overwrite what the job reported")
+		require.NotEmpty(t, m.filtered)
+	})
+
+	t.Run("manual refresh reports the count", func(t *testing.T) {
+		m, svc := newLoadingTestModel(t)
+		m.loading = false
+		_, _ = m.Update(scanDoneMsg{reason: scanManual, entries: entriesOf(svc)})
+		require.Equal(t, "refreshed: 1 entries", m.status)
+	})
+}
+
+// TestRefreshKeyRunsTheScanOffTheEventLoop: R must hand back a command rather
+// than scanning inline, since the scan is exactly the filesystem walk that
+// freezes rendering and input when it happens on the event loop.
+func TestRefreshKeyRunsTheScanOffTheEventLoop(t *testing.T) {
+	m := newTestModel(t)
+	cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	require.NotNil(t, cmd, "R must return a scan command")
+	msg, ok := cmd().(scanDoneMsg)
+	require.True(t, ok, "the command must produce a scan result")
+	require.Equal(t, scanManual, msg.reason)
+	require.NotEmpty(t, msg.entries)
+	require.NotNil(t, msg.cols, "install states are derived off the event loop with the entries")
 }
 
 // TestListAndDetailShowProviderIcon: each entry's row and its detail page are
@@ -168,12 +237,7 @@ func TestModelInstallActionRefreshesStatus(t *testing.T) {
 	require.Nil(t, m.picker, "picker closes on confirm")
 
 	// The install runs on the background queue: drain the result and apply it.
-	select {
-	case r := <-m.queue.Results():
-		m.handleJobDone(r)
-	case <-time.After(3 * time.Second):
-		t.Fatal("install job did not complete")
-	}
+	drainJob(t, &m)
 	require.Contains(t, m.status, "installed")
 	// The managed link must now exist in the target.
 	for _, tgt := range m.svc.Installer.Targets(m.filtered[0]) {
@@ -203,6 +267,138 @@ func TestListFooterShowsInstallAndImportBindings(t *testing.T) {
 	require.NotContains(t, hint, "[u] uninstall")
 }
 
+// TestActionsMenuListsOnlyAvailableEntryActions: `x` opens a single-select
+// picker listing only the actions currently available for the highlighted
+// entry — the same availability rules the list/detail footers already use
+// (listBindings/detailBindings) — so a menu item is never offered only to
+// reject it on selection.
+func TestActionsMenuListsOnlyAvailableEntryActions(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker, "x opens the actions menu")
+	require.Contains(t, m.picker.Title, "actions")
+	require.True(t, m.picker.Single)
+
+	var labels []string
+	for _, it := range m.picker.Items {
+		labels = append(labels, it.Label)
+	}
+	require.Contains(t, labels, "[i] installs", "install is offered for an active entry with targets")
+	require.Contains(t, labels, "[a] archive", "archive is always offered")
+	require.Contains(t, labels, "[d] delete", "delete is always offered")
+	require.NotContains(t, labels, "[p] update", "update is not offered: the fixture entry has no origin")
+	require.NotContains(t, labels, "[n] move to standard location", "move is not offered: the fixture entry is already standard")
+}
+
+// TestActionsMenuRunsSelectedAction: confirming a choice in the actions menu
+// runs the exact same handler its own key would (here, "installs" opens the
+// installs picker, same as pressing `i` directly).
+func TestActionsMenuRunsSelectedAction(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker)
+
+	idx := -1
+	for i, it := range m.picker.Items {
+		if it.Label == "[i] installs" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0, "installs is offered")
+	m.picker.Cursor = idx
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, m.picker, "choosing installs opens the installs picker, same as pressing i")
+	require.Contains(t, m.picker.Title, "Installs")
+}
+
+// TestActionsMenuOmitsDetailWhenAlreadyOpen: opening the menu from the detail
+// page itself must not offer "detail" again — it's the page you're already on.
+func TestActionsMenuOmitsDetailWhenAlreadyOpen(t *testing.T) {
+	m := newTestModel(t)
+	m.openDetail()
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker)
+	for _, it := range m.picker.Items {
+		require.NotEqual(t, "[enter] detail", it.Label)
+	}
+}
+
+// TestActionsMenuIncludesGlobalListActions: the menu also offers the
+// list-scoped actions that already have their own keys (discover, import,
+// batch update, targets, task queue) alongside the entry-specific ones, not
+// just per-entry actions — otherwise the menu only ever shows 3-5 items and
+// undersells what's actually reachable ("x 里面内容感觉有点少").
+func TestActionsMenuIncludesGlobalListActions(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker)
+
+	var labels []string
+	for _, it := range m.picker.Items {
+		labels = append(labels, it.Label)
+	}
+	require.Contains(t, labels, "[o] discover")
+	require.Contains(t, labels, "[m] import")
+	require.Contains(t, labels, "[P] batch update")
+	require.Contains(t, labels, "[t] targets")
+	require.Contains(t, labels, "[J] job queue")
+}
+
+// TestActionsMenuGlobalActionRuns: selecting "import" from the menu actually
+// enters import mode, the same as pressing `m` directly.
+func TestActionsMenuGlobalActionRuns(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker)
+
+	idx := -1
+	for i, it := range m.picker.Items {
+		if it.Label == "[m] import" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0)
+	m.picker.Cursor = idx
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Nil(t, m.picker)
+	require.True(t, m.importing, "choosing import from the menu enters import mode, same as pressing m")
+}
+
+// TestActionsMenuOmitsGlobalActionsFromDetail: global actions are offered
+// only from the list, not from detail — none of these keys do anything while
+// showDetail is true today (handleDetailKey has no cases for them), and
+// import in particular renders its address prompt only inside listView's
+// status line, so enabling it from detail would swallow keystrokes into an
+// invisible prompt.
+func TestActionsMenuOmitsGlobalActionsFromDetail(t *testing.T) {
+	m := newTestModel(t)
+	m.openDetail()
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker)
+	for _, it := range m.picker.Items {
+		require.NotContains(t, []string{"[o] discover", "[m] import", "[P] batch update", "[t] targets", "[J] job queue"}, it.Label)
+	}
+}
+
+// TestActionsMenuOpensWithGlobalActionsWhenListEmpty: even with zero entries
+// (e.g. a search with no matches), `x` must still open with the global
+// actions — it shouldn't require a selectable entry to exist.
+func TestActionsMenuOpensWithGlobalActionsWhenListEmpty(t *testing.T) {
+	m := newTestModel(t)
+	m.search = "no-such-entry-matches-this"
+	m.refreshFiltered()
+	require.Empty(t, m.filtered)
+
+	_ = m.handleKey(runeKey('x'))
+	require.NotNil(t, m.picker, "the actions menu still opens with an empty list")
+	require.Contains(t, m.picker.Title, "actions")
+	var labels []string
+	for _, it := range m.picker.Items {
+		labels = append(labels, it.Label)
+	}
+	require.Contains(t, labels, "[o] discover")
+}
+
 func TestInstallsPickerRemovesUncheckedManagedTarget(t *testing.T) {
 	m := newTestModel(t)
 	m.runInstall("install", "skill-a", []string{"t"})
@@ -227,21 +423,21 @@ func TestInstallsPickerRemovesUncheckedManagedTarget(t *testing.T) {
 	require.Equal(t, common.InstallAbsent, m.svc.Installer.State(entry, target))
 }
 
-// TestListShowsInstallStatusForNonStandardEntries: computeInstallCols evaluates
+// TestListShowsInstallStatusForNonStandardEntries: scanInstallStates evaluates
 // every entry (not just active ones), so a non-standard entry's install state
 // is visible in the list ("安装状态无法在 list 页面看到" fix).
 func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/flat-skill/SKILL.md", "---\nname: flat-skill\ndescription: misplaced\n---\nbody\n")
-	m.applyEntries(m.svc.Scan())
+	m.applyScan(m.svc.Scan())
 	// One cell per configured target: the fixture's custom "t" target plus
 	// the 4 built-ins, always merged in (config.mergeWithBuiltins). Install
 	// into the first (built-in, always within the rendered column width)
 	// rather than "t", which the view truncates off at this test width.
-	require.Len(t, m.installCol["flat-skill"], len(m.svc.Cfg.Targets))
+	require.Len(t, m.installs["flat-skill"], len(m.svc.Cfg.Targets))
 	tIdx := 0
 	require.Equal(t, "claude-skills", m.svc.Cfg.Targets[tIdx].Name)
-	require.Equal(t, common.InstallAbsent, m.installCol["flat-skill"][tIdx].state, "absent install remains visible in model state")
+	require.Equal(t, common.InstallAbsent, m.installs["flat-skill"][tIdx].state, "absent install remains visible in model state")
 
 	// Install flat-skill into the skill-accepting target via the installer.
 	entry := m.svc.FindEntry("flat-skill")
@@ -252,19 +448,47 @@ func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
 	require.NoError(t, err)
 	tx.Commit()
 
-	m.applyEntries(m.svc.Scan())
-	require.Equal(t, common.InstallInstalled, m.installCol["flat-skill"][tIdx].state, "a non-standard entry's install state is now visible in the list")
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, common.InstallInstalled, m.installs["flat-skill"][tIdx].state, "a non-standard entry's install state is now visible in the list")
 	require.Contains(t, m.View(), "✓", "the install column renders the installed icon")
 }
 
-// drainJob waits for one queued job result and applies it.
+// drainJob waits for one queued job result and applies it, including running
+// the deferred post-job rescan command (handleJobDone no longer scans
+// synchronously; see TestJobDoneRescanIsAsync).
 func drainJob(t *testing.T, m *model) {
 	t.Helper()
 	select {
 	case r := <-m.queue.Results():
-		m.handleJobDone(r)
+		if cmd := m.handleJobDone(r); cmd != nil {
+			_, _ = m.Update(cmd())
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("background job did not complete")
+	}
+}
+
+// TestJobDoneRescanIsAsync: applying a job result must not block Update with
+// a synchronous filesystem rescan (handleJobDone used to call m.svc.Scan()
+// directly), or every job completion freezes rendering and input handling for
+// as long as the scan takes ("job 动作进行时候，UI 会被卡住"). The rescan must
+// be deferred to a returned tea.Cmd instead.
+func TestJobDoneRescanIsAsync(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-c/SKILL.md", "---\nname: skill-c\ndescription: c\n---\nbody\n")
+	before := len(m.entries)
+
+	m.submitJob("noop", func(ctx context.Context) (any, error) { return "done", nil })
+	select {
+	case r := <-m.queue.Results():
+		cmd := m.handleJobDone(r)
+		require.Len(t, m.entries, before, "handleJobDone must not scan the filesystem synchronously")
+		require.NotNil(t, cmd, "the rescan is deferred to a returned command")
+
+		_, _ = m.Update(cmd())
+		require.Greater(t, len(m.entries), before, "the deferred rescan applies once its command runs")
+	case <-time.After(3 * time.Second):
+		t.Fatal("job did not complete")
 	}
 }
 
@@ -359,6 +583,66 @@ func TestModelDiscoverAdopts(t *testing.T) {
 	require.NotZero(t, fi.Mode()&os.ModeSymlink, "external dir replaced by a symlink")
 }
 
+// TestHelpViewRowsFitFrameWidth: renderMainArea's showHelp branch used to
+// return SplitLines(help) straight through PadLines, which only appends
+// blank filler rows to reach the row *count* — it never truncates/pads each
+// existing line to the frame's inner *width* the way every other row in the
+// app does (list rows, detail rows, and the header/status/hint bars all go
+// through components.FitCell). The long "Install status: …" legend line
+// overflows past the right border, and the (shorter) key-binding table rows
+// fall short of it — both misalign "│" on the help screen
+// ("help 界面的窗口边框不对齐").
+func TestHelpViewRowsFitFrameWidth(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 100, 30
+	m.help.Width = m.width - 4
+	m.showHelp = true
+
+	inner := m.width - 2
+	for i, line := range strings.Split(m.View(), "\n") {
+		if line == "" {
+			continue
+		}
+		require.Equal(t, inner+2, lipgloss.Width(line), "line %d must span the full frame width (border-to-border): %q", i, line)
+	}
+}
+
+// TestHelpLegendWordWrapsInsteadOfTruncating: at the fixture's default
+// 100-column width the "Install status: …" legend line (118 cells) and the
+// "Target columns: …" line both run past `inner`. FitCell used to truncate
+// whatever didn't fit, cutting the text off mid-word ("blank not…") instead
+// of showing all of it — border alignment was fine (TestHelpViewRowsFitFrameWidth),
+// the content itself was just missing. Both legends now word-wrap onto
+// additional lines instead.
+func TestHelpLegendWordWrapsInsteadOfTruncating(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 100, 30
+	m.help.Width = m.width - 4
+	m.showHelp = true
+
+	v := m.View()
+	require.Contains(t, v, "Install status: ✓ installed")
+	require.Contains(t, v, "dangling link (source missing)")
+	require.Contains(t, v, "conflict (not managed)")
+	// The word wrap breaks the line here, so "blank not" and what follows land
+	// on separate rendered lines — checked separately rather than as one
+	// contiguous substring. The regression this guards against is the text
+	// being cut off entirely (truncated to "blank not…" and lost), not where
+	// the wrap happens to fall.
+	require.Contains(t, v, "blank not")
+	require.Contains(t, v, "installed or unsupported",
+		"the legend's tail must not be cut off mid-word at a frame width narrower than the line itself")
+	require.Contains(t, v, "Target columns: Claude Claude* (Commands) Codex Pi")
+
+	inner := m.width - 2
+	for i, line := range strings.Split(v, "\n") {
+		if line == "" {
+			continue
+		}
+		require.Equal(t, inner+2, lipgloss.Width(line), "line %d must still span the full frame width: %q", i, line)
+	}
+}
+
 // TestModelHelpToggle: `?` toggles the full help table, which shows keys that
 // are absent from the compact bar (e.g. "batch update").
 func TestModelHelpToggle(t *testing.T) {
@@ -369,6 +653,7 @@ func TestModelHelpToggle(t *testing.T) {
 	} {
 		t.Run(closeKey.String(), func(t *testing.T) {
 			m := newTestModel(t)
+			m.width = 140
 			require.False(t, m.showHelp)
 
 			_ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
@@ -471,7 +756,7 @@ func TestListViewNeverExceedsTerminalHeight(t *testing.T) {
 	}
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 35})
 	m = *updated.(*model)
-	m.applyEntries(entries)
+	m.applyScan(entries)
 	require.Equal(t, m.pageSize, pagination.Page(len(m.rows), m.pageSize, m.page).Count, "page is fully packed")
 
 	lines := strings.Split(m.View(), "\n")
@@ -506,6 +791,96 @@ func TestListIsFlatWithoutSectionHeaders(t *testing.T) {
 	// Sorted by source: anthropics < mattpocock (both github) < local block.
 	require.Less(t, strings.Index(view, "pdf"), strings.Index(view, "effect"))
 	require.Less(t, strings.Index(view, "effect"), strings.Index(view, "mine"))
+}
+
+// TestStatusAutoHidesAfterThreeSeconds: a status message left untouched (no
+// keypress at all — the case handleKey's clear-on-any-key can't reach) must
+// still disappear on its own once statusAutoHide has elapsed, not sit stale
+// forever. statusSetAt is backdated directly rather than sleeping 3s in the
+// test; the real trigger is the recurring statusTickMsg (statusTickCmd,
+// armed once in Init and self-perpetuating).
+func TestStatusAutoHidesAfterThreeSeconds(t *testing.T) {
+	m := newTestModel(t)
+	m.setStatus("archived shown")
+	require.Equal(t, "archived shown", m.status)
+
+	// Not yet statusAutoHide: a tick must leave it alone.
+	m.statusSetAt = time.Now().Add(-1 * time.Second)
+	_, _ = m.Update(statusTickMsg{})
+	require.Equal(t, "archived shown", m.status, "status must survive until statusAutoHide has elapsed")
+
+	// statusAutoHide elapsed: the next tick clears it.
+	m.statusSetAt = time.Now().Add(-(statusAutoHide + time.Second))
+	_, _ = m.Update(statusTickMsg{})
+	require.Empty(t, m.status, "status auto-hides once statusAutoHide has elapsed")
+}
+
+// TestStatusMessageClearsOnNavigation: a transient notification like
+// "archived shown"/"archived hidden" must not stick in the status bar
+// forever — the next navigation should reveal the current selection summary
+// again, not leave a stale message behind (list.go statusContent: "case
+// m.status != \"\": return m.status" never gets cleared by cursor movement).
+func TestStatusMessageClearsOnNavigation(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(runeKey('.'))
+	require.Equal(t, "archived shown", m.status)
+
+	_ = m.handleKey(runeKey('j'))
+	require.Empty(t, m.status, "moving the cursor clears the stale notification")
+	require.Contains(t, m.statusContent(), m.filtered[m.cursor].Name, "status bar reverts to the selection summary")
+}
+
+// TestStatusMessageClearsOnAnyKeyNotJustCursorMovement: clearing only on
+// j/k/h/l/g/G left the message stuck for any other next action — opening
+// detail, switching a provider tab, opening the task center — which is what
+// a real user does at least as often as pressing j/k right after toggling
+// archived. Every keypress must drop a stale notification, not just
+// navigation (handleKey now clears m.status once, up front, for every mode).
+func TestStatusMessageClearsOnAnyKeyNotJustCursorMovement(t *testing.T) {
+	t.Run("opening detail", func(t *testing.T) {
+		m := newTestModel(t)
+		_ = m.handleKey(runeKey('.'))
+		require.Equal(t, "archived shown", m.status)
+		_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+		require.True(t, m.showDetail)
+		require.Empty(t, m.status, "opening detail clears the stale notification")
+	})
+
+	t.Run("switching provider tab", func(t *testing.T) {
+		m := newTestModel(t)
+		_ = m.handleKey(runeKey('.'))
+		require.Equal(t, "archived shown", m.status)
+		_ = m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+		require.Empty(t, m.status, "switching tabs clears the stale notification")
+	})
+
+	t.Run("opening task center", func(t *testing.T) {
+		m := newTestModel(t)
+		_ = m.handleKey(runeKey('.'))
+		require.Equal(t, "archived shown", m.status)
+		_ = m.handleKey(runeKey('J'))
+		require.True(t, m.showTasks)
+		require.Empty(t, m.status, "opening the task center clears the stale notification")
+	})
+}
+
+// TestNarrowTerminalHidesInstallStatusColumns: on a narrow terminal the
+// per-target install-status columns are hidden so name/kind/status stay
+// legible instead of being squeezed; they return once there's room (req: "如
+// 果窗口特别小，可以隐藏次重要的栏位（安装状态栏）").
+func TestNarrowTerminalHidesInstallStatusColumns(t *testing.T) {
+	m := newTestModel(t)
+	m.runInstall("install", "skill-a", []string{"t"})
+	drainJob(t, &m)
+
+	m.width = 60
+	require.False(t, m.showInstallColumns())
+	require.NotContains(t, m.View(), "✓", "install-status columns are hidden on a narrow terminal")
+	require.Contains(t, m.View(), "skill-a", "the entry name stays visible")
+
+	m.width = 100
+	require.True(t, m.showInstallColumns())
+	require.Contains(t, m.View(), "✓", "install-status columns return once there's room")
 }
 
 // TestArchivedHiddenUntilToggled: archived entries are excluded from the list
@@ -626,7 +1001,7 @@ func TestInstallReasonPrecedenceWhenTwoUnavailableConditionsApply(t *testing.T) 
 	_, err := m.svc.Archive(m.ctx, "skill-a", services.LifecycleOptions{})
 	require.NoError(t, err)
 	m.showArchived = true // archived entries are hidden by default; make skill-a visible
-	m.applyEntries(m.svc.Scan())
+	m.applyScan(m.svc.Scan())
 	idx := -1
 	for i, e := range m.filtered {
 		if e.Name == "skill-a" {
@@ -687,7 +1062,7 @@ func TestBatchUpdateSurfacesFailureReason(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\ndescription: broken\n---\nbody\n")
 	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/meta.json", `{"address":"/does/not/exist/anywhere","mode_id":"local"}`)
-	m.applyEntries(m.svc.Scan())
+	m.applyScan(m.svc.Scan())
 
 	m.batchUpdate()
 	drainJob(t, &m)
@@ -727,7 +1102,7 @@ func TestDiscoverSurfacesProviderLoadFailure(t *testing.T) {
 	m.pageSize = 20
 	m.help.Width = m.width
 	m.loading = false
-	m.applyEntries(svc.Scan())
+	m.applyScan(svc.Scan())
 
 	m.discoverExternal()
 	require.Contains(t, m.status, "provider plugin(s) failed to load")
@@ -740,6 +1115,65 @@ func TestDiscoverSurfacesProviderLoadFailure(t *testing.T) {
 // see pkg/services/skill_install.go's "use --force" error). The job must
 // now surface as a confirm-then-retry offer instead of a dead-end failure,
 // and confirming must retry with force and succeed.
+// cursorTo moves m.cursor to the filtered entry named name, failing the test
+// if it isn't present.
+func cursorTo(t *testing.T, m *model, name string) {
+	t.Helper()
+	for i, e := range m.filtered {
+		if e.Name == name {
+			m.cursor = i
+			return
+		}
+	}
+	t.Fatalf("%s not found in filtered entries", name)
+}
+
+// TestFixSelectedRepairsConflictAndDangling: `F` repairs the highlighted
+// entry's per-target install problems — both a dangling link (stale, resolves
+// elsewhere) and a conflict (a non-managed object already occupies the
+// target) are force-overwritten with a fresh managed install — scoped to the
+// current entry only. Uninstall is deliberately not used for the dangling
+// case: it only ever removes a link that currently resolves to the entry's
+// exact path (isManagedLink, uninstall.go), so it silently no-ops on a stale
+// link left behind after the entry moved — installSkill's Force path is the
+// one place that already treats conflict and dangling identically.
+func TestFixSelectedRepairsConflictAndDangling(t *testing.T) {
+	m := newTestModel(t)
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+
+	// skill-a: dangling — a stale symlink at the target resolving elsewhere.
+	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "gone"), filepath.Join(target.Path, "skill-a")))
+	// skill-b: conflict — a real, non-managed directory occupies the target.
+	require.NoError(t, os.MkdirAll(filepath.Join(target.Path, "skill-b"), 0o755))
+	m.applyScan(m.svc.Scan())
+
+	require.Equal(t, common.InstallDangling, m.svc.Installer.State(m.svc.FindEntry("skill-a"), target))
+	require.Equal(t, common.InstallConflict, m.svc.Installer.State(m.svc.FindEntry("skill-b"), target))
+
+	cursorTo(t, &m, "skill-a")
+	m.fixSelected()
+	require.NotNil(t, m.confirm, "fix asks for confirmation before touching anything")
+	require.Contains(t, m.confirm.Prompt, "Overwrite: t")
+	_ = m.handleConfirmKey(runeKey('y'))
+	require.Nil(t, m.confirm)
+	drainJob(t, &m)
+	require.Equal(t, common.InstallInstalled, m.svc.Installer.State(m.svc.FindEntry("skill-a"), target), "the dangling link is replaced with a healthy managed install")
+
+	cursorTo(t, &m, "skill-b")
+	m.fixSelected()
+	require.NotNil(t, m.confirm)
+	require.Contains(t, m.confirm.Prompt, "Overwrite: t")
+	_ = m.handleConfirmKey(runeKey('y'))
+	require.Nil(t, m.confirm)
+	drainJob(t, &m)
+	require.Equal(t, common.InstallInstalled, m.svc.Installer.State(m.svc.FindEntry("skill-b"), target), "the conflict is overwritten with a managed install")
+
+	cursorTo(t, &m, "skill-a")
+	m.fixSelected()
+	require.Contains(t, m.status, "no conflicts or dangling", "nothing left to fix reports a reason instead of a silent no-op")
+}
+
 func TestRunInstallConflictOffersForceRetry(t *testing.T) {
 	m := newTestModel(t)
 	target, ok := m.svc.Installer.TargetByName("t")

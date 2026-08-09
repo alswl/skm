@@ -84,11 +84,12 @@ func frontmatterName(marker string) (string, error) {
 }
 
 // ImportStaged validates a staged asset and places it under
-// <repo>/<kind>/<providerID>/<name>/, recording origin for remote imports
-// (I3). The global name space is checked first; --force overwrites the
-// existing entry, restoring it on failure (FR-021). Temp dirs are removed on
-// failure (UC-05).
-func (r *Repository) ImportStaged(ctx context.Context, staged, providerID string, force bool, origin *common.Origin) (*RepositoryImportResult, error) {
+// <repo>/<kind>/<providerID>/<name>/ (or <repo>/<kind>/<providerID>/<group>/<name>/
+// when group is non-empty — e.g. "owner/repo" for a GitHub/GitLab import, see
+// gitHostProvider.Group), recording origin for remote imports (I3). The
+// global name space is checked first; --force overwrites the existing entry,
+// restoring it on failure (FR-021). Temp dirs are removed on failure (UC-05).
+func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group string, force bool, origin *common.Origin) (*RepositoryImportResult, error) {
 	kind, name, err := r.ProbeStaged(staged)
 	if err != nil {
 		return nil, common.WithExitCode(err, common.ExitError)
@@ -101,7 +102,8 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID string
 	defer func() { _ = os.RemoveAll(tmp) }()
 
 	// Global name collision (I1 / FR-021).
-	if existing := r.findByName(name); existing != nil && !force {
+	existing := r.findByName(name)
+	if existing != nil && !force {
 		return nil, common.WithExitCode(
 			common.WithNeedsForce(fmt.Errorf("import: name %q already exists (at %s); use --force to overwrite", name, existing.Path)),
 			common.ExitObject)
@@ -113,10 +115,23 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID string
 	}
 	defer lock.Release()
 
-	dest := filepath.Join(r.root, kind.TopDir(), providerID, name)
+	dest := filepath.Join(r.root, kind.TopDir(), providerID, group, name)
 	tx := &dal.FileTransaction{}
 	if dal.PathExists(dest) {
 		if err := tx.BackupRemove(dest); err != nil {
+			_ = tx.Rollback()
+			return nil, common.WithExitCode(err, common.ExitError)
+		}
+	}
+	// A forced import replaces the colliding entry wherever it lives, not just
+	// when it happens to sit at dest. The two diverge as soon as anything about
+	// the layout changes — re-importing a flat <provider>/<name> entry now lands
+	// under <provider>/<group>/<name>, and a different --provider moves it too —
+	// and leaving the old copy behind would put two entries under one name,
+	// breaking the global uniqueness every name lookup here relies on
+	// (findByName, Services.FindEntry, the TUI's per-name install state).
+	if existing != nil && existing.Path != dest && dal.PathExists(existing.Path) {
+		if err := tx.BackupRemove(existing.Path); err != nil {
 			_ = tx.Rollback()
 			return nil, common.WithExitCode(err, common.ExitError)
 		}
@@ -180,6 +195,18 @@ func copyDirToTemp(src string) (string, error) {
 }
 
 // copyTree copies a directory tree, preserving symlinks.
+// vcsMetadataDir is the one name copyTree refuses to carry into the
+// repository. When a skill *is* a repository — SKILL.md at its root — the
+// staged tree a provider hands over is a working clone, and only its content
+// belongs to skm: the git database is often far larger than the skill, and
+// nothing here ever reads it (update re-clones from the recorded origin rather
+// than pulling in place). Leaving it in also made every update report a change
+// forever, since two clones never share a byte-identical .git
+// (TestUpdateComparisonIgnoresVCSMetadata). ".gitignore" and ".github" are
+// content and are kept — only the database itself is dropped, whether it is a
+// directory or the pointer file a submodule/worktree checkout leaves.
+const vcsMetadataDir = ".git"
+
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -188,6 +215,12 @@ func copyTree(src, dst string) error {
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
+		}
+		if d.Name() == vcsMetadataDir && rel != "." {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		target := filepath.Join(dst, rel)
 		if d.IsDir() {

@@ -21,7 +21,7 @@
       "id": "github",
       "label": "GitHub / git repositories",
       "kind": "builtin",
-      "description": "Clones git URLs (git@/https/ssh/.git) and owner/repo shorthand",
+      "description": "Clones git URLs (git@/https/ssh/.git) and owner/repo[/subdir] shorthand",
       "schemes": ["git@", "https://", "ssh://", "owner/repo"],
       "loaded": true,
       "error": null

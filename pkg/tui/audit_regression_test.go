@@ -89,10 +89,10 @@ func TestListRowShowsVersionAndStatusColumns(t *testing.T) {
 // against a real repo with long skill names).
 func TestListRowColumnsStayAlignedWithLongContent(t *testing.T) {
 	cells := []installCell{{name: "t", state: common.InstallInstalled}}
-	short := renderEntryLine(&common.Entry{Name: "short", Kind: common.KindSkill, Status: common.StatusActive}, "", cells, false)
+	short := renderEntryLine(&common.Entry{Name: "short", Kind: common.KindSkill, Status: common.StatusActive}, "", "", cells, false)
 	long := renderEntryLine(&common.Entry{
 		Name: "a-very-long-skill-name-that-overflows-the-column", Kind: common.KindSkill, Status: common.StatusActive,
-	}, "", cells, false)
+	}, "", "", cells, false)
 
 	require.Equal(t, len(short), len(long), "rows stay the same total width regardless of content length")
 	// The kind/status/target columns must start at the same byte offset in
@@ -100,7 +100,7 @@ func TestListRowColumnsStayAlignedWithLongContent(t *testing.T) {
 	nameFieldEnd := iconColWidth + 1 + nameColWidth + 1 // icon column, then name, +1 each for the separating space
 	require.Equal(t, short[nameFieldEnd:], long[nameFieldEnd:], "columns after name stay aligned")
 
-	nonStandard := renderEntryLine(&common.Entry{Name: "x", Kind: common.KindSkill, Status: common.StatusNonStandard}, "", cells, false)
+	nonStandard := renderEntryLine(&common.Entry{Name: "x", Kind: common.KindSkill, Status: common.StatusNonStandard}, "", "", cells, false)
 	require.Contains(t, nonStandard, "non_standard", "the widened status column fits the longest status value in full")
 }
 
@@ -111,7 +111,7 @@ func TestInstallTargetHeadersStayCompactAndAligned(t *testing.T) {
 		{Name: "codex"},
 		{Name: "pi"},
 	}
-	header := installHeaderRow(targets)
+	header := installHeaderRow(targets, false)
 	require.Contains(t, header, "Claude Claude* Codex Pi")
 
 	cells := []installCell{
@@ -120,7 +120,7 @@ func TestInstallTargetHeadersStayCompactAndAligned(t *testing.T) {
 		{name: "codex", state: common.InstallDangling},
 		{name: "pi", state: common.InstallConflict},
 	}
-	row := renderEntryLine(&common.Entry{Name: "skill", Kind: common.KindSkill, Status: common.StatusActive}, "", cells, false)
+	row := renderEntryLine(&common.Entry{Name: "skill", Kind: common.KindSkill, Status: common.StatusActive}, "", "", cells, false)
 	require.Equal(t, lipgloss.Width(header), lipgloss.Width(row), "target headers and target cells share a fixed compact layout")
 }
 

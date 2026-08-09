@@ -74,11 +74,19 @@ esac
 }
 
 // writeSlowPlugin writes a stub whose `id` response never arrives (it sleeps
-// past any reasonable test timeout), exercising timeout isolation.
+// far past any test timeout), exercising timeout isolation.
+//
+// The sleep is deliberately much longer than the timeout the test sets, so the
+// healthy plugin discovered alongside it gets the whole budget to itself
+// rather than racing the slow one's clock. `sleep`'s own stdout goes to
+// /dev/null so it does not hold the pipe the shell hands back: when the
+// deadline kills the shell, the pipe closes and exec.Cmd.Output returns at the
+// deadline instead of waiting out the orphaned sleep. That is what keeps the
+// test as quick as the timeout no matter how long the sleep is.
 func writeSlowPlugin(t *testing.T, dir, name string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	script := "#!/bin/sh\nsleep 2\necho '{\"id\":\"slow\"}'\n"
+	script := "#!/bin/sh\nsleep 300 >/dev/null 2>&1\necho '{\"id\":\"slow\"}'\n"
 	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
 	return path
 }
@@ -169,7 +177,17 @@ func TestDiscoverIsolatesProtocolErrorAndTimeout(t *testing.T) {
 	slow := writeSlowPlugin(t, providersDir, "slow.sh")
 
 	orig := pluginTimeout
-	pluginTimeout = 800 * time.Millisecond
+	// Discovery loads every plugin concurrently (see
+	// plugin_discovery_parallel_test.go), so ok.sh launches alongside slow.sh
+	// and broken-json.sh instead of running alone as it did when discovery
+	// loaded one plugin at a time. The timeout is therefore the budget ok.sh
+	// must finish within while contending with two other subprocesses — and it
+	// is far below slow.sh's sleep (writeSlowPlugin), so widening it costs
+	// nothing but slack. At 1.5s against a 2s sleep, ok.sh had only 500ms of
+	// headroom and was dropped as "timed out" on a loaded machine.
+	// (The test's own duration is this timeout, since it waits for slow.sh to
+	// hit it — so this trades a little wall clock for the headroom.)
+	pluginTimeout = 3 * time.Second
 	defer func() { pluginTimeout = orig }()
 
 	plugins, failures := DiscoverPlugins([]string{dir}, common.NewLogger(false))

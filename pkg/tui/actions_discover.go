@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/services"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
 // discoverExternal lists external unmanaged skills in the install targets and
@@ -21,13 +21,13 @@ func (m *model) discoverExternal() {
 	res := m.svc.Discover("")
 	switch {
 	case len(res.Found) == 0 && failureMsg != "":
-		m.status = failureMsg
+		m.setStatus(failureMsg)
 		return
 	case len(res.Found) == 0:
-		m.status = "discover: no external unmanaged skills found"
+		m.setStatus("discover: no external unmanaged skills found")
 		return
 	case failureMsg != "":
-		m.status = failureMsg
+		m.setStatus(failureMsg)
 	}
 	items := make([]pages.PickerItem, len(res.Found))
 	for i, f := range res.Found {
@@ -46,7 +46,7 @@ func (m *model) discoverExternal() {
 // into the repo and replace the external directory with a managed symlink.
 func (m *model) adoptExternal(sel []pages.PickerItem) {
 	if len(sel) == 0 {
-		m.status = "adopt: nothing selected"
+		m.setStatus("adopt: nothing selected")
 		return
 	}
 	paths := pickerValues(sel)
@@ -67,7 +67,7 @@ func (m *model) adoptExternal(sel []pages.PickerItem) {
 // external skill directories in the background (FR-038, FR-040).
 func (m *model) confirmDeleteExternal(sel []pages.PickerItem) {
 	if len(sel) == 0 {
-		m.status = "delete: nothing selected"
+		m.setStatus("delete: nothing selected")
 		return
 	}
 	paths := pickerValues(sel)

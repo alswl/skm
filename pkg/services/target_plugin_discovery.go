@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/plugins"
@@ -10,16 +11,33 @@ import (
 
 // DiscoverTargetPlugins scans each base dir's "targets" subdirectory for
 // executable files and loads each as a subprocess Target plugin, symmetric to
-// DiscoverPlugins. A plugin that fails to launch, returns an empty
-// id, or has a duplicate id is isolated (skipped, recorded as a
-// PluginLoadFailure) and never blocks startup. Dirs are scanned in order;
-// within a dir, files are sorted for a stable order (pkg/plugins.ListExecutables).
+// DiscoverPlugins — including loading them concurrently, for the same reason;
+// see DiscoverPlugins' comment. A plugin that fails to launch, returns an
+// empty id, or has a duplicate id is isolated (skipped, recorded as a
+// PluginLoadFailure) and never blocks startup. Output order and duplicate-id
+// resolution still come from plugins.ListExecutables' stable order, exactly
+// as they did sequentially.
 func DiscoverTargetPlugins(baseDirs []string, logger *common.Logger) ([]*TargetPlugin, []PluginLoadFailure) {
+	paths := plugins.ListExecutables(baseDirs, "targets")
+	loaded := make([]struct {
+		p   *TargetPlugin
+		err error
+	}, len(paths))
+	var wg sync.WaitGroup
+	for i, path := range paths {
+		wg.Add(1)
+		go func(i int, path string) {
+			defer wg.Done()
+			loaded[i].p, loaded[i].err = NewTargetPlugin(path)
+		}(i, path)
+	}
+	wg.Wait()
+
 	var out []*TargetPlugin
 	var failures []PluginLoadFailure
 	seen := map[string]bool{}
-	for _, path := range plugins.ListExecutables(baseDirs, "targets") {
-		p, err := NewTargetPlugin(path)
+	for i, path := range paths {
+		p, err := loaded[i].p, loaded[i].err
 		if err != nil {
 			reason := toTargetPluginError(err)
 			logger.Warn("target plugin load failed (isolated)", "path", path, "err", reason.Message)

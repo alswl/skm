@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -205,8 +204,20 @@ func TestE2ETUIMoveFromDetailTakesEffect(t *testing.T) {
 	require.NotNil(t, s.confirm, "choosing a provider previews the destination behind a confirm")
 
 	s = pp.send(tea.KeyMsg{Type: tea.KeyEnter}) // confirm the move
-	done := pp.wait(func(s model) bool { return strings.Contains(s.status, "moved") }, "move job completes")
+	// The job's status message and the post-job rescan land in separate
+	// Update ticks now (the rescan runs off the event loop so a completing
+	// job never freezes the UI — jobs_wire.go handleJobDone), so wait for the
+	// rescan to actually apply rather than just the status text appearing.
+	done := pp.wait(func(s model) bool {
+		for _, e := range s.filtered {
+			if e.Name == "d2" && e.Status == common.StatusActive {
+				return true
+			}
+		}
+		return false
+	}, "move job completes and the rescan applies")
 
+	require.Contains(t, done.status, "moved", "the status line reports the move")
 	require.FileExists(t, filepath.Join(m.svc.Cfg.Root, "skills/local/d2/SKILL.md"), "d2 relocated to skills/local/d2")
 	require.NoDirExists(t, filepath.Join(m.svc.Cfg.Root, "skills/d2"), "the misplaced dir is gone")
 

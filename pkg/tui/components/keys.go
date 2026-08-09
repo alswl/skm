@@ -30,6 +30,9 @@ type KeyMap struct {
 	Targets     key.Binding
 	TargetAdd   key.Binding
 	Normalize   key.Binding
+	Fix         key.Binding
+	ActionsMenu key.Binding
+	Refresh     key.Binding
 
 	Queue  key.Binding
 	Cancel key.Binding
@@ -75,6 +78,9 @@ func DefaultKeys() KeyMap {
 		Targets:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "targets")),
 		TargetAdd:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add target")),
 		Normalize:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "move to standard location")),
+		Fix:          key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "fix conflicts/dangling")),
+		ActionsMenu:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "actions menu")),
+		Refresh:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
 		Queue:        key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "job queue")),
 		Cancel:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel task")),
 		Detail:       key.NewBinding(key.WithKeys("enter", "v"), key.WithHelp("enter", "detail")),
@@ -96,7 +102,7 @@ func DefaultKeys() KeyMap {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.MoveDown, k.MoveUp, k.PagePrev, k.PageNext, k.First, k.Last, k.Search, k.ClearSearch, k.ShowArchived, k.TabNext, k.TabPrev},
-		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize},
+		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize, k.Fix, k.ActionsMenu, k.Refresh},
 		{k.Queue, k.Cancel, k.Help, k.Quit},
 	}
 }

@@ -15,7 +15,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/tui/components"
-	"github.com/alswl/skm/skm/pkg/tui/pages"
+	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
 
@@ -23,7 +23,7 @@ import (
 // reachable from the list page (installs/update/archive/delete are
 // shared with handleListKey — list and detail are one page's worth of
 // selection state with two renderings, not two independent pages, so these
-// actions stay here rather than in pkg/tui/pages).
+// actions stay here rather than in pkg/tui/widgets).
 func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	k := m.keys
 	switch {
@@ -45,6 +45,12 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.archiveSelected()
 	case key.Matches(msg, k.Delete):
 		m.deleteSelected()
+	case key.Matches(msg, k.Fix):
+		m.fixSelected()
+	case key.Matches(msg, k.ActionsMenu):
+		m.openActionsMenu()
+	case key.Matches(msg, k.Refresh):
+		return scanCmd(m.svc, scanManual)
 	}
 	return nil
 }
@@ -92,9 +98,9 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		m.showArchived = !m.showArchived
 		m.refreshFiltered()
 		if m.showArchived {
-			m.status = "archived shown"
+			m.setStatus("archived shown")
 		} else {
-			m.status = "archived hidden"
+			m.setStatus("archived hidden")
 		}
 	case key.Matches(msg, k.TabNext):
 		m.cycleProviderTab(1)
@@ -119,6 +125,8 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		m.archiveSelected()
 	case key.Matches(msg, k.Delete):
 		m.deleteSelected()
+	case key.Matches(msg, k.Fix):
+		m.fixSelected()
 	case key.Matches(msg, k.Discover):
 		m.discoverExternal()
 	case key.Matches(msg, k.Targets):
@@ -126,6 +134,10 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		m.targetsCursor = 0
 	case key.Matches(msg, k.Help):
 		m.showHelp = !m.showHelp
+	case key.Matches(msg, k.ActionsMenu):
+		m.openActionsMenu()
+	case key.Matches(msg, k.Refresh):
+		return scanCmd(m.svc, scanManual)
 	}
 	return nil
 }
@@ -168,7 +180,7 @@ func (m model) listView() string {
 	var sb strings.Builder
 	sb.WriteString(components.FrameTop(inner, title) + "\n")
 	sb.WriteString("│" + components.FitCell(m.tabBarContent(), inner, lipgloss.NewStyle()) + "│\n")
-	sb.WriteString("│" + components.FitCell(installHeaderRow(m.svc.Cfg.Targets), inner, lipgloss.NewStyle()) + "│\n")
+	sb.WriteString("│" + components.FitCell(rowGutter+installHeaderRow(m.installColumnTargets(), m.showGroupColumn()), inner, lipgloss.NewStyle()) + "│\n")
 	for _, r := range m.renderMainArea(inner, rows) {
 		sb.WriteString("│" + r + "│\n")
 	}
@@ -256,16 +268,33 @@ func (m model) tabBarContent() string {
 // the terminal height.
 func (m model) renderMainArea(inner, rows int) []string {
 	if m.showHelp {
-		help := "Install status: ✓ installed  ⚠ dangling link (source missing)  ✗ conflict (not managed)  blank not installed or unsupported\n" +
-			"Target columns: Claude Claude* (Commands) Codex Pi\n" +
+		// Word-wrapped, not truncated: at a typical frame width these two
+		// legend lines run longer than `inner` (the install-status line alone
+		// is 118 cells), and FitCell below truncates — cutting the text off
+		// mid-word ("blank not…") instead of showing all of it. The
+		// keybinding table after them is left alone: bubbles' help package
+		// already lays it out in aligned columns sized to m.help.Width, and
+		// wrapping it here would break that alignment.
+		wrap := lipgloss.NewStyle().Width(inner)
+		help := wrap.Render("Install status: ✓ installed  ⚠ dangling link (source missing)  ✗ conflict (not managed)  blank not installed or unsupported") + "\n" +
+			wrap.Render("Target columns: Claude Claude* (Commands) Codex Pi") + "\n" +
 			m.help.FullHelpView(m.keys.FullHelp())
 		lines := components.SplitLines(help)
 		if len(lines) > rows {
 			lines = lines[:rows]
 		}
+		// PadLines only appends blank filler rows to reach `rows`; it never
+		// truncates/pads an existing line to `inner`, unlike every other row in
+		// the frame, so a help line longer or shorter than inner misaligns the
+		// right border.
+		for i, l := range lines {
+			lines[i] = components.FitCell(l, inner, lipgloss.NewStyle())
+		}
 		return components.PadLines(lines, inner, rows)
 	}
 	pageInfo := pagination.Page(len(m.rows), m.pageSize, m.page)
+	// Both are constant for the whole page, so decide once rather than per row.
+	groupCol, installCols := m.showGroupColumn(), m.showInstallColumns()
 	var out []string
 	for i := pageInfo.Offset; i < pageInfo.Offset+pageInfo.Count; i++ {
 		r := m.rows[i]
@@ -275,15 +304,35 @@ func (m model) renderMainArea(inner, rows int) []string {
 		}
 		e := m.filtered[r.entryIdx]
 		hl := r.entryIdx == m.cursor
-		row := renderEntryLine(e, m.providerIcon(e.ProviderIDValue()), m.installCol[e.Name], hl)
+		var cells []installCell
+		if installCols {
+			cells = m.installs[e.Name]
+		}
+		var groupCell string
+		if groupCol {
+			groupCell = truncPad(orDash(e.GroupValue()), groupColWidth)
+			if !hl {
+				groupCell = components.StyleGroup.Render(groupCell)
+			}
+		}
+		row := renderEntryLine(e, m.providerIcon(e.ProviderIDValue()), groupCell, cells, hl)
 		if hl {
-			out = append(out, components.FitCell("  ▶ "+row, inner, components.StyleCursor))
+			out = append(out, components.FitCell(cursorGutter+row, inner, components.StyleCursor))
 		} else {
-			out = append(out, components.FitCell("    "+row, inner, lipgloss.NewStyle()))
+			out = append(out, components.FitCell(rowGutter+row, inner, lipgloss.NewStyle()))
 		}
 	}
 	return components.PadLines(out, inner, rows)
 }
+
+// rowGutter is the blank left margin every entry row carries; cursorGutter is
+// the same width with the selection marker in it. The header row is prefixed
+// with rowGutter too — without it the labels sit four cells left of the
+// columns they name (TestHeaderLabelsSitOverTheirColumns).
+const (
+	rowGutter    = "    "
+	cursorGutter = "  ▶ "
+)
 
 // Column widths for renderEntryLine. statusColWidth fits the longest status
 // value ("non_standard"); other columns truncate overflow instead of
@@ -291,17 +340,11 @@ func (m model) renderMainArea(inner, rows int) []string {
 const (
 	iconColWidth    = 2 // fits one wide (2-cell) provider icon glyph
 	nameColWidth    = 24
+	groupColWidth   = 20 // fits a typical GitHub "owner/repo"
 	kindColWidth    = 7
 	versionColWidth = 8
 	statusColWidth  = 12
 )
-
-// installCell is one target's install-state column for a single entry: the
-// target's name (drives the header label and column width) and its state.
-type installCell struct {
-	name  string
-	state common.InstallState
-}
 
 // targetColWidth follows the visible header label, keeping each header and its
 // status cells aligned without reserving the much longer configuration name.
@@ -327,14 +370,66 @@ func targetLabel(name string) string {
 	}
 }
 
-// installHeaderRow labels each per-target column above the entry list
-// (FR-041): a plain, blank-padded run under the fixed icon/name/kind/version/
-// status columns, then each target's name over its own cell.
-func installHeaderRow(targets []common.InstallTarget) string {
+// narrowInstallColumnWidth is the minimum frame width at which the per-target
+// install-status columns are shown; below it they're hidden so
+// name/kind/status stay legible instead of being squeezed by however many
+// targets are configured (req: "如果窗口特别小，可以隐藏次重要的栏位（安装
+// 状态栏）" — the install-status columns are secondary to identifying the
+// entry itself).
+const narrowInstallColumnWidth = 90
+
+// narrowGroupColumnWidth is the minimum frame width at which the group column
+// is shown. It is lower than narrowInstallColumnWidth because the group is part
+// of an entry's identity — which remote it came from — and identity survives
+// narrowing longer than the install state does.
+const narrowGroupColumnWidth = 84
+
+// showGroupColumn reports whether the list should carry a per-entry group
+// column ("Github 要显示 group/repo/name"). It appears only when some visible
+// entry actually has a group: on a purely local repository the column would be
+// a stripe of dashes, and its width would push the install-status columns off
+// terminals that fit them today.
+func (m model) showGroupColumn() bool {
+	return m.width >= narrowGroupColumnWidth && m.filteredHaveGroups
+}
+
+// showInstallColumns reports whether the terminal is wide enough to show the
+// per-target install-status columns alongside name/kind/status. The group
+// column, when present, widens every row ahead of them, so it raises the bar
+// they have to clear.
+func (m model) showInstallColumns() bool {
+	need := narrowInstallColumnWidth
+	if m.showGroupColumn() {
+		need += groupColWidth + 1
+	}
+	return m.width >= need
+}
+
+// installColumnTargets returns the targets whose columns installHeaderRow
+// should render: none on a narrow terminal (showInstallColumns).
+func (m model) installColumnTargets() []common.InstallTarget {
+	if !m.showInstallColumns() {
+		return nil
+	}
+	return m.svc.Cfg.Targets
+}
+
+// installHeaderRow labels every column above the entry list (FR-041). It is
+// prefixed with rowGutter by its caller, because the entry rows carry that
+// gutter too and a header that skips it sits four cells left of everything it
+// claims to label.
+func installHeaderRow(targets []common.InstallTarget, groupCol bool) string {
+	dim := func(s string, w int) string { return components.StyleDim.Render(truncPad(s, w)) }
 	var sb strings.Builder
-	sb.WriteString(truncPad("", iconColWidth) + " " + truncPad("", nameColWidth) + " " + truncPad("", kindColWidth) + " " +
-		truncPad("", versionColWidth) + " " + truncPad("", statusColWidth))
+	sb.WriteString(truncPad("", iconColWidth) + " " + dim("name", nameColWidth))
+	if groupCol {
+		sb.WriteString(" " + dim("repo", groupColWidth))
+	}
+	sb.WriteString(" " + dim("kind", kindColWidth) + " " +
+		dim("version", versionColWidth) + " " + dim("status", statusColWidth))
 	for _, t := range targets {
+		// The label defines the column's width (targetColWidth), so it fills it
+		// exactly; the glyphs beneath are centered into that same width.
 		sb.WriteString(" " + components.StyleDim.Render(truncPad(targetLabel(t.Name), targetColWidth(t.Name))))
 	}
 	return sb.String()
@@ -350,7 +445,7 @@ func installHeaderRow(targets []common.InstallTarget) string {
 // column, including each target cell, is truncated to a fixed width (not
 // just padded), so an over-long name/version/target-name can't misalign the
 // columns that follow it.
-func renderEntryLine(e *common.Entry, icon string, cells []installCell, highlighted bool) string {
+func renderEntryLine(e *common.Entry, icon, groupCell string, cells []installCell, highlighted bool) string {
 	kind := truncPad(string(e.Kind), kindColWidth)
 	status := truncPad(string(e.Status), statusColWidth)
 	if !highlighted {
@@ -359,13 +454,20 @@ func renderEntryLine(e *common.Entry, icon string, cells []installCell, highligh
 	}
 	var sb strings.Builder
 	sb.WriteString(truncPad(icon, iconColWidth) + " " +
-		truncPad(e.Name, nameColWidth) + " " +
+		truncPad(e.Name, nameColWidth))
+	if groupCell != "" {
+		sb.WriteString(" " + groupCell)
+	}
+	sb.WriteString(" " +
 		kind + " " +
 		truncPad(orDash(e.VersionValue()), versionColWidth) + " " +
 		status)
 	for _, c := range cells {
 		icon, style := components.InstallIcon(c.state)
-		cell := truncPad(icon, targetColWidth(c.name))
+		// Centered, not left-padded: a column is exactly as wide as its header
+		// label, so left-padding a one-cell glyph puts ✓ under the "C" of
+		// "Claude" but dead centre under "Pi", which reads as broken columns.
+		cell := centerCell(icon, targetColWidth(c.name))
 		if !highlighted {
 			cell = style.Render(cell)
 		}
@@ -455,20 +557,20 @@ func (m model) listHint() string {
 // listBindings is the list footer's availability matrix for the highlighted
 // entry. Installs reuse the same conditions as installSelected /
 // openInstallsPicker and detailBindings so a dimmed key never surprises with a
-// status-bar rejection. Targets() is a pure in-memory lookup (no FS I/O), so
-// it's safe here in View; installed/conflict state comes from m.installCol,
-// cached in Update (computeInstallCols), keeping View pure.
+// status-bar rejection. Every install fact comes from m.installs, a plain map
+// read, so View stays pure and cheap (see installStates).
 func (m model) listBindings() []pages.HintItem {
 	install := false
 	if len(m.filtered) > 0 {
 		e := m.filtered[m.cursor]
-		install = e.Status == common.StatusActive && len(m.svc.Installer.Targets(e)) > 0
+		install = e.Status == common.StatusActive && len(m.installs.forEntry(e.Name)) > 0
 	}
 	return []pages.HintItem{
 		{Keys: "j/k", Label: "up/down", Enabled: true},
 		{Keys: "/", Label: "search", Enabled: true},
 		{Keys: "i", Label: "installs", Enabled: install},
 		{Keys: "m", Label: "import", Enabled: true},
+		{Keys: "x", Label: "actions", Enabled: true},
 		{Keys: "q", Label: "quit", Enabled: true},
 	}
 }
@@ -507,6 +609,7 @@ func (m model) detailBindings() []pages.HintItem {
 		{Keys: "a", Label: "archive", Enabled: true},
 		{Keys: "d", Label: "delete", Enabled: true},
 		{Keys: "n", Label: "move", Enabled: e.Status == common.StatusNonStandard},
+		{Keys: "x", Label: "actions", Enabled: true},
 	}
 }
 
@@ -545,13 +648,12 @@ func (m model) buildDetail() string {
 
 	sb.WriteString(rule + "\n")
 	sb.WriteString(components.StyleDim.Render("install status") + "\n")
-	targets := m.svc.Installer.Targets(e)
-	if len(targets) == 0 {
+	cells := m.installs.forEntry(e.Name)
+	if len(cells) == 0 {
 		sb.WriteString("  (no matching targets)\n")
 	}
-	for _, t := range targets {
-		st := m.svc.Installer.State(e, t)
-		fmt.Fprintf(&sb, "  %-16s %s\n", t.Name, st)
+	for _, c := range cells {
+		fmt.Fprintf(&sb, "  %-16s %s\n", c.name, c.state)
 	}
 
 	sb.WriteString(rule + "\n")

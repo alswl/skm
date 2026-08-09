@@ -34,7 +34,7 @@ type ImportResult struct {
 // FR-021, FR-022). Auto mode prefers a real local source; otherwise providers
 // match in registration order.
 func (s *Services) Import(ctx context.Context, source string, opts ImportOptions) (*ImportResult, error) {
-	staged, providerID, origin, cleanup, err := s.resolveSource(ctx, source, opts.Provider)
+	staged, providerID, group, origin, cleanup, err := s.resolveSource(ctx, source, opts.Provider)
 	if err != nil {
 		return nil, err
 	}
@@ -53,11 +53,11 @@ func (s *Services) Import(ctx context.Context, source string, opts ImportOptions
 	}
 
 	if opts.DryRun {
-		dest := filepath.Join(s.Cfg.Root, kind.TopDir(), providerID, name)
+		dest := filepath.Join(s.Cfg.Root, kind.TopDir(), providerID, group, name)
 		return &ImportResult{Name: name, Type: kind, Provider: providerID, Path: dest, Origin: origin}, nil
 	}
 
-	res, err := s.Repo.ImportStaged(ctx, staged, providerID, opts.Force, origin)
+	res, err := s.Repo.ImportStaged(ctx, staged, providerID, group, opts.Force, origin)
 	if err != nil {
 		return nil, err
 	}
@@ -73,33 +73,46 @@ func (s *Services) Import(ctx context.Context, source string, opts ImportOptions
 // resolveSource picks the provider and staged content: explicit --provider,
 // else a real local source as a local import, else the first matching
 // provider (FR-020).
-func (s *Services) resolveSource(ctx context.Context, source, providerID string) (staged string, id string, origin *common.Origin, cleanup func(), err error) {
+func (s *Services) resolveSource(ctx context.Context, source, providerID string) (staged, id, group string, origin *common.Origin, cleanup func(), err error) {
 	cleanup = func() {}
 	if providerID != "" {
 		p := s.Registry.Get(providerID)
 		if p == nil {
-			return "", "", nil, cleanup, common.WithExitCode(fmt.Errorf("import: unknown provider %q", providerID), common.ExitError)
+			return "", "", "", nil, cleanup, common.WithExitCode(fmt.Errorf("import: unknown provider %q", providerID), common.ExitError)
 		}
 		return s.fetchProvider(ctx, p, source)
 	}
 	if isLocalSource(source) {
-		return source, "local", nil, cleanup, nil
+		return source, "local", "", nil, cleanup, nil
 	}
 	p := s.Registry.Match(source)
 	if p == nil {
-		return "", "", nil, cleanup, common.WithExitCode(
+		return "", "", "", nil, cleanup, common.WithExitCode(
 			fmt.Errorf("import: no provider can handle %q", source), common.ExitError)
 	}
 	return s.fetchProvider(ctx, p, source)
 }
 
-func (s *Services) fetchProvider(ctx context.Context, p Provider, source string) (staged, id string, origin *common.Origin, cleanup func(), err error) {
+// grouper is implemented by providers that derive a natural sub-directory
+// grouping from the source address — currently gitHostProvider's owner/repo
+// (provider_github.go) — so an import lands under <provider>/<group>/<name>
+// instead of flat <provider>/<name>. It's an optional capability (type
+// assertion, not part of the Provider interface) so plugin providers and
+// every other built-in are unaffected.
+type grouper interface {
+	Group(address string) string
+}
+
+func (s *Services) fetchProvider(ctx context.Context, p Provider, source string) (staged, id, group string, origin *common.Origin, cleanup func(), err error) {
 	tmp, ferr := p.Fetch(ctx, source)
 	if ferr != nil {
-		return "", "", nil, func() {}, common.WithExitCode(ferr, common.ExitError)
+		return "", "", "", nil, func() {}, common.WithExitCode(ferr, common.ExitError)
 	}
 	modeID := p.ID()
-	return tmp, p.ID(), &common.Origin{Address: source, ProviderID: &modeID}, func() { _ = os.RemoveAll(tmp) }, nil
+	if g, ok := p.(grouper); ok {
+		group = g.Group(source)
+	}
+	return tmp, p.ID(), group, &common.Origin{Address: source, ProviderID: &modeID}, func() { _ = os.RemoveAll(tmp) }, nil
 }
 
 // isLocalSource reports whether source is a real local path the import should

@@ -80,6 +80,41 @@ func TestBuiltinProviderFetchRejectsMismatchedAddress(t *testing.T) {
 	require.Equal(t, CodeUnsupportedAddress, pe.Code)
 }
 
+// skills.sh addresses are owner/repo paths by construction (it indexes skills
+// living in public GitHub repos), so a third path segment can only be a
+// subdirectory — the same shape GitHub's owner/repo/subdir shorthand accepts,
+// and for the same reason: no subgroup nesting to be ambiguous with.
+func TestSkillsShNormalizeDropsSubpathButKeepsTheRepoURL(t *testing.T) {
+	url, err := NewSkillsSh().Normalize("skills.sh://alswl/mind-forge/skills/mf-cli")
+	require.NoError(t, err)
+	require.Equal(t, "https://github.com/alswl/mind-forge.git", url,
+		"Normalize resolves to a clonable repository URL; the subpath isn't representable in one")
+}
+
+func TestSkillsShCanHandleSubpathAddress(t *testing.T) {
+	require.True(t, NewSkillsSh().CanHandle("skills.sh://alswl/mind-forge/skills/mf-cli"))
+}
+
+func TestSplitRepoSubpath(t *testing.T) {
+	cases := []struct {
+		path, repoPath, subdir string
+	}{
+		{"owner/repo", "owner/repo", ""},
+		{"owner/repo/skills", "owner/repo", "skills"},
+		{"owner/repo/skills/mf-cli", "owner/repo", "skills/mf-cli"},
+		{"owner", "owner", ""}, // too short to split; passed through as-is
+		// A trailing slash must not survive into the repo path: it would build
+		// "https://github.com/owner/repo/.git", which git rejects.
+		{"owner/repo/", "owner/repo", ""},
+		{"/owner/repo/", "owner/repo", ""},
+	}
+	for _, tc := range cases {
+		repoPath, subdir := splitRepoSubpath(tc.path)
+		require.Equal(t, tc.repoPath, repoPath, "repoPath for %q", tc.path)
+		require.Equal(t, tc.subdir, subdir, "subdir for %q", tc.path)
+	}
+}
+
 func TestBuiltinProvidersHaveDistinctIDsAndCapabilities(t *testing.T) {
 	for _, p := range []Provider{NewGitHub(), NewGitLab(), NewSkillsSh()} {
 		cap := p.Capability()

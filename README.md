@@ -1,207 +1,197 @@
-# skm — Local AI Coding Skill & Command Manager
+# skm
 
-`skm` manages a local repository of AI Coding **skills** and **commands**:
-browse, search, import, install, update, archive, convert, adopt external
-assets, and replicate them across machines.
+`skm` is a local manager for AI coding skills and commands. Keep a repository of reusable assets, import them from local paths or providers, install them into one or more coding tools, and keep those installations up to date.
 
-This is the **Go rewrite** of the tool. It is a single static binary with a
-Bubble Tea TUI (launched with no subcommand) and a scriptable CLI with stable
-JSON output (launched when the first positional argument is a known
-subcommand). Observable behavior is defined by `docs/req.md` and formalized in
-`specs/001-skmgr-rewrite/`.
+It provides two interfaces over the same service layer:
 
-## Build
+- Run `skm` with no subcommand for the interactive terminal UI.
+- Use subcommands such as `skm list --json` for automation-friendly CLI workflows.
 
-Requires Go 1.22+ and `git` on PATH.
+The command root deliberately routes only a no-subcommand invocation to the TUI; CLI commands do not initialize the UI. `pkg/commands/root.go:26` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/root.go#L26)
+
+## What it manages
+
+An asset is either a **skill** or a **command**. Active assets live in the repository's `skills/` or `commands/` tree; archived assets are retained separately. `skm` can scan, search, import, install, uninstall, update, archive, delete, convert, verify, discover unmanaged assets, and reproduce an installation on another machine. `pkg/common/models.go:10` [🔗](https://github.com/alswl/skm/blob/main/pkg/common/models.go#L10) `docs/cli/skm.md:14` [🔗](https://github.com/alswl/skm/blob/main/docs/cli/skm.md#L14)
+
+Install destinations are **targets**. A target declares its path, the kinds it accepts, and its installation strategy, so install behavior is driven by configuration rather than a hard-coded tool name. `pkg/common/models.go:142` [🔗](https://github.com/alswl/skm/blob/main/pkg/common/models.go#L142)
+
+## Requirements and installation
+
+You need Go 1.26.5 or newer (the version declared by the module) and `git` on your `PATH`. The project builds one `skm` binary from `cmd/skm`. `go.mod:3` [🔗](https://github.com/alswl/skm/blob/main/go.mod#L3) `Makefile:19` [🔗](https://github.com/alswl/skm/blob/main/Makefile#L19)
 
 ```bash
-make build                 # builds ./bin/skm via alswl/makefile-go; or: go build -o skm ./cmd/skm
-./bin/skm version          # version/commit/date injected via pkg/version ldflags
+git clone git@github.com:alswl/skm.git
+cd skm
+make build
+
+./bin/skm version
+./bin/skm --help
 ```
 
-## Run the TUI
+For development checks:
 
 ```bash
-# auto-discovers the repository by walking upward for skills/ or commands/
+make test
+make lint
+go test ./... -run Perf -count=1
+```
+
+`make test` runs the shared test recipe, while the repository keeps performance regression tests under `pkg/utils/perf`. `Makefile:8` [🔗](https://github.com/alswl/skm/blob/main/Makefile#L8) `pkg/utils/perf/perf_test.go:1` [🔗](https://github.com/alswl/skm/blob/main/pkg/utils/perf/perf_test.go#L1)
+
+## Quick start
+
+Start in a repository that contains `skills/` or `commands/`. With no `--root`, skm searches upward from the current directory; `--root` may name the repository root or a `skills/` directory. `pkg/commands/root.go:76` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/root.go#L76)
+
+```bash
+# Open the TUI
 ./bin/skm
 
-# explicit repository root and config dir
-./bin/skm --root /work/skills-repo --config /work/skm-config
-```
-
-`--root` accepts either the repo root or its `skills/` directory. Default
-config dir is `~/.config/skm`.
-
-## Common CLI
-
-```bash
+# Or work through the CLI
 ./bin/skm list --json
 ./bin/skm import ./my-skill --kind skill --force
 ./bin/skm install my-skill --target codex --json
+./bin/skm status my-skill --json
+./bin/skm update my-skill
+```
+
+Use `--dry-run` to report a write operation without changing files, and use `--force` to explicitly authorize overwrite or destructive behavior. With `--json`, results go to stdout; `--timing` writes timing information only to stderr. `pkg/commands/root.go:65` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/root.go#L65)
+
+## Common workflows
+
+### Install and maintain assets
+
+```bash
+# Install into all compatible targets, or select targets explicitly.
+./bin/skm install review
+./bin/skm install review --target codex --target claude-skills
+
+# Remove only installations managed by skm; user-owned files are not removed.
+./bin/skm uninstall review --target codex
+
+# Refresh one imported asset, or all active assets with an origin.
 ./bin/skm update review
 ./bin/skm batch-update --json
-./bin/skm verify repo --json
-./bin/skm discover --source ~/.codex/skills --json
-./bin/skm deploy --repo git@host:team/skills.git --target codex --only review,release
-./bin/skm export
 ```
 
-- `--json` prints one JSON object to stdout; `--timing` prints only to stderr.
-- Write commands accept `--dry-run` (no writes) and `--force` (authorize
-  overwrite/delete).
-- Exit codes: `0` success/warnings, `1` object problem, `2` argument/tool/
-  provider/execution error.
+The install command matches targets by the asset kind, and uninstall is constrained to managed installs. `pkg/commands/install.go:16` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/install.go#L16) `docs/cli/skm_uninstall.md:5` [🔗](https://github.com/alswl/skm/blob/main/docs/cli/skm_uninstall.md#L5)
 
-## Providers and Targets
-
-Acquisition sources (**Providers**) and install destinations (**Targets**) are both open,
-user-configurable capabilities — not fixed to the built-in Local/GitHub sources or the
-built-in Claude/Codex/pi targets.
+### Import, inspect, and curate
 
 ```bash
-./bin/skm provider list --json                 # built-ins (local, github, gitlab,
-./bin/skm provider validate --json             #   skills-sh) + any plugins
+./bin/skm import ./local-command --kind command --force
+./bin/skm import git@github.com:org/skills.git --json
+./bin/skm info review
+./bin/skm archive old-skill --force
+./bin/skm unarchive old-skill
+./bin/skm verify repo --json
+```
 
+An import can use a local path or a provider address; `--provider` selects a provider when automatic routing is not enough. `pkg/commands/import.go:14` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/import.go#L14)
+
+### Move a setup to another machine
+
+```bash
+# On the source machine, print a safe deploy command for current installations.
+./bin/skm export
+
+# On the destination machine, configure matching targets and run it.
+./bin/skm deploy --repo git@host:team/skills.git --target codex --only review,release
+```
+
+`deploy` can clone or pull a git repository and batch-install selected entries; `export` emits nothing when there is no installation to reproduce. `pkg/commands/deploy.go:14` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/deploy.go#L14) `pkg/commands/deploy.go:57` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/deploy.go#L57)
+
+## TUI
+
+Launch the TUI with `./bin/skm`. It offers a searchable catalog, entry detail, a background task center, target editor, confirmations for destructive operations, and context-aware footer hints. The task center is opened with `J`; target management is opened with `t`. `pkg/tui/list.go:74` [🔗](https://github.com/alswl/skm/blob/main/pkg/tui/list.go#L74) `pkg/tui/list.go:132` [🔗](https://github.com/alswl/skm/blob/main/pkg/tui/list.go#L132)
+
+The footer dims actions that are not currently available. Pressing an unavailable action reports why in the status area instead of silently doing nothing—for example, when no job or target is selected. `pkg/tui/tasks_view.go:28` [🔗](https://github.com/alswl/skm/blob/main/pkg/tui/tasks_view.go#L28) `pkg/tui/target_editor.go:51` [🔗](https://github.com/alswl/skm/blob/main/pkg/tui/target_editor.go#L51)
+
+Press `?` in the main list for the complete key map. The current screen's footer is the quickest reference for available actions.
+
+## Targets and configuration
+
+By default, skm includes targets for Claude skills, Claude commands, Codex, and pi. Custom targets live in `targets.json` in the config directory. The default is `$XDG_CONFIG_HOME/skm` when `XDG_CONFIG_HOME` is set, otherwise `~/.config/skm`; `--config` overrides it. `pkg/config/config.go:37` [🔗](https://github.com/alswl/skm/blob/main/pkg/config/config.go#L37) `pkg/config/config.go:80` [🔗](https://github.com/alswl/skm/blob/main/pkg/config/config.go#L80)
+
+```bash
 ./bin/skm target list --json
 ./bin/skm target add --name my-tool --platform mytool --path ~/.mytool/skills \
-    --accepts skill,command \
-    --strategy skill=skill-symlink --strategy command=command-adapter --json
+  --accepts skill --strategy skill=skill-symlink
 ./bin/skm target validate my-tool --json
-./bin/skm target update --name my-tool --path ~/.mytool/skills2 --json
-./bin/skm target remove --name my-tool --json
+./bin/skm target update --name my-tool --path ~/.mytool/skills-v2
 ```
 
-A Target declares its platform, path, accepted kinds, and per-kind install strategy —
-install/uninstall dispatch on that declaration, never on a hardcoded tool name. The TUI
-exposes the same operations behind the `t` key (add `a`, edit path `enter`, remove `d`).
+Target configuration supports the built-in `skill-symlink`, `command-marker`, and `command-adapter` strategies, plus `plugin:<id>` strategies supplied by target plugins. `pkg/common/models.go:61` [🔗](https://github.com/alswl/skm/blob/main/pkg/common/models.go#L61)
 
-### Configuring Targets directly (`~/.config/skm/targets.json`)
+## Providers and plugins
 
-The commands above are the safe way to edit it, but the file itself is plain JSON — useful
-to see (or hand-edit, or check into dotfiles) directly. A minimal file with the four
-built-ins plus one custom tool:
+Providers acquire assets. skm ships Local, SelfBuild, GitHub, GitLab, and Skills.sh providers, then discovers external provider plugins. `pkg/services/services.go:17` [🔗](https://github.com/alswl/skm/blob/main/pkg/services/services.go#L17)
 
-```jsonc
-[
-  { "name": "claude-skills", "platform": "claude", "path": "~/.claude/skills",
-    "accepts": ["skill"], "strategies": { "skill": "skill-symlink" }, "builtin": true },
-  { "name": "claude-commands", "platform": "claude", "path": "~/.claude/commands",
-    "accepts": ["command"], "strategies": { "command": "command-marker" }, "builtin": true },
-  { "name": "codex", "platform": "codex", "path": "~/.codex/skills",
-    "accepts": ["skill", "command"],
-    "strategies": { "skill": "skill-symlink", "command": "command-adapter" }, "builtin": true },
+Plugins are executable programs, not Go packages. Put them beneath a plugin base directory:
 
-  // A custom tool: its own path, only skills, symlink strategy.
-  { "name": "my-tool", "platform": "mytool", "path": "~/.mytool/skills",
-    "accepts": ["skill"], "strategies": { "skill": "skill-symlink" }, "builtin": false }
-]
+```text
+~/.config/skm/plugins/
+├── providers/   # acquisition plugins
+└── targets/     # installation-strategy plugins
 ```
 
-Rules: `accepts` is a subset of `["skill", "command"]`; each accepted kind needs a
-kind-compatible `strategies` entry (`skill` → `skill-symlink`; `command` →
-`command-marker` or `command-adapter`). The four built-ins are always present in `target
-list` and the install flow, whether or not `targets.json` exists or has entries of its own —
-`target add`ing a custom tool never hides them. To customize a built-in (a different path,
-say), use `target update`, which writes your override into `targets.json`; `target add`
-rejects a name that collides with a built-in, since there's nothing to add — use `target
-update` instead. `target remove` on an unmodified built-in is rejected (there'd be nothing to
-remove); once you've overridden one via `target update`, `target remove` deletes that
-override and the built-in default reappears on the next load. An old skmgr `targets.json`
-(or one found in the legacy `~/.config/skill-manager/`) is read and migrated automatically —
-no manual edits needed.
-
-### Configuring a Provider (plugin)
-
-Providers are discovered from `~/.config/skm/plugins/` (or any directory listed in
-`SKM_PLUGINS_DIR`, `:`/`;`-separated). Each entry is a single executable — any language,
-as long as it speaks the line-based JSON protocol. A minimal working one:
-
-```sh
-#!/bin/sh
-# ~/.config/skm/plugins/acme  (chmod +x)
-IFS= read -r req
-case "$req" in
-  *'"action":"id"'*)         printf '{"id":"acme"}\n' ;;
-  *'"action":"label"'*)      printf '{"label":"Acme Internal Skills"}\n' ;;
-  *'"action":"capability"'*) printf '{"description":"Fetches acme://<repo> from our internal git host"}\n' ;;
-  *'"action":"can_handle"'*) case "$req" in *'"address":"acme:'*) printf '{"result":true}\n';; *) printf '{"result":false}\n';; esac ;;
-  *'"action":"fetch"'*)
-    addr=$(printf '%s' "$req" | sed -n 's/.*"address":"acme:\/\/\([^"]*\)".*/\1/p')
-    dir=$(mktemp -d)
-    git clone --depth 1 "https://git.acme.internal/${addr}.git" "$dir" >/dev/null 2>&1 \
-      && printf '{"path":"%s"}\n' "$dir" \
-      || printf '{"error":{"code":"fetch_failed","message":"clone failed"}}\n'
-    ;;
-  *) printf '{"error":{"code":"protocol_error","message":"unknown action"}}\n' ;;
-esac
-```
+Set `SKM_PLUGINS_DIR` to add one or more base directories. Plugin discovery loads independent executables concurrently and isolates failures, retaining the path and reason for diagnostics instead of stopping skm. `docs/plugins/README.md:12` [🔗](https://github.com/alswl/skm/blob/main/docs/plugins/README.md#L12) `pkg/services/provider_plugin_discovery.go:13` [🔗](https://github.com/alswl/skm/blob/main/pkg/services/provider_plugin_discovery.go#L13)
 
 ```bash
-chmod +x ~/.config/skm/plugins/acme
-./bin/skm provider list --json                  # "acme" now appears, loaded:true
-./bin/skm import "acme://team/skills-repo"       # routed to it automatically
+./bin/skm provider list --json
+./bin/skm provider validate --json
+./bin/skm target plugin list --json
 ```
 
-Note skm sends the request **without** a trailing newline, so don't use `set -e` in a shell
-plugin (`read` returns non-zero at EOF even though it populates the variable correctly — see
-[`docs/plugins/README.md`](docs/plugins/README.md) for the full protocol, error codes, and a
-copy-pasteable [reference template](docs/plugins/template/) that already handles this).
-
-## Cross-machine deploy
-
-```bash
-# Machine A: install what you need, then:
-./bin/skm export        # prints a quote-safe `skm deploy …` (nothing if nothing installed)
-
-# Machine B: configure same-named targets, then run the emitted command, e.g.:
-./bin/skm deploy --repo git@host:team/skills.git --target codex --only review,release
-./bin/skm verify repo --json
-```
-
-## Test
-
-```bash
-make test                           # unit + golden JSON + filesystem-safety
-go test ./... -run Perf -count=1    # perf regression against testdata/perf/baselines
-make lint                           # golangci-lint + go vet
-```
-
-Golden JSON fixtures live under `testdata/golden/`; filesystem-safety tests use
-temp dirs and never touch your real config or targets.
+The plugin request/response protocol, error codes, and working templates are documented in [docs/plugins/README.md](docs/plugins/README.md).
 
 ## Architecture
 
-Core domain concepts (`Entry`, `EntryKind`, `Provider`, `Target`, `InstallStrategy`, `Origin`,
-`Status`, `InstallState`, `InstallReport`) have one canonical definition, relationship model, and
-ownership map in the Concept Reference: `specs/003-engineering-optimization/data-model.md`.
-
+```mermaid
+flowchart LR
+    User[User or automation] --> CLI[Cobra CLI]
+    User --> TUI[Bubble Tea TUI]
+    CLI --> Services[pkg/services]
+    TUI --> Services
+    Services --> Repo[Repository operations]
+    Services --> Installer[Installer]
+    Services --> Providers[Provider registry]
+    Repo --> DAL[pkg/dal]
+    Installer --> Targets[Configured targets]
+    Providers --> Plugins[Subprocess plugins]
+    DAL --> Files[Repository files]
 ```
-cmd/skm → pkg/commands → pkg/services → pkg/dal → {pkg/config, pkg/common}
-pkg/tui → pkg/services   (UI adapter; never writes files directly)
+
+`cmd/skm` is intentionally a thin process entry point. Cobra commands and the TUI create the shared `services.Services` orchestrator; it owns repository, provider, installer, and target-plugin behavior, keeping writes out of UI and command adapters. `cmd/skm/main.go:10` [🔗](https://github.com/alswl/skm/blob/main/cmd/skm/main.go#L10) `pkg/services/services.go:8` [🔗](https://github.com/alswl/skm/blob/main/pkg/services/services.go#L8)
+
+```text
+cmd/
+  skm/          executable entry point
+  gendoc/       Cobra Markdown documentation generator
+pkg/
+  commands/     CLI command definitions and output adapters
+  services/     shared business operations and orchestration
+  tui/          Bubble Tea screens, actions, and UI components
+  common/       domain models, errors, and logging
+  config/       root discovery, configuration, and targets
+  dal/          locks, transactions, metadata, and filesystem access
+  jobs/         background-job queue used by the TUI
+  plugins/      subprocess plugin protocol and discovery helpers
+  utils/        pagination, timing, and performance helpers
+docs/
+  cli/          generated command reference
+  plugins/      plugin protocol and templates
 ```
 
-- **cmd/skm**: a thin `main` that calls `os.Exit(commands.Execute())`; all
-  command bodies live in `pkg/commands`.
-- **pkg/commands**: one file per command, self-registered in `init()`; only
-  parses flags/args and calls `services`.
-- **pkg/services**: the single business layer shared by CLI and TUI: repository
-  (scan/import/update/lifecycle/convert/discover), installer
-  (strategy-dispatched: symlinks/markers/adapters, install-state), providers
-  (registry, Local, GitHub/GitLab, Skills.sh, subprocess plugins via
-  `pkg/plugins`), and their cross-model operations.
-- **pkg/dal**: repository lock, `FileTransaction` (staging + rollback),
-  frontmatter/meta.json/targets.json IO, content hashing.
-- **pkg/tui**: Bubble Tea list/detail/search; long operations run on a
-  FIFO single-concurrency job queue with a stale-result guard.
+## Command reference and contributing
 
-## Documented divergences (versioned per SC-001)
+Run `./bin/skm --help` for an overview and `./bin/skm <command> --help` for command-specific flags and examples. Generated Markdown reference lives in [docs/cli](docs/cli/).
 
-The rewrite preserves the observable behavior in `docs/req.md`. These
-divergences are intentional and caused by the Python→Go target:
+When changing the CLI, keep command handlers thin: parse arguments and format output in `pkg/commands`, and put shared behavior in `pkg/services`. The TUI uses the same services layer. `pkg/commands/root.go:82` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/root.go#L82)
 
-| Divergence | Why |
-|---|---|
-| Distribution is a single Go binary; `export` emits `skm deploy …`, not `uvx … skmgr deploy` | `uvx`/`pip` are Python-only |
-| Provider plugins load via a **subprocess JSON protocol** (executables in the plugin dir) instead of Python entry points + `.py` files | Go cannot import `.py`; subprocess keeps failure isolation |
-| Config/plugin paths use the literal `~/.config/skm` and `~/.config/skm/plugins` rather than `os.UserConfigDir()` (XDG) | `docs/req.md` fixes these paths; `os.UserConfigDir()` differs on macOS |
-| Golden JSON fixtures are reconstructed from the CLI JSON field contract | the Python fixtures are not present in this repository |
+Before submitting a change, run:
+
+```bash
+make build
+go test ./...
+golangci-lint run
+```
