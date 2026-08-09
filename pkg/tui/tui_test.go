@@ -287,7 +287,7 @@ func TestActionsMenuListsOnlyAvailableEntryActions(t *testing.T) {
 	require.Contains(t, labels, "[a] archive", "archive is always offered")
 	require.Contains(t, labels, "[d] delete", "delete is always offered")
 	require.NotContains(t, labels, "[p] update", "update is not offered: the fixture entry has no origin")
-	require.NotContains(t, labels, "[n] move to standard location", "move is not offered: the fixture entry is already standard")
+	require.NotContains(t, labels, "[n] normalize", "normalize is not offered: the fixture entry is already standard")
 }
 
 // TestActionsMenuRunsSelectedAction: confirming a choice in the actions menu

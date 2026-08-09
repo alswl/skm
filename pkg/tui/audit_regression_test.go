@@ -748,13 +748,12 @@ func TestTUILabelsMatchCLIVerbNames(t *testing.T) {
 		{m.keys.Delete.Help().Desc, "delete"},
 		{m.keys.Import.Help().Desc, "import"},
 		{m.keys.Discover.Help().Desc, "discover"},
+		{m.keys.Normalize.Help().Desc, "normalize"},
 	}
 	for _, c := range cases {
 		require.Equal(t, normalize(c.cliVerb), normalize(c.tuiLabel),
 			"TUI label %q must match CLI verb %q", c.tuiLabel, c.cliVerb)
 	}
 
-	// normalize/move is TUI-only: no CLI verb exists for it to diverge from.
-	require.Contains(t, m.keys.Normalize.Help().Desc, "move")
 	require.Equal(t, "installs", m.keys.Install.Help().Desc)
 }

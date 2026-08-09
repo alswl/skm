@@ -44,6 +44,40 @@ var deleteCmd = newLifecycleCommand("delete NAME", "Permanently remove an entry 
 	func(ctx context.Context, s *services.Services, name string, o services.LifecycleOptions) (*services.LifecycleResult, error) {
 		return s.Delete(ctx, name, o)
 	})
+
+var normalizeFlags struct {
+	provider string
+}
+
+// normalizeCmd exposes the same relocation operation as the TUI's “move to
+// standard location” action.  Keeping it separate from the generic lifecycle
+// constructor makes the destination provider explicit and scriptable.
+var normalizeCmd = &cobra.Command{
+	Use:     "normalize NAME",
+	Short:   "Move a non-standard entry into a provider location",
+	Example: "  skm normalize review --provider local --dry-run\n  skm normalize review --provider github --json",
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		svc, err := servicesFor(cmd)
+		if err != nil {
+			return err
+		}
+		result, err := svc.Normalize(cmd.Context(), args[0], normalizeFlags.provider,
+			services.LifecycleOptions{DryRun: flagDryRun})
+		if err != nil {
+			return err
+		}
+		if flagJSON {
+			return printJSON(cmd, result)
+		}
+		verb := "normalized"
+		if result.DryRun {
+			verb = "would normalize"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %q -> %s\n", verb, result.Name, result.Path)
+		return nil
+	},
+}
 var toCommandCmd = newLifecycleCommand("to-command NAME", "Convert a directory skill into a command",
 	func(ctx context.Context, s *services.Services, name string, o services.LifecycleOptions) (*services.LifecycleResult, error) {
 		return s.Convert(ctx, name, common.KindCommand, o)
@@ -54,5 +88,6 @@ var toSkillCmd = newLifecycleCommand("to-skill NAME", "Convert a directory comma
 	})
 
 func init() {
-	rootCmd.AddCommand(archiveCmd, unarchiveCmd, deleteCmd, toCommandCmd, toSkillCmd)
+	normalizeCmd.Flags().StringVar(&normalizeFlags.provider, "provider", "local", "destination provider id")
+	rootCmd.AddCommand(archiveCmd, unarchiveCmd, deleteCmd, normalizeCmd, toCommandCmd, toSkillCmd)
 }

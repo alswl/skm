@@ -52,6 +52,7 @@ Start in a repository that contains `skills/` or `commands/`. With no `--root`, 
 ./bin/skm install my-skill --target codex --json
 ./bin/skm status my-skill --json
 ./bin/skm update my-skill
+./bin/skm normalize misplaced-skill --provider local
 ```
 
 Use `--dry-run` to report a write operation without changing files, and use `--force` to explicitly authorize overwrite or destructive behavior. With `--json`, results go to stdout; `--timing` writes timing information only to stderr. `pkg/commands/root.go:65` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/root.go#L65)
@@ -87,6 +88,22 @@ The install command matches targets by the asset kind, and uninstall is constrai
 ```
 
 An import can use a local path or a provider address; `--provider` selects a provider when automatic routing is not enough. `pkg/commands/import.go:14` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/import.go#L14)
+
+### Reconcile external and non-standard skills
+
+```bash
+# Inspect unmanaged skills, then take one into the repository or remove it.
+./bin/skm discover --json
+./bin/skm adopt ~/.codex/skills/review
+./bin/skm delete-external ~/.codex/skills/obsolete --force
+
+# Move a repository skill found outside the standard layout.
+./bin/skm normalize misplaced-skill --provider local
+```
+
+Every TUI operation that changes repository, target, or external-skill state has a CLI counterpart.
+The TUI task center is intentionally excluded: its queue is scoped to the running TUI process and has
+no CLI equivalent. `pkg/commands/external.go:25` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/external.go#L25) `pkg/commands/lifecycle.go:58` [🔗](https://github.com/alswl/skm/blob/main/pkg/commands/lifecycle.go#L58)
 
 ### Move a setup to another machine
 

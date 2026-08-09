@@ -45,7 +45,7 @@ func (m *model) entryActions() []entryAction {
 	out = append(out,
 		entryAction{Key: "i", Label: "installs", Enabled: install, Run: m.installSelected},
 		entryAction{Key: "p", Label: "update", Enabled: update, Run: m.updateSelected},
-		entryAction{Key: "n", Label: "move to standard location", Enabled: normalize, Run: m.normalizeSelected},
+		entryAction{Key: "n", Label: "normalize", Enabled: normalize, Run: m.normalizeSelected},
 		entryAction{Key: "F", Label: "fix conflicts/dangling", Enabled: fix, Run: m.fixSelected},
 		entryAction{Key: "a", Label: archiveLabel, Enabled: true, Run: m.archiveSelected},
 		entryAction{Key: "d", Label: "delete", Enabled: true, Run: m.deleteSelected},

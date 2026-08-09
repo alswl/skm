@@ -77,7 +77,7 @@ func DefaultKeys() KeyMap {
 		Import:       key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "import")),
 		Targets:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "targets")),
 		TargetAdd:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add target")),
-		Normalize:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "move to standard location")),
+		Normalize:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "normalize")),
 		Fix:          key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "fix conflicts/dangling")),
 		ActionsMenu:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "actions menu")),
 		Refresh:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
