@@ -69,8 +69,11 @@ func (p *Picker) Selection() []PickerItem {
 
 // Confirm is a yes/no modal guarding a destructive action (FR-040).
 type Confirm struct {
-	Prompt string
-	OnYes  func()
+	Prompt     string
+	OnYes      func()
+	Diff       string
+	ShowDiff   bool
+	DiffOffset int
 }
 
 // PickerView renders the active picker as a full-screen framed page.
@@ -100,7 +103,24 @@ func PickerView(width, height int, status string, p *Picker) string {
 // ConfirmView renders the active confirmation as a full-screen framed page.
 func ConfirmView(width, height int, status string, c *Confirm) string {
 	body := components.StylePrompt.Render(c.Prompt)
-	return FramedPage(width, height, " skm · confirm ", body, status, "[y] yes   [n/esc/q] no")
+	hint := "[y] yes   [n/esc/q] no"
+	if c.Diff != "" {
+		hint += "   [d] diff"
+	}
+	if c.ShowDiff {
+		lines := components.SplitLines(c.Diff)
+		rows := maxInt(1, maxInt(10, height)-6)
+		offset := c.DiffOffset
+		if offset < 0 {
+			offset = 0
+		}
+		if offset > maxInt(0, len(lines)-rows) {
+			offset = maxInt(0, len(lines)-rows)
+		}
+		body = strings.Join(lines[offset:minInt(len(lines), offset+rows)], "\n")
+		hint = "[d] back   [j/k] scroll   [y] apply   [n/esc/q] cancel"
+	}
+	return FramedPage(width, height, " skm · confirm ", body, status, hint)
 }
 
 // FramedPage renders title/body/hint inside the box-drawing frame, matching
@@ -129,6 +149,13 @@ func FramedPage(width, height int, title, body, status, hint string) string {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

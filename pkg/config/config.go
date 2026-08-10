@@ -44,7 +44,7 @@ const (
 	// (docs/req.md: `--config` 默认 `~/.config/skill-manager`). It is
 	// consulted only as a fallback when the caller didn't pass --config and
 	// the new-style ~/.config/skm/targets.json doesn't exist, so an upgrading
-	// user's existing config (incl. CodeFuse) loads without manual migration
+	// user's existing config loads without manual migration
 	// (002-open-provider-target FR-015, research R6).
 	LegacyConfigDirName = ".config/skill-manager"
 )

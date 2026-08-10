@@ -1,4 +1,4 @@
-package services
+package engines
 
 import (
 	"context"
@@ -147,14 +147,16 @@ func (r *Repository) ConvertDest(entry *common.Entry, newKind common.EntryKind) 
 	return filepath.Join(r.root, newKind.TopDir(), filepath.Join(rest...)), nil
 }
 
-// Normalize moves a StatusNonStandard entry into the default "local"
-// provider location for its kind (skills/local/<name>/,
-// commands/local/<name>/ or commands/local/<name>.md), restoring it to the
-// managed tree. Refuses if the destination already exists rather than
-// silently overwriting.
+// Normalize moves a StatusNonStandard entry (or an active entry being
+// relocated to another provider) into provider's location for its kind
+// (skills/local/<name>/ etc.; provider defaults to "local"). Refuses if the
+// destination already exists rather than silently overwriting. Active entries
+// keep their installs: Services.Normalize relinks them around the move.
 func (r *Repository) Normalize(ctx context.Context, entry *common.Entry, provider string, opts LifecycleOptions) (string, error) {
-	if entry.Status != common.StatusNonStandard {
-		return "", common.WithExitCode(fmt.Errorf("normalize: entry %q is %s; only non-standard entries can be normalized", entry.Name, entry.Status), common.ExitObject)
+	switch entry.Status {
+	case common.StatusNonStandard, common.StatusActive:
+	default:
+		return "", common.WithExitCode(fmt.Errorf("normalize: entry %q is %s; only non-standard or active entries can be moved", entry.Name, entry.Status), common.ExitObject)
 	}
 	if provider == "" {
 		provider = "local"

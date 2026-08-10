@@ -156,3 +156,60 @@ func TestImportRejectsUnidentifiableSource(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot identify")
 }
+
+func TestImportRepairsMalformedSkillMetadata(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "skills", "legacy-review")
+	writeFile(t, root, "skills/legacy-review/SKILL.md", "---\ndescription: legacy review instructions\n---\nReview the change.\n")
+
+	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	require.NoError(t, err)
+	require.Equal(t, "legacy-review", res.Name)
+	require.FileExists(t, filepath.Join(root, "skills", "local", "legacy-review", "SKILL.md"))
+	require.NoDirExists(t, src, "claimed source is moved instead of duplicated")
+
+	data, err := os.ReadFile(filepath.Join(res.Path, "SKILL.md"))
+	require.NoError(t, err)
+	fm, body, err := dal.ParseFrontmatter(data)
+	require.NoError(t, err)
+	require.Equal(t, "legacy-review", fm.Name)
+	require.Equal(t, "legacy review instructions", fm.Description)
+	require.Contains(t, string(body), "Review the change.")
+}
+
+func TestImportRepairsUnparseableSkillMetadataWithoutChangingSource(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(t.TempDir(), "loose-skill")
+	original := "---\nname: [not valid\n---\nKeep these instructions.\n"
+	require.NoError(t, os.MkdirAll(src, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte(original), 0o644))
+
+	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	require.NoError(t, err)
+	data, err := os.ReadFile(filepath.Join(res.Path, "SKILL.md"))
+	require.NoError(t, err)
+	fm, body, err := dal.ParseFrontmatter(data)
+	require.NoError(t, err)
+	require.Equal(t, "loose-skill", fm.Name)
+	require.Equal(t, "Imported and normalized skill", fm.Description)
+	require.Contains(t, string(body), "Keep these instructions.")
+	source, err := os.ReadFile(filepath.Join(src, "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, original, string(source))
+}
+
+func TestImportRepairsInvalidManagedSkillInPlace(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "skills", "local", "broken")
+	writeFile(t, root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
+
+	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	require.NoError(t, err)
+	require.Equal(t, src, res.Path)
+	data, err := os.ReadFile(filepath.Join(src, "SKILL.md"))
+	require.NoError(t, err)
+	fm, _, err := dal.ParseFrontmatter(data)
+	require.NoError(t, err)
+	require.Equal(t, "broken", fm.Name)
+	require.Equal(t, "Imported and normalized skill", fm.Description)
+}

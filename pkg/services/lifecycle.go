@@ -8,12 +8,6 @@ import (
 	"github.com/alswl/skm/skm/pkg/dal"
 )
 
-// LifecycleOptions controls archive/unarchive/delete/convert.
-type LifecycleOptions struct {
-	Force  bool
-	DryRun bool
-}
-
 // LifecycleResult is the CLI JSON report for lifecycle commands.
 type LifecycleResult struct {
 	Action  string            `json:"action"`
@@ -64,17 +58,40 @@ func (s *Services) Delete(ctx context.Context, name string, opts LifecycleOption
 }
 
 // Normalize moves a non-standard entry (found outside its expected
-// provider-nested location) into provider's location for its kind (provider
-// defaults to "local" when empty). DryRun previews the destination without
-// writing.
+// provider-nested location) — or an active entry, relocating it to another
+// provider — into provider's location for its kind (provider defaults to
+// "local" when empty). An active entry's installs point at the old path, so
+// moving it relinks them to the new location (uninstall -> move -> reinstall),
+// like Convert. DryRun previews the destination without writing.
 func (s *Services) Normalize(ctx context.Context, name, provider string, opts LifecycleOptions) (*LifecycleResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, notFound("normalize", name)
 	}
+	relink := entry.Status == common.StatusActive && !opts.DryRun
+	if relink {
+		// Validate the destination before touching any links, so a move to an
+		// occupied location fails without leaving the entry uninstalled.
+		if _, err := s.Repo.Normalize(ctx, entry, provider, LifecycleOptions{DryRun: true}); err != nil {
+			return nil, err
+		}
+		s.uninstallLinks(entry)
+	}
 	dest, err := s.Repo.Normalize(ctx, entry, provider, opts)
 	if err != nil {
+		if relink {
+			// The dry-run validation only rules out an occupied destination; the
+			// move itself can still fail (e.g. an uncreatable parent). Restore
+			// the old links so a failed move does not leave the entry
+			// uninstalled at its old location.
+			s.installLinks(entry)
+		}
 		return nil, err
+	}
+	if relink {
+		moved := *entry
+		moved.Path = dest
+		s.installLinks(&moved)
 	}
 	return &LifecycleResult{Action: "normalize", Name: name, DryRun: opts.DryRun, Path: dest, Success: true}, nil
 }

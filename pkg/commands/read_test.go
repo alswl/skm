@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,4 +104,68 @@ func TestReadCommandStdoutIsJSONOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(out, "{"), "stdout must begin with the JSON object, got: %q", out)
 	assertGoldenJSON(t, normalizeRoot(out, root), "../../testdata/golden/list.json")
+}
+
+// TestVerifyArchivedSameNameAsActiveIsNotDanglingOrConflict: when an entry is
+// archived and a new version is reinstalled under the same name, the archived
+// copy must neither be reported as a dangling install (the target link named
+// demo is the active entry's healthy install) nor as a name conflict —
+// archiving old + installing new under the same name is a normal workflow
+// (only StatusActive entries can be installed; models.go). Regression for the
+// phantom dangling/name_conflict on archived entries.
+func TestVerifyArchivedSameNameAsActiveIsNotDanglingOrConflict(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // hermetic: the merged-in built-in targets point into an empty home
+	root := t.TempDir()
+	writeTestFile(t, root, "skills/local/demo/SKILL.md", "---\nname: demo\ndescription: new version\n---\nbody\n")
+	writeTestFile(t, root, "archived/local/demo/SKILL.md", "---\nname: demo\ndescription: old archived version\n---\nbody\n")
+	targetDir := t.TempDir()
+	cfgDir := t.TempDir()
+	writeTestFile(t, cfgDir, "targets.json",
+		`[{"name":"t","path":"`+targetDir+`","accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	// The active entry is healthy-installed: the link named demo resolves to
+	// the active path, not the archived one.
+	require.NoError(t, os.Symlink(filepath.Join(root, "skills/local/demo"), filepath.Join(targetDir, "demo")))
+
+	out, err := runCmd(t, "verify", "repo", "--root", root, "--config", cfgDir, "--json")
+	require.NoError(t, err, "active+archived same name with a healthy install must verify clean")
+	var rep verifyReport
+	require.NoError(t, json.Unmarshal([]byte(out), &rep))
+	require.True(t, rep.Consistent)
+	require.Empty(t, rep.Inconsistencies)
+	require.Empty(t, rep.NameConflicts)
+	require.Equal(t, 1, rep.Active)
+	require.Equal(t, 1, rep.Archived)
+}
+
+// TestVerifyFlatArchivedSameNameAsActiveIsNotDanglingOrConflict: an archived
+// copy stored flat at archived/<name>/SKILL.md (no provider level) is still an
+// archived entry — a marker under the archived/ tree is StatusArchived, not
+// non-standard (models.go reserves NonStandard for markers outside the managed
+// skills/commands/archived trees). It must neither be reported as a dangling
+// install (the target link named demo is the active entry's healthy install)
+// nor as a name conflict, exactly like a properly-nested archived copy.
+// Regression for flat archived entries leaking into verify's dangling and
+// name-conflict checks.
+func TestVerifyFlatArchivedSameNameAsActiveIsNotDanglingOrConflict(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // hermetic: the merged-in built-in targets point into an empty home
+	root := t.TempDir()
+	writeTestFile(t, root, "skills/local/demo/SKILL.md", "---\nname: demo\ndescription: new version\n---\nbody\n")
+	writeTestFile(t, root, "archived/demo/SKILL.md", "---\nname: demo\ndescription: old archived version\n---\nbody\n")
+	targetDir := t.TempDir()
+	cfgDir := t.TempDir()
+	writeTestFile(t, cfgDir, "targets.json",
+		`[{"name":"t","path":"`+targetDir+`","accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	// The active entry is healthy-installed: the link named demo resolves to
+	// the active path, not the archived one.
+	require.NoError(t, os.Symlink(filepath.Join(root, "skills/local/demo"), filepath.Join(targetDir, "demo")))
+
+	out, err := runCmd(t, "verify", "repo", "--root", root, "--config", cfgDir, "--json")
+	require.NoError(t, err, "flat archived + same-name active with a healthy install must verify clean")
+	var rep verifyReport
+	require.NoError(t, json.Unmarshal([]byte(out), &rep))
+	require.True(t, rep.Consistent)
+	require.Empty(t, rep.Inconsistencies)
+	require.Empty(t, rep.NameConflicts)
+	require.Equal(t, 1, rep.Active)
+	require.Equal(t, 1, rep.Archived)
 }

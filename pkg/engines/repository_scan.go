@@ -1,4 +1,4 @@
-package services
+package engines
 
 import (
 	"fmt"
@@ -21,6 +21,16 @@ func NewRepository(root string) *Repository { return &Repository{root: root} }
 
 // Root returns the repository root path.
 func (r *Repository) Root() string { return r.root }
+
+// RelPath returns path relative to the repository root, unchanged when it
+// cannot be made relative.
+func (r *Repository) RelPath(path string) string {
+	rel, err := filepath.Rel(r.root, path)
+	if err != nil {
+		return path
+	}
+	return rel
+}
 
 // Scan walks skills/, commands/ and archived/ and builds the entry list.
 // Invalid assets become visible error entries; the scan never aborts
@@ -145,6 +155,24 @@ func (r *Repository) buildNonStandardFileEntry(path string) *common.Entry {
 	return e
 }
 
+// buildFlatArchivedEntry builds a StatusArchived entry for a marker stored
+// with no provider level (archived/<name>/SKILL.md): the directory name is the
+// entry, not a provider, so the provider comes from meta.json when present.
+func (r *Repository) buildFlatArchivedEntry(dir string) *common.Entry {
+	e := &common.Entry{Status: common.StatusArchived, Path: dir}
+	if dal.PathExists(filepath.Join(dir, "SKILL.md")) {
+		e.Kind = common.KindSkill
+	} else {
+		e.Kind = common.KindCommand
+	}
+	if o, err := dal.ReadMeta(dir); err == nil && o.ProviderID != nil && *o.ProviderID != "" {
+		e.ProviderID = o.ProviderID
+	} else {
+		e.ProviderID = strPtr("")
+	}
+	return r.finishEntry(e, filepath.Join(dir, e.Kind.MarkerFile()), true)
+}
+
 // scanTop walks a top-level tree (skills/commands/archived).
 func (r *Repository) scanTop(topDir string, kind common.EntryKind, status common.Status) []*common.Entry {
 	var out []*common.Entry
@@ -168,12 +196,17 @@ func (r *Repository) scanTop(topDir string, kind common.EntryKind, status common
 			continue
 		}
 		if actualKind, ok := markerKind(p); ok {
-			// The would-be "provider" directory directly holds the marker:
-			// the provider level itself is missing
-			// (skills/<name>/SKILL.md instead of
-			// skills/<provider>/<name>/SKILL.md) — flag it rather than
-			// treating d.Name() as a provider and never finding the entry.
-			out = append(out, r.buildNonStandardEntry(p, actualKind))
+			// The marker sits where the provider level should be
+			// (skills/<name>/SKILL.md): for the active trees that is a real
+			// defect (the entry cannot be installed), so it is flagged
+			// non-standard; under archived/ the nesting is cosmetic — archived
+			// entries are never installed (models.go) — so a marker there is
+			// simply StatusArchived.
+			if status == common.StatusArchived {
+				out = append(out, r.buildFlatArchivedEntry(p))
+			} else {
+				out = append(out, r.buildNonStandardEntry(p, actualKind))
+			}
 			continue
 		}
 		out = append(out, r.scanProvider(p, d.Name(), kind, status)...)
@@ -295,6 +328,10 @@ func (r *Repository) finishEntry(e *common.Entry, marker string, requireName boo
 	}
 	fm, _, err := dal.ParseFrontmatter(data)
 	if err != nil {
+		// Invalid metadata must still produce a stable, selectable catalog
+		// entry so it can be inspected and repaired. The directory name is the
+		// same safe fallback used when the name field is absent.
+		e.Name = filepath.Base(e.Path)
 		return errEntry(e, err.Error())
 	}
 	name := fm.Name
@@ -307,6 +344,7 @@ func (r *Repository) finishEntry(e *common.Entry, marker string, requireName boo
 		name = fileStem(marker)
 	}
 	if fm.Description == "" {
+		e.Name = name
 		return errEntry(e, "frontmatter missing required field: description")
 	}
 	e.Name = name

@@ -101,6 +101,15 @@ func TestScanMissingMarkerIsError(t *testing.T) {
 	require.Equal(t, common.StatusError, e.Status)
 }
 
+func TestScanInvalidSkillKeepsDirectoryNameForRepair(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
+	entries := NewRepository(root).Scan()
+	require.Len(t, entries, 1)
+	require.Equal(t, "broken", entries[0].Name)
+	require.Equal(t, common.StatusError, entries[0].Status)
+}
+
 func TestScanEmptyRepository(t *testing.T) {
 	root := t.TempDir()
 	require.Empty(t, NewRepository(root).Scan())
@@ -189,10 +198,18 @@ func TestScanFlagsMissingProviderLevel(t *testing.T) {
 	require.Equal(t, "missing provider level", flat.Description)
 	require.Contains(t, *flat.Error, "skills/<provider>")
 
+	// Unlike the active trees, a flat archived/ entry (archived/<name>/SKILL.md
+	// with no provider level) is still StatusArchived: the nesting is cosmetic
+	// because archived entries are never installed (models.go), and
+	// NonStandard is reserved for markers outside the managed
+	// skills/commands/archived trees. Treating it as NonStandard made
+	// verify/TUI probe its install state and report the active entry's healthy
+	// link as the archived copy's phantom dangling.
 	flatArchived := byName["flat-archived"]
-	require.NotNil(t, flatArchived, "the same gap under archived/ is also caught")
-	require.Equal(t, common.StatusNonStandard, flatArchived.Status)
+	require.NotNil(t, flatArchived, "the same gap under archived/ is scanned, not silently dropped")
+	require.Equal(t, common.StatusArchived, flatArchived.Status, "a marker under archived/ is archived regardless of nesting")
 	require.Equal(t, common.KindSkill, flatArchived.Kind, "kind is inferred from whichever marker is present")
+	require.Equal(t, "", flatArchived.ProviderIDValue(), "the flat archived directory name is not a provider id and must not be fabricated as one")
 }
 
 // TestScanFlagsLooseCommandFileMissingProviderLevel: commands/<name>.md

@@ -38,6 +38,7 @@ skm [flags]
 * [skm export](skm_export.md)	 - Emit a quote-safe skm deploy command for installed assets
 * [skm import](skm_import.md)	 - Import a skill or command from a local path or provider address
 * [skm info](skm_info.md)	 - Show entry metadata, files and marker frontmatter
+* [skm init](skm_init.md)	 - Initialize an empty skills repository
 * [skm install](skm_install.md)	 - Install a skill or command into kind-matching targets
 * [skm list](skm_list.md)	 - List the repository catalog
 * [skm normalize](skm_normalize.md)	 - Move a non-standard entry into a provider location

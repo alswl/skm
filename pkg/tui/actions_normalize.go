@@ -10,15 +10,16 @@ import (
 )
 
 // normalizeSelected starts relocating the currently viewed detail-page
-// entry, if it's non-standard (key "n" from the detail page): choose a
-// provider, preview the destination, then confirm before moving anything.
+// entry, if it's non-standard or active (key "n" from the detail page): choose
+// a provider, preview the destination, then confirm before moving anything.
+// Moving an active entry relinks its installs to the new location.
 func (m *model) normalizeSelected() {
 	if m.cursor >= len(m.filtered) {
 		return
 	}
 	entry := m.filtered[m.cursor]
-	if entry.Status != common.StatusNonStandard {
-		m.setStatus(fmt.Sprintf("%s is %s; only non-standard entries can be moved", entry.Name, entry.Status))
+	if entry.Status != common.StatusNonStandard && entry.Status != common.StatusActive {
+		m.setStatus(fmt.Sprintf("%s is %s; only non-standard or active entries can be moved", entry.Name, entry.Status))
 		return
 	}
 	m.openNormalizeProviderPicker(entry.Name)

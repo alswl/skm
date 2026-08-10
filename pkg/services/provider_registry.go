@@ -40,6 +40,7 @@ func NewRegistry() *Registry { return &Registry{} }
 // Register appends a provider, rejecting duplicates in favor of the first and
 // enforcing non-empty id/label (FR-035).
 func (r *Registry) Register(p Provider) error {
+	p = asProtocolProvider(p)
 	if p.ID() == "" {
 		return fmt.Errorf("provider: id must be non-empty")
 	}

@@ -51,3 +51,16 @@ func TestImportCommandCollisionRefused(t *testing.T) {
 	_, err := runCmd(t, "import", src, "--root", root, "--config", cfgDir)
 	require.Error(t, err, "collision must be refused without --force")
 }
+
+func TestImportCommandClaimsMalformedSkillDirectory(t *testing.T) {
+	root := t.TempDir()
+	cfgDir := filepath.Join(t.TempDir(), "cfg")
+	src := filepath.Join(root, "skills", "legacy")
+	writeTestFile(t, src, "SKILL.md", "---\ndescription: old skill\n---\nbody\n")
+
+	out, err := runCmd(t, "import", src, "--root", root, "--config", cfgDir, "--json")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"name":"legacy","type":"skill","provider":"local","path":"`+filepath.Join(root, "skills", "local", "legacy")+`","origin":null}`, out)
+	require.FileExists(t, filepath.Join(root, "skills", "local", "legacy", "SKILL.md"))
+	require.NoDirExists(t, src)
+}

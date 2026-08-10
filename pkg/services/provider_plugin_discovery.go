@@ -59,6 +59,10 @@ func DiscoverPlugins(baseDirs []string, logger *common.Logger) ([]Provider, []Pr
 			continue
 		}
 		seen[p.ID()] = true
+		if pp, ok := p.(*PluginProvider); ok && pp.ProtocolVersion() < pluginProtocolVersion {
+			logger.Warn("provider plugin is on an older protocol version",
+				"id", p.ID(), "path", path, "protocol", pp.ProtocolVersion(), "current", pluginProtocolVersion)
+		}
 		out = append(out, p)
 	}
 	return out, failures

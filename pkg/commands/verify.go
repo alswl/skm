@@ -96,6 +96,15 @@ func buildVerifyReport(svc *services.Services) *verifyReport {
 			rep.NonStandard++
 			rep.Inconsistencies = append(rep.Inconsistencies, inconsistency{Name: e.Name, Issue: orEmpty(e.Error)})
 		}
+		// Archived entries cannot be installed (models.go), so they have no
+		// install state to probe; a same-named active entry owns the target
+		// link. Skip them so the active entry's healthy install is not reported
+		// as the archived copy's dangling, and archived+active same-name is not
+		// reported as a conflict (archiving old + reinstalling new under the
+		// same name is a normal workflow).
+		if e.Status == common.StatusArchived {
+			continue
+		}
 		seen[e.Name] = append(seen[e.Name], e)
 		// Dangling installs are inconsistencies too (UC-13).
 		for _, t := range svc.Installer.Targets(e) {

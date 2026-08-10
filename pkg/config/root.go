@@ -32,7 +32,7 @@ func DiscoverRoot(rootFlag string) (string, error) {
 		}
 		dir = parent
 	}
-	return "", errors.New("no repository found: no skills/ or commands/ directory upward from the current directory (use --root)")
+	return "", errors.New("no repository found: no skills/ or commands/ directory upward from the current directory; initialize one with `skm init [DIRECTORY]` or use --root")
 }
 
 // NormalizeRoot converts a --root value into the repository root: a path

@@ -11,6 +11,45 @@ Each kind is discovered separately, and a broken/slow/hung plugin of either kind
 **isolated**: it never crashes skm and never prevents any other plugin (of either kind, or
 a built-in) from loading or working.
 
+## Unified plugin host
+
+Internally, skm treats both external executables and its own built-in Providers and Target
+strategies as plugins. They share one versioned host envelope for identity, capability
+discovery, requests, responses, cancellation, and diagnostics. This means an operation is
+selected by the plugin's declared capability, not by a special-case list of tool names.
+
+Provider and Target plugins intentionally retain different domain actions:
+
+| Plugin kind | Domain actions |
+|---|---|
+| Provider | `can_handle`, `normalize`, `fetch` |
+| Target | `state`, `inspect`, `diff`, `repair`, `install`, `uninstall`, `remove_foreign` |
+
+External executables continue to use the JSON actions documented below. Existing Provider
+and Target plugins remain compatible; the host translates that stable wire protocol into
+the common internal envelope. New target plugins should implement optional `diff` so users
+can review a forced reconcile before skm replaces target-side content, and `inspect` so
+orphaned dangling installs remain repairable.
+
+### Protocol versioning
+
+Both Target and Provider plugins declare the protocol version they implement in their `id`
+response:
+
+```jsonc
+// request:  {"action":"id"}
+// response: {"id":"acme","protocol_version":2}
+```
+
+- **`protocol_version` omitted → v1** (the baseline). Pre-versioning plugins keep loading and
+  working for the actions they know.
+- **v2** adds `remove_foreign` (conflict cleanup) on the Target side. A v2-only action invoked
+  on a v1 plugin returns a clear error naming the plugin, its version, and the required
+  version — so the TUI tells you to update the plugin instead of failing opaquely.
+- On startup, skm warns about any loaded target/provider plugin whose version trails the
+  current one (`skm`'s own supported version), so an upgrade reminder surfaces before the
+  feature is actually needed.
+
 ## Plugin directories
 
 Plugins live under a base directory, in a subdirectory per kind:
@@ -22,8 +61,8 @@ Plugins live under a base directory, in a subdirectory per kind:
 
 ## Provider plugins
 
-A **Provider** is where skm acquires assets from. Two built-ins ship with skm — Local and
-GitHub — but you can add your own by dropping an executable into a `providers/` plugin
+A **Provider** is where skm acquires assets from. Built-ins include Local, Self-built,
+GitHub, GitLab, and Skills.sh, but you can add your own by dropping an executable into a `providers/` plugin
 directory. skm discovers it, lists it, validates it, and routes imports/updates to it like
 any built-in.
 
@@ -209,6 +248,17 @@ report whether anything changed. Never remove something you didn't install.
 // response: {"result":true}
 ```
 
+**`remove_foreign`** — remove the non-managed object occupying this entry's slot
+(state == `conflict`), restoring the target to absent — the installs picker's
+"uninstall a conflict" transition. Re-verify `state` first: never touch a
+healthy managed install or a dangling link (both are `uninstall`'s job).
+
+```jsonc
+// request:  {"action":"remove_foreign","name":"demo","kind":"skill",
+//            "source_path":"/repo/skills/local/demo","target_path":"/home/u/.my-tool/skills"}
+// response: {"result":true}
+```
+
 **`state`** — classify the install health of `name`/`kind` within `target_path`.
 
 ```jsonc
@@ -225,6 +275,32 @@ Error `code` should be one of: `install_failed`, `uninstall_failed`, `state_fail
 consistency with Provider plugins and treated as `install_failed`.
 
 #### Optional actions
+
+**`diff`** — return a unified, human-readable comparison between `source_path` and the
+target-side object for this entry. skm calls this before a forced reconcile so the TUI can
+show users what will be replaced. Built-in target strategies implement the same operation
+through the common target-plugin host. Older plugins may omit this action; skm still permits
+an explicitly confirmed overwrite and reports that the plugin did not provide a preview.
+
+```jsonc
+// request:  {"action":"diff","name":"demo","kind":"skill",
+//            "source_path":"/repo/skills/local/demo","target_path":"/home/u/.my-tool/skills"}
+// response: {"diff":"diff --git …"}
+```
+
+**`inspect`** — return target-side dangling installations whose source no longer exists.
+skm uses this to make `Fix` work even after the original managed entry was removed. Each
+record identifies the item name and target-side path. Built-in link strategies provide the
+same inspection automatically.
+
+```jsonc
+// request:  {"action":"inspect","target_path":"/home/u/.my-tool/skills"}
+// response: {"dangling":[{"name":"old-skill","path":"/home/u/.my-tool/skills/old-skill"}]}
+```
+
+**`repair`** — safely clear or otherwise reconcile one dangling item previously returned by
+`inspect`. The target plugin owns this operation because skm must not infer or delete files
+inside a plugin-managed layout.
 
 **`label`** — a human-readable name (falls back to your `id` if omitted).
 

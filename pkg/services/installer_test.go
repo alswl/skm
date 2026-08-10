@@ -79,7 +79,7 @@ func TestInstallClaudeCommandCreatesMarkdownSymlink(t *testing.T) {
 
 func TestInstallCommandAdapter(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
-	target.Kind = common.KindSkill // Codex/CodeFuse skill target
+	target.Kind = common.KindSkill // e.g. a Codex skill target
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Install(tx, entry, target, false)
 	require.NoError(t, err)

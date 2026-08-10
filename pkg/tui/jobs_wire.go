@@ -52,6 +52,14 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 	if m.queue.IsStale(r.ID) {
 		return nil // discard late result
 	}
+	if preview, ok := r.Value.(fixPreview); ok && r.Err == nil {
+		m.showFixConfirmation(preview)
+		return nil
+	}
+	if preview, ok := r.Value.(orphanDanglingPreview); ok && r.Err == nil {
+		m.showOrphanDanglingConfirmation(preview)
+		return nil
+	}
 	if r.Err != nil && hasRetry && common.IsNeedsForce(r.Err) {
 		m.confirm = &pages.Confirm{
 			Prompt: fmt.Sprintf("%s: a same-named non-managed object exists at the destination. Overwrite it?", retry.name),

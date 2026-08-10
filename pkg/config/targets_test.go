@@ -152,18 +152,18 @@ func TestLoadMergesBuiltinsWithASingleCustomEntry(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, targetsFileName), []byte(`[{
-		"name": "codefuse", "platform": "codefuse", "path": "/opt/codefuse/skills",
-		"accepts": ["skill"], "strategies": {"skill": "plugin:codefuse"}
+		"name": "acme", "platform": "acme", "path": "/opt/acme/skills",
+		"accepts": ["skill"], "strategies": {"skill": "plugin:acme"}
 	}]`), 0o644))
 
 	cfg, err := Load(root, dir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 5, "the 4 built-ins plus the codefuse entry")
+	require.Len(t, cfg.Targets, 5, "the 4 built-ins plus the acme entry")
 	byName := map[string]common.InstallTarget{}
 	for _, t := range cfg.Targets {
 		byName[t.Name] = t
 	}
-	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi", "codefuse"} {
+	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi", "acme"} {
 		require.Contains(t, byName, name)
 	}
 }

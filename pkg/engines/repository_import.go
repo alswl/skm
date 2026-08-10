@@ -1,4 +1,4 @@
-package services
+package engines
 
 import (
 	"context"
@@ -36,6 +36,17 @@ func (r *Repository) ProbeStaged(staged string) (common.EntryKind, string, error
 	switch {
 	case dal.PathExists(filepath.Join(staged, "SKILL.md")):
 		name, err := frontmatterName(filepath.Join(staged, "SKILL.md"))
+		// A directory name is a safe identity fallback for a skill directory.
+		// ImportStaged repairs the copied marker before it is committed. This
+		// lets a repository maintainer claim a legacy or manually authored
+		// SKILL.md whose required metadata is incomplete, without loosening the
+		// validation rules for commands or arbitrary markdown files.
+		if err != nil {
+			if _, readErr := os.ReadFile(filepath.Join(staged, "SKILL.md")); readErr != nil {
+				return common.KindSkill, "", err
+			}
+			return common.KindSkill, filepath.Base(staged), nil
+		}
 		return common.KindSkill, name, err
 	case dal.PathExists(filepath.Join(staged, "command.md")):
 		name, err := frontmatterName(filepath.Join(staged, "command.md"))
@@ -100,9 +111,19 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 		return nil, common.WithExitCode(err, common.ExitError)
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
+	if err := normalizeStagedSkill(tmp, name); err != nil {
+		return nil, common.WithExitCode(err, common.ExitError)
+	}
 
-	// Global name collision (I1 / FR-021).
+	// Global name collision (I1 / FR-021). A non-standard entry supplied as
+	// the source is the one exception: importing it is an explicit claim of
+	// that same entry, so it is moved into the standard layout below rather
+	// than rejected as a collision with itself.
 	existing := r.findByName(name)
+	claimSource := existing != nil && (existing.Status == common.StatusNonStandard || existing.Status == common.StatusError) && samePath(existing.Path, staged)
+	if claimSource {
+		existing = nil
+	}
 	if existing != nil && !force {
 		return nil, common.WithExitCode(
 			common.WithNeedsForce(fmt.Errorf("import: name %q already exists (at %s); use --force to overwrite", name, existing.Path)),
@@ -117,8 +138,14 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 
 	dest := filepath.Join(r.root, kind.TopDir(), providerID, group, name)
 	tx := &dal.FileTransaction{}
-	if dal.PathExists(dest) {
+	if dal.PathExists(dest) && (!claimSource || !samePath(dest, staged)) {
 		if err := tx.BackupRemove(dest); err != nil {
+			_ = tx.Rollback()
+			return nil, common.WithExitCode(err, common.ExitError)
+		}
+	}
+	if claimSource {
+		if err := tx.BackupRemove(staged); err != nil {
 			_ = tx.Rollback()
 			return nil, common.WithExitCode(err, common.ExitError)
 		}
@@ -153,6 +180,48 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 	}
 	tx.Commit()
 	return &RepositoryImportResult{Name: name, Kind: kind, Provider: providerID, Path: dest, Origin: origin}, nil
+}
+
+func samePath(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	return errA == nil && errB == nil && filepath.Clean(aa) == filepath.Clean(bb)
+}
+
+// normalizeStagedSkill repairs only a directory-style SKILL.md that fails the
+// normal required-field validation. Repair runs on ImportStaged's temporary
+// copy, which becomes the managed repository entry. A non-standard source
+// inside the repository is then claimed by moving it into that entry; an
+// external source is left untouched. A malformed YAML header is retained as
+// body content instead of being thrown away, so users can recover any original
+// instructions manually if needed.
+func normalizeStagedSkill(staged, fallbackName string) error {
+	marker := filepath.Join(staged, "SKILL.md")
+	if !dal.PathExists(marker) {
+		return nil
+	}
+	if _, err := frontmatterName(marker); err == nil {
+		return nil
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+	fm, body, parseErr := dal.ParseFrontmatter(data)
+	if parseErr != nil {
+		body = data
+		fm = &dal.Frontmatter{}
+	}
+	if fm.Name == "" {
+		fm.Name = fallbackName
+	}
+	if fm.Description == "" {
+		fm.Description = "Imported and normalized skill"
+	}
+	if err := os.WriteFile(marker, dal.EncodeFrontmatter(fm, body), 0o644); err != nil {
+		return fmt.Errorf("import: repair SKILL.md: %w", err)
+	}
+	return nil
 }
 
 // stageCopy produces a temp copy of the staged asset: a full tree copy for

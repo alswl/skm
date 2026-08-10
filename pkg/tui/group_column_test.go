@@ -46,7 +46,7 @@ func TestListRowShowsGroupColumn(t *testing.T) {
 	require.True(t, m.showGroupColumn())
 	require.Contains(t, rowFor(t, &m, "remote-skill"), "octocat/hello-world",
 		"the entry's own row must name the repo it came from")
-	require.Contains(t, m.listView(), "repo", "the group column needs a header label")
+	require.Contains(t, m.listView(), "owner/repo", "the group column's header names the owner/repo it shows")
 }
 
 // A repository of purely local skills has no owner/repo to show, so the column

@@ -568,17 +568,19 @@ func TestDetailPageOffersInstallAndOtherActions(t *testing.T) {
 	require.True(t, m.showDetail, "the detail page stays open across the action")
 }
 
-// TestNormalizeNotApplicableForStandardEntry: "m" on an already-standard
-// entry reports why, without opening a confirm modal or moving anything.
-func TestNormalizeNotApplicableForStandardEntry(t *testing.T) {
+// TestNormalizeAppliesForStandardActiveEntry: "n" on an already-standard
+// active entry is allowed — normalize relocates it to another provider and
+// relinks its installs — so it opens the provider picker rather than
+// rejecting the move.
+func TestNormalizeAppliesForStandardActiveEntry(t *testing.T) {
 	m := newTestModelWithNonStandard(t)
 	selectEntry(t, &m, "skill-a")
 	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail
 	require.True(t, m.showDetail)
 
 	_ = m.handleKey(runeKey('n'))
-	require.Nil(t, m.confirm, "an already-standard entry has nothing to move")
-	require.Contains(t, m.status, "only non-standard entries can be moved")
+	require.NotNil(t, m.picker, "normalize offers a provider choice for a standard active entry")
+	require.Contains(t, m.picker.Title, "move skill-a")
 }
 
 // TestDestructiveConfirmPromptsStateExactConsequence locks the exact wording

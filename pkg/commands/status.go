@@ -62,17 +62,21 @@ func buildStatusReport(svc *services.Services, e *common.Entry) *statusReport {
 	if e.Origin != nil {
 		rep.Address = &e.Origin.Address
 	}
+	// Archived entries are never installed (models.go), so they have no
+	// install state to probe.
 	healthy := true
 	dangling := []string{}
-	for _, t := range svc.Installer.Targets(e) {
-		switch svc.Installer.State(e, t) {
-		case common.InstallInstalled:
-			rep.Installed = true
-		case common.InstallDangling:
-			healthy = false
-			dangling = append(dangling, t.Name)
-		case common.InstallConflict:
-			healthy = false
+	if e.Status != common.StatusArchived {
+		for _, t := range svc.Installer.Targets(e) {
+			switch svc.Installer.State(e, t) {
+			case common.InstallInstalled:
+				rep.Installed = true
+			case common.InstallDangling:
+				healthy = false
+				dangling = append(dangling, t.Name)
+			case common.InstallConflict:
+				healthy = false
+			}
 		}
 	}
 	rep.LinkHealthy = healthy

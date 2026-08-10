@@ -287,7 +287,7 @@ func TestActionsMenuListsOnlyAvailableEntryActions(t *testing.T) {
 	require.Contains(t, labels, "[a] archive", "archive is always offered")
 	require.Contains(t, labels, "[d] delete", "delete is always offered")
 	require.NotContains(t, labels, "[p] update", "update is not offered: the fixture entry has no origin")
-	require.NotContains(t, labels, "[n] normalize", "normalize is not offered: the fixture entry is already standard")
+	require.Contains(t, labels, "[n] normalize", "normalize is offered: an active entry can be relocated to another provider")
 }
 
 // TestActionsMenuRunsSelectedAction: confirming a choice in the actions menu
@@ -430,14 +430,18 @@ func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/flat-skill/SKILL.md", "---\nname: flat-skill\ndescription: misplaced\n---\nbody\n")
 	m.applyScan(m.svc.Scan())
+	// installStates is keyed by the entry's path (identity), not its name.
+	flat := m.svc.FindEntry("flat-skill")
+	require.NotNil(t, flat)
+	flatPath := flat.Path
 	// One cell per configured target: the fixture's custom "t" target plus
 	// the 4 built-ins, always merged in (config.mergeWithBuiltins). Install
 	// into the first (built-in, always within the rendered column width)
 	// rather than "t", which the view truncates off at this test width.
-	require.Len(t, m.installs["flat-skill"], len(m.svc.Cfg.Targets))
+	require.Len(t, m.installs[flatPath], len(m.svc.Cfg.Targets))
 	tIdx := 0
 	require.Equal(t, "claude-skills", m.svc.Cfg.Targets[tIdx].Name)
-	require.Equal(t, common.InstallAbsent, m.installs["flat-skill"][tIdx].state, "absent install remains visible in model state")
+	require.Equal(t, common.InstallAbsent, m.installs[flatPath][tIdx].state, "absent install remains visible in model state")
 
 	// Install flat-skill into the skill-accepting target via the installer.
 	entry := m.svc.FindEntry("flat-skill")
@@ -449,8 +453,84 @@ func TestListShowsInstallStatusForNonStandardEntries(t *testing.T) {
 	tx.Commit()
 
 	m.applyScan(m.svc.Scan())
-	require.Equal(t, common.InstallInstalled, m.installs["flat-skill"][tIdx].state, "a non-standard entry's install state is now visible in the list")
+	require.Equal(t, common.InstallInstalled, m.installs[flatPath][tIdx].state, "a non-standard entry's install state is now visible in the list")
 	require.Contains(t, m.View(), "✓", "the install column renders the installed icon")
+}
+
+// TestArchivedEntryHasNoInstallStateCells: installStates is keyed by the
+// entry's path (identity), not its name, and scanInstallStates skips archived
+// entries (they cannot be installed; models.go). A same-named active+archived
+// pair must therefore never share cells — previously the archived row rendered
+// the active entry's install state, showing e.g. an archived dima as
+// "installed" (an impossible state). Archived rows now render blank n/a cells.
+func TestArchivedEntryHasNoInstallStateCells(t *testing.T) {
+	m := newTestModel(t)
+	root := m.svc.Cfg.Root
+	writeFileT(t, root, "skills/local/dima/SKILL.md", "---\nname: dima\ndescription: new active\n---\nbody\n")
+	writeFileT(t, root, "archived/dima/SKILL.md", "---\nname: dima\ndescription: old archived\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+
+	active := m.svc.FindEntry("skills/local/dima")
+	archived := m.svc.FindEntry("archived/dima")
+	require.NotNil(t, active)
+	require.NotNil(t, archived)
+	require.Equal(t, common.StatusArchived, archived.Status)
+
+	// The active entry owns its own install state (path-keyed)...
+	require.NotEmpty(t, m.installs[active.Path], "the active entry's install state is recorded")
+	// ...and the archived copy has none: it is skipped by scanInstallStates,
+	// and keyed by path it can never see the active entry's cells.
+	_, ok := m.installs[archived.Path]
+	require.False(t, ok, "archived entry must have no install-state cells of its own")
+	for _, c := range archivedInstallCells(m.svc.Cfg.Targets) {
+		require.Equal(t, components.InstallNA, c.state, "archived rows render blank n/a cells, not a real install state")
+	}
+}
+
+// TestInstallsPickerUncheckingConflictRemovesForeignObject: in the installs
+// picker a target in conflict state is shown unchecked (it is not installed);
+// leaving it unchecked and confirming means "remove the foreign object so the
+// target returns to absent" — the uninstall direction of the conflict state
+// transition. (Checking it would instead force-install over the object.)
+func TestInstallsPickerUncheckingConflictRemovesForeignObject(t *testing.T) {
+	m := newTestModel(t)
+	require.Equal(t, "skill-a", m.filtered[0].Name)
+	entry := m.filtered[0]
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	conflictDir := filepath.Join(target.Path, entry.Name)
+	require.NoError(t, os.MkdirAll(conflictDir, 0o755))
+	writeFileT(t, conflictDir, "occupied.txt", "foreign content")
+
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, common.InstallConflict, m.svc.Installer.State(entry, target), "the foreign dir is a conflict")
+
+	m.cursor = 0
+	_ = m.handleKey(runeKey('i'))
+	require.NotNil(t, m.picker, "installs opens a target picker")
+	require.Contains(t, m.picker.Title, "Installs")
+	// The conflict target is unchecked (not installed). Confirm as-is: the
+	// unchecked conflict means "leave this target absent" -> remove the object.
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.Nil(t, m.picker, "picker closes on confirm")
+	require.NotNil(t, m.confirm, "removing a foreign object requires confirmation")
+	require.Contains(t, m.confirm.Prompt, "Remove foreign object")
+	require.Contains(t, m.confirm.Prompt, "t", "the conflicted target is named")
+
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.False(t, dal.PathExists(conflictDir), "the foreign object is removed")
+	require.Equal(t, common.InstallAbsent, m.svc.Installer.State(entry, target))
+}
+
+// TestDetailPageShowsRepoPath: the detail page must show the entry's
+// repo-relative path (its identity), not just its name — so a same-named
+// active/archived pair is distinguishable and the skill's location is visible.
+func TestDetailPageShowsRepoPath(t *testing.T) {
+	m := newTestModel(t)
+	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail on the first entry
+	require.True(t, m.showDetail, "enter opens the detail page")
+	require.Contains(t, m.View(), "skills/local/skill-a", "the detail page shows the repo-relative path")
 }
 
 // drainJob waits for one queued job result and applies it, including running
@@ -517,6 +597,28 @@ func TestModelImportSelectsProviderAndKind(t *testing.T) {
 	drainJob(t, &m)
 	require.Contains(t, m.status, "imported imported")
 	require.NotNil(t, m.svc.FindEntry("imported"))
+}
+
+func TestModelClaimAndRepairSelectedSkill(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	for i, entry := range m.filtered {
+		if entry.Name == "broken" {
+			m.cursor = i
+			break
+		}
+	}
+	require.Equal(t, "broken", m.filtered[m.cursor].Name)
+	require.Equal(t, common.StatusError, m.filtered[m.cursor].Status)
+
+	_ = m.handleKey(runeKey('c'))
+	drainJob(t, &m)
+	entry := m.svc.FindEntry("broken")
+	require.NotNil(t, entry)
+	require.Equal(t, common.StatusActive, entry.Status)
+	require.Equal(t, filepath.Join(m.svc.Cfg.Root, "skills", "self-build", "broken"), entry.Path)
+	require.Contains(t, m.status, "claimed broken")
 }
 
 // TestModelDeleteRequiresConfirmation: `d` opens a confirm modal; the entry is
@@ -1153,8 +1255,9 @@ func TestFixSelectedRepairsConflictAndDangling(t *testing.T) {
 
 	cursorTo(t, &m, "skill-a")
 	m.fixSelected()
+	drainJob(t, &m)
 	require.NotNil(t, m.confirm, "fix asks for confirmation before touching anything")
-	require.Contains(t, m.confirm.Prompt, "Overwrite: t")
+	require.Contains(t, m.confirm.Prompt, "replace with managed installs: t")
 	_ = m.handleConfirmKey(runeKey('y'))
 	require.Nil(t, m.confirm)
 	drainJob(t, &m)
@@ -1162,8 +1265,13 @@ func TestFixSelectedRepairsConflictAndDangling(t *testing.T) {
 
 	cursorTo(t, &m, "skill-b")
 	m.fixSelected()
+	drainJob(t, &m)
 	require.NotNil(t, m.confirm)
-	require.Contains(t, m.confirm.Prompt, "Overwrite: t")
+	require.Contains(t, m.confirm.Prompt, "replace with managed installs: t")
+	require.NotEmpty(t, m.confirm.Diff, "a real conflicting directory can be reviewed before replacement")
+	_ = m.handleConfirmKey(runeKey('d'))
+	require.True(t, m.confirm.ShowDiff)
+	require.Contains(t, m.View(), "diff")
 	_ = m.handleConfirmKey(runeKey('y'))
 	require.Nil(t, m.confirm)
 	drainJob(t, &m)
@@ -1171,7 +1279,33 @@ func TestFixSelectedRepairsConflictAndDangling(t *testing.T) {
 
 	cursorTo(t, &m, "skill-a")
 	m.fixSelected()
-	require.Contains(t, m.status, "no conflicts or dangling", "nothing left to fix reports a reason instead of a silent no-op")
+	drainJob(t, &m)
+	require.Contains(t, m.status, "no conflicts or dangling", "a healthy selected entry falls through to an orphan scan before reporting no work")
+}
+
+// TestFixSelectedCleansOrphanDanglingWithoutManagedEntry protects the target
+// reconciliation path: a stale symlink can outlive the repository entry it
+// once pointed at, leaving no selectable managed skill. F must still offer a
+// safe repair that removes only the invalid link and leaves user files alone.
+func TestFixSelectedCleansOrphanDanglingWithoutManagedEntry(t *testing.T) {
+	m := newTestModel(t)
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	orphan := filepath.Join(target.Path, "gone-skill")
+	require.NoError(t, os.Symlink(filepath.Join(t.TempDir(), "missing-source"), orphan))
+	m.applyScan(m.svc.Scan())
+
+	// The currently selected healthy entry has nothing to repair itself, so F
+	// must discover the orphan rather than returning "no managed skills".
+	m.fixSelected()
+	drainJob(t, &m)
+	require.NotNil(t, m.confirm)
+	require.Contains(t, m.confirm.Prompt, "orphan dangling")
+	require.Contains(t, m.confirm.Prompt, "gone-skill")
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.False(t, dal.PathExists(orphan))
+	require.False(t, dal.IsSymlink(orphan), "the dangling symlink is removed, not converted into a user file")
 }
 
 func TestRunInstallConflictOffersForceRetry(t *testing.T) {

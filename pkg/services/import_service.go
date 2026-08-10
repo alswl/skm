@@ -70,6 +70,33 @@ func (s *Services) Import(ctx context.Context, source string, opts ImportOptions
 	}, nil
 }
 
+// ClaimSkill adopts a recoverable skill directory already inside this
+// repository into the self-build provider bucket. Unlike Import, this does
+// not acquire content from a Provider: self-build entries are local work the
+// user owns, and SelfBuild intentionally has no Fetch implementation.
+func (s *Services) ClaimSkill(ctx context.Context, source string) (*ImportResult, error) {
+	abs, err := filepath.Abs(source)
+	if err != nil {
+		return nil, common.WithExitCode(fmt.Errorf("claim: resolve source: %w", err), common.ExitError)
+	}
+	rel, err := filepath.Rel(s.Cfg.Root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, common.WithExitCode(fmt.Errorf("claim: %q is outside repository %q", source, s.Cfg.Root), common.ExitError)
+	}
+	kind, _, err := s.Repo.ProbeStaged(abs)
+	if err != nil {
+		return nil, common.WithExitCode(err, common.ExitError)
+	}
+	if kind != common.KindSkill {
+		return nil, common.WithExitCode(fmt.Errorf("claim: %q is a %s, not a skill", source, kind), common.ExitError)
+	}
+	res, err := s.Repo.ImportStaged(ctx, abs, "self-build", "", false, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &ImportResult{Name: res.Name, Type: res.Kind, Provider: res.Provider, Path: res.Path, Origin: res.Origin}, nil
+}
+
 // resolveSource picks the provider and staged content: explicit --provider,
 // else a real local source as a local import, else the first matching
 // provider (FR-020).

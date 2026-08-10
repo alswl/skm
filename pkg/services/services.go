@@ -1,8 +1,12 @@
 package services
 
 import (
+	"path/filepath"
+	"strings"
+
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
+	"github.com/alswl/skm/skm/pkg/engines"
 )
 
 // Services is the single orchestration entry shared by the CLI and TUI. All
@@ -10,10 +14,10 @@ import (
 type Services struct {
 	Cfg                  *config.Config
 	Logger               *common.Logger
-	Repo                 *Repository
+	Repo                 *engines.Repository
 	Registry             *Registry
 	Installer            *Installer
-	TargetPlugins        map[string]*TargetPlugin
+	TargetPlugins        map[string]TargetDriver
 	TargetPluginFailures []PluginLoadFailure
 }
 
@@ -35,9 +39,9 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	}
 
 	loadedTargetPlugins, targetPluginFailures := DiscoverTargetPlugins(cfg.PluginDirs, logger)
-	targetPlugins := make(map[string]*TargetPlugin, len(loadedTargetPlugins))
+	targetPlugins := make(map[string]TargetDriver, len(loadedTargetPlugins))
 	for _, p := range loadedTargetPlugins {
-		targetPlugins[p.ID()] = p
+		targetPlugins[p.ID()] = externalTargetDriver{p}
 	}
 	for _, f := range targetPluginFailures {
 		logger.Warn("target plugin load failed (isolated)", "path", f.Path, "err", f.Reason.Message)
@@ -46,7 +50,7 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	svc := &Services{
 		Cfg:                  cfg,
 		Logger:               logger,
-		Repo:                 NewRepository(cfg.Root),
+		Repo:                 engines.NewRepository(cfg.Root),
 		Registry:             reg,
 		TargetPlugins:        targetPlugins,
 		TargetPluginFailures: targetPluginFailures,
@@ -85,11 +89,30 @@ func (s *Services) Scan() []*common.Entry {
 	return s.Repo.Scan()
 }
 
-// FindEntry returns the entry with the given name across the repository, or
-// nil. Error entries carry a name (on-disk identity) and are findable.
-func (s *Services) FindEntry(name string) *common.Entry {
-	for _, e := range s.Repo.Scan() {
-		if e.Name == name {
+// FindEntry returns the entry addressed by ref, or nil. An entry's identity
+// is its repository-relative path, so a path-like ref (contains a separator,
+// or is absolute) is matched against paths first — "archived/local/demo"
+// resolves to the archived copy of a same-named pair; a bare name falls back
+// to the global name space for ergonomics. Error entries carry a name and are
+// findable.
+func (s *Services) FindEntry(ref string) *common.Entry {
+	if ref == "" {
+		return nil
+	}
+	want := filepath.Clean(ref)
+	if filepath.IsAbs(want) {
+		want = s.Repo.RelPath(want)
+	}
+	entries := s.Repo.Scan()
+	if strings.ContainsAny(ref, `/\`) {
+		for _, e := range entries {
+			if s.Repo.RelPath(e.Path) == want {
+				return e
+			}
+		}
+	}
+	for _, e := range entries {
+		if e.Name == ref {
 			return e
 		}
 	}

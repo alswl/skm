@@ -37,6 +37,8 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.detailOffset = maxInt(0, m.detailOffset-1)
 	case key.Matches(msg, k.Normalize):
 		m.normalizeSelected()
+	case key.Matches(msg, k.Claim):
+		m.claimAndRepairSelected()
 	case key.Matches(msg, k.Install):
 		m.installSelected()
 	case key.Matches(msg, k.Update):
@@ -115,6 +117,8 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, k.Import):
 		m.importing = true
 		m.importAddr = ""
+	case key.Matches(msg, k.Claim):
+		m.claimAndRepairSelected()
 	case key.Matches(msg, k.Install):
 		m.installSelected()
 	case key.Matches(msg, k.Update):
@@ -306,7 +310,13 @@ func (m model) renderMainArea(inner, rows int) []string {
 		hl := r.entryIdx == m.cursor
 		var cells []installCell
 		if installCols {
-			cells = m.installs[e.Name]
+			// Archived entries have no install state (models.go): blank n/a
+			// cells keep the row aligned.
+			if e.Status == common.StatusArchived {
+				cells = archivedInstallCells(m.svc.Cfg.Targets)
+			} else {
+				cells = m.installs[e.Path]
+			}
 		}
 		var groupCell string
 		if groupCol {
@@ -423,7 +433,7 @@ func installHeaderRow(targets []common.InstallTarget, groupCol bool) string {
 	var sb strings.Builder
 	sb.WriteString(truncPad("", iconColWidth) + " " + dim("name", nameColWidth))
 	if groupCol {
-		sb.WriteString(" " + dim("repo", groupColWidth))
+		sb.WriteString(" " + dim("owner/repo", groupColWidth))
 	}
 	sb.WriteString(" " + dim("kind", kindColWidth) + " " +
 		dim("version", versionColWidth) + " " + dim("status", statusColWidth))
@@ -561,15 +571,18 @@ func (m model) listHint() string {
 // read, so View stays pure and cheap (see installStates).
 func (m model) listBindings() []pages.HintItem {
 	install := false
+	claim := false
 	if len(m.filtered) > 0 {
 		e := m.filtered[m.cursor]
-		install = e.Status == common.StatusActive && len(m.installs.forEntry(e.Name)) > 0
+		install = e.Status == common.StatusActive && len(m.installs.forEntry(e.Path)) > 0
+		claim = e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
 	}
 	return []pages.HintItem{
 		{Keys: "j/k", Label: "up/down", Enabled: true},
 		{Keys: "/", Label: "search", Enabled: true},
 		{Keys: "i", Label: "installs", Enabled: install},
 		{Keys: "m", Label: "import", Enabled: true},
+		{Keys: "c", Label: "claim", Enabled: claim},
 		{Keys: "x", Label: "actions", Enabled: true},
 		{Keys: "q", Label: "quit", Enabled: true},
 	}
@@ -600,6 +613,7 @@ func (m model) detailBindings() []pages.HintItem {
 		return []pages.HintItem{{Keys: "esc/q", Label: "back", Enabled: true}}
 	}
 	e := m.filtered[m.cursor]
+	claim := e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
 	rows := maxInt(1, maxInt(10, m.height)-4)
 	return []pages.HintItem{
 		{Keys: "j/k", Label: "scroll", Enabled: len(components.SplitLines(m.detail)) > rows},
@@ -609,6 +623,7 @@ func (m model) detailBindings() []pages.HintItem {
 		{Keys: "a", Label: "archive", Enabled: true},
 		{Keys: "d", Label: "delete", Enabled: true},
 		{Keys: "n", Label: "move", Enabled: e.Status == common.StatusNonStandard},
+		{Keys: "c", Label: "claim → self-build", Enabled: claim},
 		{Keys: "x", Label: "actions", Enabled: true},
 	}
 }
@@ -632,6 +647,9 @@ func (m model) buildDetail() string {
 	}
 	sb.WriteString(rule + "\n")
 
+	// path is the entry's identity, so a same-named active/archived pair is
+	// distinguishable.
+	fmt.Fprintf(&sb, "%-10s %s\n", "path:", m.svc.Repo.RelPath(e.Path))
 	fmt.Fprintf(&sb, "%-10s %s\n", "kind:", e.Kind)
 	fmt.Fprintf(&sb, "%-10s %s\n", "status:", e.Status)
 	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ProviderIDValue()), e.ProviderIDValue()))
@@ -648,12 +666,16 @@ func (m model) buildDetail() string {
 
 	sb.WriteString(rule + "\n")
 	sb.WriteString(components.StyleDim.Render("install status") + "\n")
-	cells := m.installs.forEntry(e.Name)
-	if len(cells) == 0 {
-		sb.WriteString("  (no matching targets)\n")
-	}
-	for _, c := range cells {
-		fmt.Fprintf(&sb, "  %-16s %s\n", c.name, c.state)
+	if e.Status == common.StatusArchived {
+		sb.WriteString("  (archived; not installed)\n")
+	} else {
+		cells := m.installs.forEntry(e.Path)
+		if len(cells) == 0 {
+			sb.WriteString("  (no matching targets)\n")
+		}
+		for _, c := range cells {
+			fmt.Fprintf(&sb, "  %-16s %s\n", c.name, c.state)
+		}
 	}
 
 	sb.WriteString(rule + "\n")

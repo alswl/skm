@@ -101,6 +101,32 @@ func writeBrokenJSONPlugin(t *testing.T, dir, name string) string {
 	return path
 }
 
+// TestPluginProviderProtocolVersion: a plugin's protocol_version (from the id
+// response) is read into ProtocolVersion() and the descriptor; an undeclared
+// version is the v1 baseline so pre-versioning plugins keep loading.
+func TestPluginProviderProtocolVersion(t *testing.T) {
+	dir := t.TempDir()
+	plainPath := writeStubPlugin(t, dir, "plain.sh", "plain")
+	plain, err := NewPluginProvider(plainPath)
+	require.NoError(t, err)
+	require.Equal(t, 1, plain.ProtocolVersion(), "an undeclared protocol version is the v1 baseline")
+	require.Equal(t, 1, plain.Descriptor().Version, "the descriptor reflects the plugin's declared version")
+
+	path := filepath.Join(dir, "v2.sh")
+	script := `#!/bin/sh
+IFS= read -r line
+case "$line" in
+  *'"action":"id"'*) echo '{"id":"v2p","protocol_version":2}';;
+  *) echo '{"error":"unknown action"}';;
+esac
+`
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	v2p, err := NewPluginProvider(path)
+	require.NoError(t, err)
+	require.Equal(t, 2, v2p.ProtocolVersion())
+	require.Equal(t, 2, v2p.Descriptor().Version)
+}
+
 func TestPluginProviderProtocol(t *testing.T) {
 	dir := t.TempDir()
 	path := writeStubPlugin(t, dir, "stub.sh", "stub")

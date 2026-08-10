@@ -9,33 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// T038: legacy migration coverage beyond targets_test.go — CodeFuse path
+// T038: legacy migration coverage beyond targets_test.go — legacy tool path
 // preserved, a mixed v1/v2 file, and per-entry drop-and-report end to end
 // through Load. T040's fixtures are inline (per T001: matches the codebase's
 // existing convention of inline test fixtures over static testdata files).
 
-func TestLoadMigratesLegacyCodeFusePathV1Entry(t *testing.T) {
+func TestLoadMigratesLegacyToolPathV1Entry(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
 	cfgDir := t.TempDir()
-	// A legacy CodeFuse target, as an old skmgr targets.json would have
+	// A legacy third-party target, as an old skmgr targets.json would have
 	// recorded it: v1 shape, kind:skill, its own (possibly customized) path.
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, targetsFileName),
-		[]byte(`[{"name":"codefuse","path":"/custom/codefuse/skills","builtin":true,"kind":"skill"}]`), 0o644))
+		[]byte(`[{"name":"acme","path":"/custom/acme/skills","builtin":true,"kind":"skill"}]`), 0o644))
 
 	cfg, err := Load(root, cfgDir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the user's codefuse entry")
+	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the user's acme entry")
 	byName := map[string]common.InstallTarget{}
 	for _, t := range cfg.Targets {
 		byName[t.Name] = t
 	}
-	cf := byName["codefuse"]
-	require.Equal(t, "codefuse", cf.Name)
-	require.Equal(t, "/custom/codefuse/skills", cf.Path, "the legacy CodeFuse path is preserved, not overwritten by the built-in default")
+	cf := byName["acme"]
+	require.Equal(t, "acme", cf.Name)
+	require.Equal(t, "/custom/acme/skills", cf.Path, "the legacy third-party path is preserved, not overwritten by the built-in default")
 	require.ElementsMatch(t, []common.EntryKind{common.KindSkill, common.KindCommand}, cf.Accepts)
 	require.Equal(t, common.StrategyCommandAdapter, cf.Strategies[common.KindCommand],
-		"CodeFuse commands still install via the adapter strategy, exactly as the hardcoded 001 logic did")
+		"the legacy tool's commands still install via the adapter strategy, exactly as the hardcoded 001 logic did")
 	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi"} {
 		require.Contains(t, byName, name, "built-ins stay visible even once the user has a targets.json entry")
 	}

@@ -17,7 +17,7 @@ func (m *model) refreshDetail() {
 	}
 	m.detail = m.buildDetail()
 	e := m.filtered[m.cursor]
-	m.detailTargets = len(m.installs.forEntry(e.Name))
-	m.detailInstalled = m.installs.installedAnywhere(e.Name)
+	m.detailTargets = len(m.installs.forEntry(e.Path))
+	m.detailInstalled = m.installs.installedAnywhere(e.Path)
 	m.detailOffset = 0
 }

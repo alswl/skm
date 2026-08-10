@@ -29,9 +29,10 @@ func (m *model) entryActions() []entryAction {
 		return nil
 	}
 	e := m.filtered[m.cursor]
-	install := e.Status == common.StatusActive && len(m.installs.forEntry(e.Name)) > 0
+	install := e.Status == common.StatusActive && len(m.installs.forEntry(e.Path)) > 0
 	update := e.Status == common.StatusActive && e.Origin != nil
-	normalize := e.Status == common.StatusNonStandard
+	normalize := e.Status == common.StatusNonStandard || e.Status == common.StatusActive
+	claim := e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
 	fix := e.Status == common.StatusActive && len(m.fixableTargets(e)) > 0
 	archiveLabel := "archive"
 	if e.Status == common.StatusArchived {
@@ -46,6 +47,7 @@ func (m *model) entryActions() []entryAction {
 		entryAction{Key: "i", Label: "installs", Enabled: install, Run: m.installSelected},
 		entryAction{Key: "p", Label: "update", Enabled: update, Run: m.updateSelected},
 		entryAction{Key: "n", Label: "normalize", Enabled: normalize, Run: m.normalizeSelected},
+		entryAction{Key: "c", Label: "claim → self-build", Enabled: claim, Run: m.claimAndRepairSelected},
 		entryAction{Key: "F", Label: "fix conflicts/dangling", Enabled: fix, Run: m.fixSelected},
 		entryAction{Key: "a", Label: archiveLabel, Enabled: true, Run: m.archiveSelected},
 		entryAction{Key: "d", Label: "delete", Enabled: true, Run: m.deleteSelected},

@@ -2,10 +2,12 @@ package services
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -185,4 +187,83 @@ func TestNormalizeMovesToExplicitProvider(t *testing.T) {
 
 	moved := findEntryByName(t, root, "flat-skill")
 	require.Equal(t, "github", moved.ProviderIDValue())
+}
+
+// TestNormalizeActiveEntryRelinksInstalls: moving an active entry to another
+// provider relinks its installs to the new location — the old link is removed
+// and a new one points at the moved path (uninstall -> move -> reinstall),
+// instead of leaving a dangling link at the old path.
+func TestNormalizeActiveEntryRelinksInstalls(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/github/demo/SKILL.md", frontmatter("demo", "a demo skill"))
+	targetDir := t.TempDir()
+	cfg := newCfg(root, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	svc, err := New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+
+	entry := findEntryByName(t, root, "demo")
+	require.Equal(t, common.StatusActive, entry.Status)
+	require.Equal(t, "github", entry.ProviderIDValue())
+
+	target, ok := svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	tx := &dal.FileTransaction{}
+	_, err = svc.Installer.Install(tx, entry, target, false)
+	require.NoError(t, err)
+	tx.Commit()
+	link := filepath.Join(targetDir, "demo")
+	require.Equal(t, common.InstallInstalled, svc.Installer.State(entry, target))
+	resolved, err := os.Readlink(link)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "skills/github/demo"), resolved)
+
+	res, err := svc.Normalize(context.Background(), "demo", "local", LifecycleOptions{})
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "skills/local/demo"), res.Path)
+
+	// The link now points at the moved location; the old tree is gone.
+	moved := findEntryByName(t, root, "demo")
+	require.Equal(t, common.InstallInstalled, svc.Installer.State(moved, target), "the install follows the move")
+	resolved, err = os.Readlink(link)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "skills/local/demo"), resolved, "the symlink is adjusted to the new path")
+	require.NoFileExists(t, filepath.Join(root, "skills/github/demo"))
+}
+
+// TestNormalizeActiveEntryRestoresLinksWhenMoveFails: if the actual move fails
+// after the old links were uninstalled — the dry-run validation only rules out
+// an occupied destination, not a move that cannot happen — the links are
+// restored so a failed normalize never leaves the entry uninstalled at its old
+// location.
+func TestNormalizeActiveEntryRestoresLinksWhenMoveFails(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/github/demo/SKILL.md", frontmatter("demo", "a demo skill"))
+	targetDir := t.TempDir()
+	cfg := newCfg(root, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	svc, err := New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+
+	entry := findEntryByName(t, root, "demo")
+	target, ok := svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	tx := &dal.FileTransaction{}
+	_, err = svc.Installer.Install(tx, entry, target, false)
+	require.NoError(t, err)
+	tx.Commit()
+	link := filepath.Join(targetDir, "demo")
+	require.Equal(t, common.InstallInstalled, svc.Installer.State(entry, target))
+
+	// Make the destination's parent uncreatable: the dry-run existence check
+	// passes (dest itself does not exist) but the move cannot create it.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills/local"), []byte("not a dir"), 0o644))
+
+	_, err = svc.Normalize(context.Background(), "demo", "local", LifecycleOptions{})
+	require.Error(t, err, "the move fails when the destination parent cannot be created")
+
+	require.FileExists(t, filepath.Join(root, "skills/github/demo/SKILL.md"), "the entry did not move")
+	require.Equal(t, common.InstallInstalled, svc.Installer.State(entry, target), "the failed move restores the old link")
+	require.True(t, dal.IsSymlink(link), "the old link is back")
+	resolved, err := os.Readlink(link)
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "skills/github/demo"), resolved, "the restored link points at the old location")
 }

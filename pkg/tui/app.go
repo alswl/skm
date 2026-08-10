@@ -350,14 +350,21 @@ func (m *model) installSelected() {
 // openInstallsPicker presents the entry's kind-matching targets. Each checkbox
 // expresses the desired installation state, initialized from the real state.
 func (m *model) openInstallsPicker(entry *common.Entry) {
-	cells := m.installs.forEntry(entry.Name)
+	cells := m.installs.forEntry(entry.Path)
 	if len(cells) == 0 {
 		m.setStatus(fmt.Sprintf("%s: no targets accept a %s", entry.Name, entry.Kind))
 		return
 	}
 	items := make([]pages.PickerItem, len(cells))
 	for i, c := range cells {
-		items[i] = pages.PickerItem{Label: fmt.Sprintf("%s (%s)", c.name, c.state), Value: c.name, Checked: c.state == common.InstallInstalled}
+		// Mark repairable states so a conflict/dangling row does not read as a
+		// plain absent one: checking it installs (force) over the blockage,
+		// unchecking a conflict removes the foreign object (see below).
+		label := fmt.Sprintf("%s (%s)", c.name, c.state)
+		if c.state == common.InstallConflict || c.state == common.InstallDangling {
+			label = "⚠ " + label
+		}
+		items[i] = pages.PickerItem{Label: label, Value: c.name, Checked: c.state == common.InstallInstalled}
 	}
 	name := entry.Name
 	m.picker = &pages.Picker{
@@ -372,42 +379,57 @@ func (m *model) openInstallsPicker(entry *common.Entry) {
 			// cells is the state the picker was drawn from, so what gets applied
 			// is exactly what the user was shown — and, like everywhere else,
 			// costs no probe on the event loop.
-			var installTargets, uninstallTargets []string
+			var installTargets, uninstallTargets, removeTargets []string
 			for _, c := range cells {
 				if desired[c.name] && c.state != common.InstallInstalled {
 					installTargets = append(installTargets, c.name)
 				}
-				if !desired[c.name] && (c.state == common.InstallInstalled || c.state == common.InstallDangling) {
-					uninstallTargets = append(uninstallTargets, c.name)
+				if !desired[c.name] {
+					switch c.state {
+					case common.InstallInstalled, common.InstallDangling:
+						uninstallTargets = append(uninstallTargets, c.name)
+					case common.InstallConflict:
+						// Unchecking a conflict means "leave this target absent":
+						// remove the foreign object blocking it, the inverse of
+						// the force-install the F key offers.
+						removeTargets = append(removeTargets, c.name)
+					}
 				}
 			}
-			m.applyInstallChanges(name, installTargets, uninstallTargets)
+			m.applyInstallChanges(name, installTargets, uninstallTargets, removeTargets)
 		},
 	}
 }
 
-func (m *model) applyInstallChanges(name string, installTargets, uninstallTargets []string) {
-	if len(installTargets) == 0 && len(uninstallTargets) == 0 {
+func (m *model) applyInstallChanges(name string, installTargets, uninstallTargets, removeTargets []string) {
+	if len(installTargets) == 0 && len(uninstallTargets) == 0 && len(removeTargets) == 0 {
 		m.setStatus("installs: no changes for " + name)
 		return
 	}
-	if len(uninstallTargets) == 0 {
-		m.runInstallChanges(name, installTargets, nil)
+	if len(uninstallTargets) == 0 && len(removeTargets) == 0 {
+		m.runInstallChanges(name, installTargets, nil, nil)
 		return
 	}
 	prompt := "Apply install changes for " + name + "?"
 	if len(installTargets) > 0 {
 		prompt += "\nInstall: " + strings.Join(installTargets, ", ")
 	}
-	prompt += "\nRemove: " + strings.Join(uninstallTargets, ", ")
+	if len(uninstallTargets) > 0 {
+		prompt += "\nRemove: " + strings.Join(uninstallTargets, ", ")
+	}
+	if len(removeTargets) > 0 {
+		prompt += "\nRemove foreign object: " + strings.Join(removeTargets, ", ")
+	}
 	m.confirm = &pages.Confirm{Prompt: prompt, OnYes: func() {
-		m.runInstallChanges(name, installTargets, uninstallTargets)
+		m.runInstallChanges(name, installTargets, uninstallTargets, removeTargets)
 	}}
 }
 
 // runInstallChanges reconciles the selected targets with their requested
-// install state. Removals run first and only managed installs are removed.
-func (m *model) runInstallChanges(name string, installTargets, uninstallTargets []string) {
+// install state. Removals run first; uninstalls only ever remove managed
+// installs, while a conflict's foreign object is removed explicitly
+// (removeTargets), restoring that target to absent.
+func (m *model) runInstallChanges(name string, installTargets, uninstallTargets, removeTargets []string) {
 	attempt := func(force bool) func(ctx context.Context) (any, error) {
 		return func(ctx context.Context) (any, error) {
 			var messages []string
@@ -417,6 +439,19 @@ func (m *model) runInstallChanges(name string, installTargets, uninstallTargets 
 					return nil, err
 				}
 				messages = append(messages, installStatusMessage("uninstall", name, result))
+			}
+			if len(removeTargets) > 0 {
+				result, err := m.svc.RemoveForeign(ctx, name, removeTargets)
+				if err != nil {
+					return nil, err
+				}
+				removed := 0
+				for _, r := range result.Results {
+					if r.Changed {
+						removed++
+					}
+				}
+				messages = append(messages, fmt.Sprintf("removed %d foreign object(s) for %s", removed, name))
 			}
 			if len(installTargets) > 0 {
 				result, err := m.svc.Install(ctx, name, services.InstallOptions{Targets: installTargets, Force: force})

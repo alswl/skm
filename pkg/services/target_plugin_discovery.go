@@ -51,6 +51,10 @@ func DiscoverTargetPlugins(baseDirs []string, logger *common.Logger) ([]*TargetP
 			continue
 		}
 		seen[p.ID()] = true
+		if p.ProtocolVersion() < pluginProtocolVersion {
+			logger.Warn("target plugin is on an older protocol version; v2-only actions (remove_foreign) unavailable",
+				"id", p.ID(), "path", path, "protocol", p.ProtocolVersion(), "current", pluginProtocolVersion)
+		}
 		out = append(out, p)
 	}
 	return out, failures

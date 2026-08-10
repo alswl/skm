@@ -16,10 +16,11 @@ import (
 // for 002-open-provider-target). Each request is a single JSON line on
 // stdin; the response is a single JSON line on stdout.
 type PluginProvider struct {
-	path  string
-	id    string
-	label string
-	mu    sync.Mutex
+	path            string
+	id              string
+	label           string
+	protocolVersion int // declared in the id response; 1 (baseline) when absent
+	mu              sync.Mutex
 }
 
 // pluginTimeout bounds every subprocess call so one slow/hung plugin cannot
@@ -58,15 +59,16 @@ func (e *pluginError) UnmarshalJSON(data []byte) error {
 }
 
 type pluginResponse struct {
-	ID          string       `json:"id,omitempty"`
-	Label       string       `json:"label,omitempty"`
-	Description string       `json:"description,omitempty"`
-	Schemes     []string     `json:"schemes,omitempty"`
-	Icon        string       `json:"icon,omitempty"`
-	Address     string       `json:"address,omitempty"`
-	Result      *bool        `json:"result,omitempty"`
-	Path        string       `json:"path,omitempty"`
-	Error       *pluginError `json:"error,omitempty"`
+	ID              string       `json:"id,omitempty"`
+	ProtocolVersion int          `json:"protocol_version,omitempty"`
+	Label           string       `json:"label,omitempty"`
+	Description     string       `json:"description,omitempty"`
+	Schemes         []string     `json:"schemes,omitempty"`
+	Icon            string       `json:"icon,omitempty"`
+	Address         string       `json:"address,omitempty"`
+	Result          *bool        `json:"result,omitempty"`
+	Path            string       `json:"path,omitempty"`
+	Error           *pluginError `json:"error,omitempty"`
 }
 
 // NewPluginProvider loads a plugin executable, probing its id and label.
@@ -82,14 +84,57 @@ func NewPluginProvider(path string) (*PluginProvider, error) {
 		return nil, &ProviderError{Code: CodeEmptyID, Message: fmt.Sprintf("plugin %s: returned an empty id", path)}
 	}
 	p.id = idResp.ID
+	// An undeclared protocol_version is the v1 baseline (plugin_host.go).
+	p.protocolVersion = idResp.ProtocolVersion
+	if p.protocolVersion == 0 {
+		p.protocolVersion = 1
+	}
 	if lbl, err := p.call(ctx, "label", ""); err == nil {
 		p.label = lbl.Label
 	}
 	return p, nil
 }
 
+// ProtocolVersion returns the protocol version the plugin declares it
+// implements (1 when it predates the versioning field).
+func (p *PluginProvider) ProtocolVersion() int { return p.protocolVersion }
+
 // ID returns the plugin's provider id.
 func (p *PluginProvider) ID() string { return p.id }
+
+// Descriptor exposes the same protocol identity as in-process providers.
+func (p *PluginProvider) Descriptor() PluginDescriptor {
+	cap := p.Capability()
+	return PluginDescriptor{Version: p.protocolVersion, Kind: PluginKindProvider, ID: p.ID(), Label: p.Label(), Description: cap.Description, Path: p.path}
+}
+
+// Handle is the common plugin-host entry point. The subprocess wire format is
+// still the established v1 provider protocol; call translates it into the v2
+// in-process envelope so callers never branch on plugin origin.
+func (p *PluginProvider) Handle(ctx context.Context, req PluginRequest) (PluginResponse, error) {
+	action := req.Action
+	if action == "describe" {
+		return PluginResponse{Descriptor: p.Descriptor()}, nil
+	}
+	resp, err := p.call(ctx, action, req.Address)
+	if err != nil {
+		return PluginResponse{}, err
+	}
+	if resp.Error != nil {
+		return PluginResponse{}, &ProviderError{Code: resp.Error.Code, Message: fmt.Sprintf("plugin %s: %s", p.id, resp.Error.Message)}
+	}
+	out := PluginResponse{Address: resp.Address, Path: resp.Path, Result: resp.Result}
+	if action == "capability" {
+		out.Capability = Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes, Icon: resp.Icon}
+		if resp.ID != "" {
+			out.Capability.ID = resp.ID
+		}
+		if resp.Label != "" {
+			out.Capability.Label = resp.Label
+		}
+	}
+	return out, nil
+}
 
 // Label returns the human label (falling back to the id).
 func (p *PluginProvider) Label() string {

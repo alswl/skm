@@ -10,6 +10,17 @@ import (
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
+// fixPreview is prepared off the event loop before showing the destructive
+// confirmation. Diffing can walk an entire skill directory, so it must not be
+// done from a key handler or View.
+type fixPreview struct {
+	name    string
+	targets []string
+	diff    string
+}
+
+type orphanDanglingPreview struct{ items []services.DanglingInstall }
+
 // fixableTargets returns entry's per-target conflicts (a non-managed object
 // already occupies the target) and dangling installs (a stray/broken link
 // occupies it) — the two states fixSelected repairs. Both need the same
@@ -25,7 +36,7 @@ import (
 // key handlers (F, and x to decide whether to offer the item at all), both on
 // the event loop.
 func (m *model) fixableTargets(entry *common.Entry) []string {
-	return m.installs.broken(entry.Name)
+	return m.installs.broken(entry.Path)
 }
 
 // fixSelected repairs the current entry's conflict and dangling installs (key
@@ -35,6 +46,7 @@ func (m *model) fixableTargets(entry *common.Entry) []string {
 // the entry under the cursor only.
 func (m *model) fixSelected() {
 	if m.cursor >= len(m.filtered) {
+		m.prepareOrphanDanglingFix()
 		return
 	}
 	entry := m.filtered[m.cursor]
@@ -44,12 +56,90 @@ func (m *model) fixSelected() {
 	}
 	broken := m.fixableTargets(entry)
 	if len(broken) == 0 {
-		m.setStatus(fmt.Sprintf("fix: %s has no conflicts or dangling installs", entry.Name))
+		m.prepareOrphanDanglingFix()
 		return
 	}
 	name := entry.Name
-	prompt := fmt.Sprintf("Fix %s? Overwrite: %s", name, strings.Join(broken, ", "))
-	m.confirm = &pages.Confirm{Prompt: prompt, OnYes: func() {
+	m.submitJob("prepare fix "+name, func(ctx context.Context) (any, error) {
+		return m.prepareFixPreview(ctx, entry, broken), nil
+	})
+}
+
+// prepareOrphanDanglingFix handles links whose original source disappeared,
+// so they cannot be reached from an Entry selection. It is intentionally a
+// background scan: target directories and plugin inspectors may be slow.
+func (m *model) prepareOrphanDanglingFix() {
+	m.submitJob("inspect orphan dangling installs", func(ctx context.Context) (any, error) {
+		items, err := m.svc.OrphanDangling(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return orphanDanglingPreview{items: items}, nil
+	})
+}
+
+func (m *model) showOrphanDanglingConfirmation(preview orphanDanglingPreview) {
+	if len(preview.items) == 0 {
+		m.setStatus("fix: no conflicts or dangling installs")
+		return
+	}
+	labels := make([]string, len(preview.items))
+	for i, item := range preview.items {
+		labels[i] = fmt.Sprintf("%s (%s)", item.Name, item.TargetName)
+	}
+	m.confirm = &pages.Confirm{Prompt: fmt.Sprintf("Fix %d orphan dangling install(s)? This removes only invalid links: %s", len(preview.items), strings.Join(labels, ", ")), OnYes: func() {
+		m.submitJob(fmt.Sprintf("fix %d orphan dangling install(s)", len(preview.items)), func(ctx context.Context) (any, error) {
+			for _, item := range preview.items {
+				if err := m.svc.CleanDangling(ctx, item); err != nil {
+					return nil, err
+				}
+			}
+			return fmt.Sprintf("fixed %d orphan dangling install(s)", len(preview.items)), nil
+		})
+	}}
+}
+
+// prepareFixPreview collects a readable content diff for real target-side
+// conflicts. Dangling links have no content to compare, but are still listed
+// as replacements in the following confirmation.
+func (m *model) prepareFixPreview(ctx context.Context, entry *common.Entry, targets []string) fixPreview {
+	var parts []string
+	for _, targetName := range targets {
+		if m.installState(entry.Path, targetName) != common.InstallConflict {
+			continue
+		}
+		target, ok := m.svc.Installer.TargetByName(targetName)
+		if !ok {
+			continue
+		}
+		diff, err := m.svc.Installer.Diff(ctx, entry, target)
+		if err != nil {
+			parts = append(parts, fmt.Sprintf("%s: target plugin did not provide a diff: %v", targetName, err))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s:\n%s", targetName, diff))
+	}
+	return fixPreview{name: entry.Name, targets: targets, diff: strings.TrimSpace(strings.Join(parts, "\n\n"))}
+}
+
+func (m *model) installState(path, target string) common.InstallState {
+	for _, cell := range m.installs.forEntry(path) {
+		if cell.name == target {
+			return cell.state
+		}
+	}
+	return common.InstallAbsent
+}
+
+// showFixConfirmation is called only after prepareFixPreview completed, so
+// the confirmation can offer a diff without blocking terminal input.
+func (m *model) showFixConfirmation(preview fixPreview) {
+	prompt := fmt.Sprintf("Fix %s? This will replace with managed installs: %s", preview.name, strings.Join(preview.targets, ", "))
+	if preview.diff != "" {
+		prompt += ". Review the diff before applying."
+	}
+	name, broken := preview.name, preview.targets
+	m.confirm = &pages.Confirm{Prompt: prompt, Diff: preview.diff, OnYes: func() {
 		m.submitJob("fix "+name, func(ctx context.Context) (any, error) {
 			result, err := m.svc.Install(ctx, name, services.InstallOptions{Targets: broken, Force: true})
 			if err != nil {

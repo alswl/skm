@@ -91,6 +91,42 @@ func (s *Services) runInstall(ctx context.Context, action, name string, opts Ins
 	return result, nil
 }
 
+// RemoveForeign removes the foreign objects blocking entry's installs in the
+// named targets (the installs picker's "uninstall a conflict" path). Callers
+// confirm the removal first — unlike Uninstall it deletes the occupying object.
+func (s *Services) RemoveForeign(ctx context.Context, name string, targets []string) (*InstallResult, error) {
+	entry := s.FindEntry(name)
+	if entry == nil {
+		return nil, common.WithExitCode(fmt.Errorf("remove-foreign: entry %q not found", name), common.ExitObject)
+	}
+	if entry.Status != common.StatusActive {
+		return nil, common.WithExitCode(fmt.Errorf("remove-foreign: entry %q is %s; only active entries can be managed", name, entry.Status), common.ExitObject)
+	}
+	sel, err := s.selectTargets(entry, targets)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
+	if err != nil {
+		return nil, common.WithExitCode(err, common.ExitError)
+	}
+	defer lock.Release()
+
+	tx := &dal.FileTransaction{}
+	result := &InstallResult{Action: "remove-foreign", Name: name, Results: []common.InstallReport{}}
+	for _, t := range sel {
+		changed, err := s.Installer.RemoveForeign(tx, entry, t)
+		if err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+		result.Results = append(result.Results, common.InstallReport{Target: t.Name, Status: common.InstallAbsent, Changed: changed})
+	}
+	tx.Commit()
+	result.Success = true
+	return result, nil
+}
+
 // selectTargets resolves explicit target names (empty = all kind-matching).
 // Unknown target names or targets that cannot receive the entry are argument
 // errors (exit 2 per exit-codes.md).
