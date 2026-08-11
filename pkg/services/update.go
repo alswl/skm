@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/alswl/skm/skm/pkg/common"
 )
@@ -55,7 +54,7 @@ func (s *Services) fetchFromOrigin(ctx context.Context, address string) (string,
 	if err != nil {
 		return "", func() {}, common.WithExitCode(err, common.ExitError)
 	}
-	return tmp, func() { _ = os.RemoveAll(tmp) }, nil
+	return tmp, fetchCleanup(p, tmp), nil
 }
 
 // FailedUpdate is one batch-update failure: which entry, and why (the error

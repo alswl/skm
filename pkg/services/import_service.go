@@ -79,8 +79,7 @@ func (s *Services) ClaimSkill(ctx context.Context, source string) (*ImportResult
 	if err != nil {
 		return nil, common.WithExitCode(fmt.Errorf("claim: resolve source: %w", err), common.ExitError)
 	}
-	rel, err := filepath.Rel(s.Cfg.Root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if _, inside := repoRelative(abs, s.Cfg.Root); !inside {
 		return nil, common.WithExitCode(fmt.Errorf("claim: %q is outside repository %q", source, s.Cfg.Root), common.ExitError)
 	}
 	kind, _, err := s.Repo.ProbeStaged(abs)
@@ -102,6 +101,21 @@ func (s *Services) ClaimSkill(ctx context.Context, source string) (*ImportResult
 // provider (FR-020).
 func (s *Services) resolveSource(ctx context.Context, source, providerID string) (staged, id, group string, origin *common.Origin, cleanup func(), err error) {
 	cleanup = func() {}
+	source = normalizeImportSource(source)
+	source = skillDirectorySource(source)
+	localSource := isLocalSource(source)
+	if localSource && isManagedRepositoryEntry(source, s.Cfg.Root) {
+		return "", "", "", nil, cleanup, common.WithExitCode(
+			fmt.Errorf("import: local source %q is inside target repository %q; use install, move, or claim instead", source, s.Cfg.Root),
+			common.ExitObject)
+	}
+	// A local source is borrowed from the caller, never acquired into a temp
+	// directory. Treat both auto and an explicit local selection identically so
+	// Import's deferred cleanup can never remove the caller's files.
+	if localSource && (providerID == "" || providerID == "local") {
+		modeID := "local"
+		return source, modeID, "", &common.Origin{Address: source, ProviderID: &modeID}, cleanup, nil
+	}
 	if providerID != "" {
 		p := s.Registry.Get(providerID)
 		if p == nil {
@@ -109,15 +123,77 @@ func (s *Services) resolveSource(ctx context.Context, source, providerID string)
 		}
 		return s.fetchProvider(ctx, p, source)
 	}
-	if isLocalSource(source) {
-		return source, "local", "", nil, cleanup, nil
-	}
 	p := s.Registry.Match(source)
 	if p == nil {
 		return "", "", "", nil, cleanup, common.WithExitCode(
 			fmt.Errorf("import: no provider can handle %q", source), common.ExitError)
 	}
 	return s.fetchProvider(ctx, p, source)
+}
+
+// skillDirectorySource treats a local SKILL.md address as its enclosing skill
+// directory. A skill is a directory asset, and importing its marker file as a
+// standalone Markdown file would otherwise incorrectly create a command.
+// Remote URLs are left alone because they do not exist on the local filesystem.
+func skillDirectorySource(source string) string {
+	if filepath.Base(source) != "SKILL.md" {
+		return source
+	}
+	fi, err := os.Stat(source)
+	if err != nil || fi.IsDir() {
+		return source
+	}
+	return filepath.Dir(source)
+}
+
+// repoRelative returns path relative to root, and whether it is inside root at
+// all. It is the single containment check shared by claim (which requires
+// inside) and import (which rejects managed locations).
+func repoRelative(path, root string) (rel string, inside bool) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	rel, err = filepath.Rel(absRoot, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
+// isManagedRepositoryEntry reports whether path is already in a standard
+// managed entry location. Those entries must not be re-imported. Non-standard
+// paths inside the repository remain eligible for the existing claim/repair
+// workflow.
+func isManagedRepositoryEntry(path, root string) bool {
+	rel, inside := repoRelative(path, root)
+	if !inside {
+		return false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	return len(parts) >= 3 && (parts[0] == "skills" || parts[0] == "commands")
+}
+
+// normalizeImportSource makes paths entered outside a shell behave like paths
+// entered at a shell prompt. TUI input does not expand ~/..., and pasted paths
+// can contain surrounding whitespace. Remote addresses are only trimmed.
+func normalizeImportSource(source string) string {
+	source = strings.TrimSpace(source)
+	if source != "~" && !strings.HasPrefix(source, "~/") {
+		return source
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return source
+	}
+	if source == "~" {
+		return home
+	}
+	return filepath.Join(home, source[2:])
 }
 
 // grouper is implemented by providers that derive a natural sub-directory
@@ -131,21 +207,37 @@ type grouper interface {
 }
 
 func (s *Services) fetchProvider(ctx context.Context, p Provider, source string) (staged, id, group string, origin *common.Origin, cleanup func(), err error) {
-	tmp, ferr := p.Fetch(ctx, source)
+	normalized, nerr := p.Normalize(source)
+	if nerr != nil {
+		return "", "", "", nil, func() {}, common.WithExitCode(nerr, common.ExitError)
+	}
+	tmp, ferr := p.Fetch(ctx, normalized)
 	if ferr != nil {
 		return "", "", "", nil, func() {}, common.WithExitCode(ferr, common.ExitError)
 	}
 	modeID := p.ID()
 	if g, ok := p.(grouper); ok {
-		group = g.Group(source)
+		group = g.Group(normalized)
 	}
-	return tmp, p.ID(), group, &common.Origin{Address: source, ProviderID: &modeID}, func() { _ = os.RemoveAll(tmp) }, nil
+	return tmp, p.ID(), group, &common.Origin{Address: normalized, ProviderID: &modeID}, fetchCleanup(p, tmp), nil
+}
+
+// fetchCleanup frees what Fetch staged. A borrowed source (borrowsSource) is
+// the caller's own path, so there is nothing to free — removing it would
+// delete the user's files, including on the error paths that run cleanup after
+// a failed probe.
+func fetchCleanup(p Provider, staged string) func() {
+	if borrowsSource(p) {
+		return func() {}
+	}
+	return func() { _ = os.RemoveAll(staged) }
 }
 
 // isLocalSource reports whether source is a real local path the import should
 // treat as a local import: an existing directory, or a .md file carrying
 // frontmatter.
 func isLocalSource(source string) bool {
+	source = normalizeImportSource(source)
 	if !dal.PathExists(source) {
 		return false
 	}

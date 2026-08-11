@@ -20,7 +20,7 @@ func TestImportCommandLocalJSON(t *testing.T) {
 	require.Contains(t, out, `"name":"review"`)
 	require.Contains(t, out, `"type":"skill"`)
 	require.Contains(t, out, `"provider":"local"`)
-	require.Contains(t, out, `"origin":null`)
+	require.Contains(t, out, `"origin":{"address":"`+src+`","mode_id":"local","path":"skills/local/review"}`)
 	// Placement on disk.
 	require.FileExists(t, filepath.Join(root, "skills", "local", "review", "SKILL.md"))
 	// The source dir must remain (copied, not moved).
@@ -60,7 +60,7 @@ func TestImportCommandClaimsMalformedSkillDirectory(t *testing.T) {
 
 	out, err := runCmd(t, "import", src, "--root", root, "--config", cfgDir, "--json")
 	require.NoError(t, err)
-	require.JSONEq(t, `{"name":"legacy","type":"skill","provider":"local","path":"`+filepath.Join(root, "skills", "local", "legacy")+`","origin":null}`, out)
+	require.JSONEq(t, `{"name":"legacy","type":"skill","provider":"local","path":"`+filepath.Join(root, "skills", "local", "legacy")+`","origin":{"address":"`+src+`","mode_id":"local","path":"skills/local/legacy"}}`, out)
 	require.FileExists(t, filepath.Join(root, "skills", "local", "legacy", "SKILL.md"))
 	require.NoDirExists(t, src)
 }

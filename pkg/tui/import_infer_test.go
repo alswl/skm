@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +42,59 @@ func TestImportPreselectsTheProviderTheAddressImplies(t *testing.T) {
 	require.True(t, strings.HasPrefix(label, "github"),
 		"the provider picker opens on github, not auto: %q", label)
 	require.Contains(t, label, "detected", "the pre-selection says why it was made: %q", label)
+}
+
+func TestImportPreselectsLocalProviderForAnExistingExternalSkill(t *testing.T) {
+	m := newTestModel(t)
+	src := filepath.Join(t.TempDir(), "d2")
+	require.NoError(t, os.MkdirAll(src, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: d2\ndescription: diagram\n---\nbody\n"), 0o644))
+
+	typeImport(t, &m, src)
+	require.True(t, strings.HasPrefix(currentLabel(t, &m), "local"), "existing external directories must preselect local")
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.True(t, strings.HasPrefix(currentLabel(t, &m), "auto"), "a directory still uses probe-based kind detection")
+}
+
+func TestImportPreselectsLocalProviderAndSkillKindForLocalSkillMarker(t *testing.T) {
+	m := newTestModel(t)
+	src := filepath.Join(t.TempDir(), "d2")
+	require.NoError(t, os.MkdirAll(src, 0o755))
+	marker := filepath.Join(src, "SKILL.md")
+	require.NoError(t, os.WriteFile(marker, []byte("---\nname: d2\ndescription: diagram\n---\nbody\n"), 0o644))
+
+	typeImport(t, &m, marker)
+	require.True(t, strings.HasPrefix(currentLabel(t, &m), "local"), "an existing local marker must preselect local")
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.True(t, strings.HasPrefix(currentLabel(t, &m), "skill"), "SKILL.md must preselect skill")
+}
+
+func TestImportExistingExternalLocalSkillCompletesThroughTUI(t *testing.T) {
+	for _, markerAddress := range []bool{false, true} {
+		t.Run(map[bool]string{false: "directory", true: "skill marker"}[markerAddress], func(t *testing.T) {
+			m := newTestModel(t)
+			src := filepath.Join(t.TempDir(), "d2")
+			require.NoError(t, os.MkdirAll(src, 0o755))
+			marker := filepath.Join(src, "SKILL.md")
+			require.NoError(t, os.WriteFile(marker, []byte("---\nname: d2\ndescription: diagram\n---\nbody\n"), 0o644))
+
+			addr := src
+			if markerAddress {
+				addr = marker
+			}
+			typeImport(t, &m, addr)
+			m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // local provider
+			m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // inferred or auto kind
+			drainJob(t, &m)
+
+			entry := m.svc.FindEntry("d2")
+			require.NotNil(t, entry)
+			require.FileExists(t, filepath.Join(entry.Path, "SKILL.md"))
+			require.FileExists(t, marker, "TUI import must leave the external source intact")
+		})
+	}
 }
 
 func TestImportPreselectsTheKindTheAddressImplies(t *testing.T) {

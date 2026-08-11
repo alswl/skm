@@ -30,17 +30,23 @@ func (Local) Capability() Capability {
 	}
 }
 
-// Normalize returns address unchanged; local paths have no canonical form
-// beyond what the filesystem already resolves.
-func (Local) Normalize(address string) (string, error) { return address, nil }
+// Normalize expands paths entered outside a shell and trims pasted whitespace.
+func (Local) Normalize(address string) (string, error) { return normalizeImportSource(address), nil }
 
 // CanHandle reports whether address is an existing local path.
 func (Local) CanHandle(address string) bool {
-	return dal.PathExists(address)
+	return dal.PathExists(normalizeImportSource(address))
 }
 
 // Fetch returns the local source path itself; the import manager copies it
 // into the repository under a transaction.
 func (Local) Fetch(_ context.Context, address string) (string, error) {
-	return address, nil
+	return normalizeImportSource(address), nil
 }
+
+// borrowsSource reports whether p.Fetch hands back a path the caller already
+// owns instead of a fresh temp staging directory. Only Local does, and what it
+// returns is the user's own source: removing it as fetch cleanup would delete
+// their files. The id is a safe discriminator — the built-in is registered
+// first and Registry.Register rejects later duplicates of an id.
+func borrowsSource(p Provider) bool { return p.ID() == (Local{}).ID() }

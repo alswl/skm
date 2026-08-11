@@ -120,7 +120,18 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 	// that same entry, so it is moved into the standard layout below rather
 	// than rejected as a collision with itself.
 	existing := r.findByName(name)
-	claimSource := existing != nil && (existing.Status == common.StatusNonStandard || existing.Status == common.StatusError) && samePath(existing.Path, staged)
+	sameManagedSource := existing != nil && samePath(existing.Path, staged)
+	claimSource := sameManagedSource && (existing.Status == common.StatusNonStandard || existing.Status == common.StatusError)
+	// Importing an already-managed entry back into this repository must never
+	// turn into a forced replacement of the source itself. In particular, a
+	// TUI import of skills/self-build/<name> used to remove that directory and
+	// recreate the staged copy at skills/local/<name>. Non-standard and broken
+	// entries are the deliberate exception: importing them claims/repairs them.
+	if sameManagedSource && !claimSource {
+		return nil, common.WithExitCode(
+			fmt.Errorf("import: source %q is already managed at %s; install or move it instead of importing", name, existing.Path),
+			common.ExitObject)
+	}
 	if claimSource {
 		existing = nil
 	}

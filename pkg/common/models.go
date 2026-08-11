@@ -64,12 +64,11 @@ const (
 	InstallDangling  InstallState = "dangling"
 )
 
-// Origin records the provenance of a remote-fetched entry, stored in
-// <entry>/meta.json. It is present only for remote imports/updates (I3).
-// Address is the source url, ProviderID the id of the Provider that fetched
-// it (persisted as "mode_id" for backward compatibility — 003 A-1), and Path
-// the entry's location relative to the repository root — together they let an
-// installed skill's meta.json track url / provider / path.
+// Origin records the provenance of an imported entry, stored in
+// <entry>/meta.json. Address is the source URL or local path, ProviderID the
+// provider id (persisted as "mode_id" for backward compatibility — 003 A-1),
+// and Path the entry's location relative to the repository root — together
+// they let an installed skill's meta.json track its source and layout.
 type Origin struct {
 	Address    string  `json:"address"`
 	ProviderID *string `json:"mode_id,omitempty"`

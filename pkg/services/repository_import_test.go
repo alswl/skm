@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/stretchr/testify/require"
 )
 
-func TestImportLocalDirPlacesUnderLocalLayerNoOrigin(t *testing.T) {
+func TestImportStagedLocalDirPlacesUnderLocalLayer(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(t.TempDir(), "review")
 	writeFile(t, src, "SKILL.md", frontmatter("review", "a review skill"))
@@ -27,11 +28,28 @@ func TestImportLocalDirPlacesUnderLocalLayerNoOrigin(t *testing.T) {
 	require.Equal(t, dest, res.Path)
 	require.FileExists(t, filepath.Join(dest, "SKILL.md"))
 	require.FileExists(t, filepath.Join(dest, "prompt.txt"), "resource files copied")
-	// Local import must not record origin.
 	_, err = os.Stat(filepath.Join(dest, "meta.json"))
 	require.True(t, os.IsNotExist(err))
 	// The source must remain (copied, not moved).
 	require.FileExists(t, filepath.Join(src, "SKILL.md"))
+}
+
+func TestImportLocalSkillMarkerFileImportsEnclosingSkill(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(t.TempDir(), "d2")
+	writeFile(t, src, "SKILL.md", frontmatter("d2", "a diagram skill"))
+	writeFile(t, src, "reference.md", "skill resource")
+
+	cfg := &config.Config{Root: root, ConfigDir: t.TempDir(), Targets: []common.InstallTarget{}}
+	svc, err := New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+	res, err := svc.Import(context.Background(), filepath.Join(src, "SKILL.md"), ImportOptions{})
+	require.NoError(t, err)
+	require.Equal(t, common.KindSkill, res.Type)
+	require.Equal(t, filepath.Join(root, "skills", "local", "d2"), res.Path)
+	require.FileExists(t, filepath.Join(res.Path, "SKILL.md"))
+	require.FileExists(t, filepath.Join(res.Path, "reference.md"), "the skill directory is imported, not only its marker")
+	require.FileExists(t, filepath.Join(src, "SKILL.md"), "the external marker remains in place")
 }
 
 func TestImportSingleFileMarkdownBecomesDirCommand(t *testing.T) {
@@ -107,14 +125,18 @@ func TestImportCollisionRejectedWithoutForce(t *testing.T) {
 	require.FileExists(t, filepath.Join(root, "skills/local/existing/SKILL.md"))
 }
 
-func TestImportForceOverwriteAndRollback(t *testing.T) {
+func TestImportForceOverwritePreservesExternalSource(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/local/dup/SKILL.md", frontmatter("dup", "original"))
 	orig := filepath.Join(root, "skills/local/dup/SKILL.md")
 	before, _ := os.ReadFile(orig)
 
-	src := filepath.Join(t.TempDir(), "dup")
+	externalRoot := t.TempDir()
+	src := filepath.Join(externalRoot, "dup")
+	sourceMarker := filepath.Join(src, "SKILL.md")
 	writeFile(t, src, "SKILL.md", frontmatter("dup", "overwritten"))
+	sourceBefore, err := os.ReadFile(sourceMarker)
+	require.NoError(t, err)
 
 	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", true, nil)
 	require.NoError(t, err)
@@ -122,6 +144,9 @@ func TestImportForceOverwriteAndRollback(t *testing.T) {
 	require.Equal(t, filepath.Join(root, "skills/local/dup"), res.Path)
 	after, _ := os.ReadFile(orig)
 	require.NotEqual(t, string(before), string(after), "force overwrites the marker")
+	sourceAfter, err := os.ReadFile(sourceMarker)
+	require.NoError(t, err)
+	require.Equal(t, sourceBefore, sourceAfter, "force-importing into another repository must not modify the source")
 }
 
 // TestImportForceReplacesTheCollidingEntryWhereverItLives: --force must leave
@@ -146,6 +171,23 @@ func TestImportForceReplacesTheCollidingEntryWhereverItLives(t *testing.T) {
 	require.Len(t, entries, 1, "the flat copy must be gone, not left behind as a second entry named dup")
 	require.Equal(t, res.Path, entries[0].Path)
 	require.NoDirExists(t, filepath.Join(root, "skills/github/dup"))
+}
+
+func TestImportForceRejectsAnAlreadyManagedSourceWithoutMovingIt(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "skills", "self-build", "d2")
+	writeFile(t, root, "skills/self-build/d2/SKILL.md", frontmatter("d2", "self-built diagram skill"))
+	before, err := os.ReadFile(filepath.Join(src, "SKILL.md"))
+	require.NoError(t, err)
+
+	_, err = NewRepository(root).ImportStaged(context.Background(), src, "local", "", true, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "already managed")
+
+	after, err := os.ReadFile(filepath.Join(src, "SKILL.md"))
+	require.NoError(t, err)
+	require.Equal(t, before, after, "the managed source must not be replaced or moved")
+	require.NoDirExists(t, filepath.Join(root, "skills", "local", "d2"))
 }
 
 func TestImportRejectsUnidentifiableSource(t *testing.T) {
