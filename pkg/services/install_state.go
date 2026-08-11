@@ -18,6 +18,8 @@ func (i *Installer) State(entry *common.Entry, target common.InstallTarget) comm
 	switch strategy {
 	case common.StrategySkillSymlink:
 		return engines.StateLink(filepath.Join(target.Path, entry.Name), entry.Path)
+	case common.StrategyCommandSymlink:
+		return engines.StateLink(filepath.Join(target.Path, entry.Name), entry.Path)
 	case common.StrategyCommandMarker:
 		return engines.StateLink(filepath.Join(target.Path, entry.Name+".md"), entry.MarkerPath())
 	case common.StrategyCommandAdapter:

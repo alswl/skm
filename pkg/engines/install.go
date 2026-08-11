@@ -13,6 +13,19 @@ import (
 // InstallSkill creates the directory symlink for a skill in a skill target
 // (install-semantics.md), idempotently.
 func InstallSkill(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
+	return InstallDirectory(tx, entry, target, force)
+}
+
+// InstallDirectory creates a symlink from the target slot to the complete
+// entry directory. It is used for skill entries and targets whose declared
+// command strategy explicitly supports directory-shaped commands.
+func InstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
+	if fi, err := os.Stat(entry.Path); err != nil || !fi.IsDir() {
+		if err == nil {
+			err = fmt.Errorf("entry is not a directory")
+		}
+		return false, fmt.Errorf("install %q: %w", entry.Name, err)
+	}
 	linkPath := filepath.Join(target.Path, entry.Name)
 	switch StateLink(linkPath, entry.Path) {
 	case common.InstallInstalled:
@@ -31,6 +44,18 @@ func InstallSkill(tx *dal.FileTransaction, entry *common.Entry, target common.In
 		return false, fmt.Errorf("install %q: %w", entry.Name, err)
 	}
 	if err := tx.CreateLink(entry.Path, linkPath); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// UninstallDirectory removes a managed directory symlink.
+func UninstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget) (bool, error) {
+	linkPath := filepath.Join(target.Path, entry.Name)
+	if !IsManagedLink(linkPath, entry.Path) {
+		return false, nil
+	}
+	if err := tx.RemoveManaged(linkPath); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -64,7 +89,7 @@ func InstallClaudeMarkdown(tx *dal.FileTransaction, entry *common.Entry, target 
 
 // InstallAdapter creates a managed skill-form adapter directory for a command
 // in a target whose declared strategy for command is command-adapter
-// (FR-016): a SKILL.md link to the command marker plus links to auxiliary
+// (FR-016): a regular SKILL.md copy of the command marker plus links to auxiliary
 // resources, so the command is discovered as a skill by that target's tool.
 func InstallAdapter(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
 	adapterDir := filepath.Join(target.Path, entry.Name)
@@ -84,7 +109,7 @@ func InstallAdapter(tx *dal.FileTransaction, entry *common.Entry, target common.
 	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
 		return false, fmt.Errorf("install %q: %w", entry.Name, err)
 	}
-	if err := tx.CreateLink(entry.MarkerPath(), filepath.Join(adapterDir, "SKILL.md")); err != nil {
+	if err := tx.CopyFile(entry.MarkerPath(), filepath.Join(adapterDir, "SKILL.md")); err != nil {
 		return false, err
 	}
 	resources, err := EntryResources(entry)
@@ -209,8 +234,11 @@ func StateLink(linkPath, expectedTarget string) common.InstallState {
 func StateAdapter(adapterDir string, entry *common.Entry) common.InstallState {
 	if dal.PathExists(adapterDir) {
 		if dal.IsSymlink(adapterDir) {
+			// A directory symlink is the legacy command-symlink shape. It
+			// must not be treated as an adapter merely because it points at
+			// the same entry; --force must be able to replace it.
 			if dal.ResolveLink(adapterDir) == entry.Path {
-				return common.InstallInstalled
+				return common.InstallConflict
 			}
 			return common.InstallDangling
 		}
@@ -226,20 +254,29 @@ func StateAdapter(adapterDir string, entry *common.Entry) common.InstallState {
 }
 
 // IsManagedAdapter reports whether dir is a managed adapter for entry: it
-// carries the adapter marker and its SKILL.md link resolves to the entry's
+// carries the adapter marker and its regular SKILL.md contains the entry's
 // marker (install-semantics.md).
 func IsManagedAdapter(dir string, entry *common.Entry) bool {
 	if !dal.PathExists(filepath.Join(dir, dal.AdapterMarker)) {
 		return false
 	}
-	return dal.ResolveLink(filepath.Join(dir, "SKILL.md")) == entry.MarkerPath()
+	skillFile := filepath.Join(dir, "SKILL.md")
+	if dal.IsSymlink(skillFile) {
+		return false
+	}
+	actual, err := os.ReadFile(skillFile)
+	if err != nil {
+		return false
+	}
+	expected, err := os.ReadFile(entry.MarkerPath())
+	return err == nil && string(actual) == string(expected)
 }
 
 // State derives the install health of a builtin-strategy install from the
 // filesystem (FR-019). Unsupported strategies return InstallAbsent.
 func State(strategy common.InstallStrategy, e *common.Entry, t common.InstallTarget) (common.InstallState, error) {
 	switch strategy {
-	case common.StrategySkillSymlink:
+	case common.StrategySkillSymlink, common.StrategyCommandSymlink:
 		return StateLink(filepath.Join(t.Path, e.Name), e.Path), nil
 	case common.StrategyCommandMarker:
 		return StateLink(filepath.Join(t.Path, e.Name+".md"), e.MarkerPath()), nil
@@ -256,7 +293,7 @@ func RemoveForeign(strategy common.InstallStrategy, tx *dal.FileTransaction, e *
 	var dest string
 	var state common.InstallState
 	switch strategy {
-	case common.StrategySkillSymlink:
+	case common.StrategySkillSymlink, common.StrategyCommandSymlink:
 		dest = filepath.Join(t.Path, e.Name)
 		state = StateLink(dest, e.Path)
 	case common.StrategyCommandMarker:
@@ -280,7 +317,7 @@ func RemoveForeign(strategy common.InstallStrategy, tx *dal.FileTransaction, e *
 // InspectDangling enumerates target-side dangling symlinks for the builtin
 // skill-symlink and command-marker strategies.
 func InspectDangling(strategy common.InstallStrategy, t common.InstallTarget) ([]DanglingInstall, error) {
-	if strategy != common.StrategySkillSymlink && strategy != common.StrategyCommandMarker {
+	if strategy != common.StrategySkillSymlink && strategy != common.StrategyCommandSymlink && strategy != common.StrategyCommandMarker {
 		return nil, nil
 	}
 	children, err := os.ReadDir(t.Path)

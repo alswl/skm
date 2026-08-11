@@ -62,6 +62,27 @@ func TestInstallSkillCreatesDirSymlinkAndIsIdempotent(t *testing.T) {
 	require.False(t, changed)
 }
 
+func TestInstallCodexCommandCreatesDirSymlink(t *testing.T) {
+	entry, target, inst := newTestInstaller(t, common.KindCommand)
+	target.Name = "codex"
+	target.Kind = ""
+	target.Accepts = []common.EntryKind{common.KindCommand}
+	target.Strategies = map[common.EntryKind]common.InstallStrategy{
+		common.KindCommand: common.StrategyCommandSymlink,
+	}
+
+	tx := &dal.FileTransaction{}
+	changed, err := inst.Install(tx, entry, target, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	tx.Commit()
+
+	link := filepath.Join(target.Path, entry.Name)
+	require.True(t, dal.IsSymlink(link))
+	require.Equal(t, entry.Path, dal.ResolveLink(link))
+	require.Equal(t, common.InstallInstalled, inst.State(entry, target))
+}
+
 func TestInstallClaudeCommandCreatesMarkdownSymlink(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
 	target.Kind = common.KindCommand // command target
@@ -89,11 +110,39 @@ func TestInstallCommandAdapter(t *testing.T) {
 	adapter := filepath.Join(target.Path, "demo")
 	require.True(t, dal.IsDir(adapter))
 	require.FileExists(t, filepath.Join(adapter, dal.AdapterMarker), "adapter must carry the marker")
-	require.Equal(t, entry.MarkerPath(), dal.ResolveLink(filepath.Join(adapter, "SKILL.md")))
+	require.False(t, dal.IsSymlink(filepath.Join(adapter, "SKILL.md")))
+	actual, err := os.ReadFile(filepath.Join(adapter, "SKILL.md"))
+	require.NoError(t, err)
+	expected, err := os.ReadFile(entry.MarkerPath())
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(actual))
 	require.Equal(t, filepath.Join(entry.Path, "assets"), dal.ResolveLink(filepath.Join(adapter, "assets")),
 		"auxiliary resource tree must be linked through the adapter")
 	require.True(t, dal.PathExists(filepath.Join(adapter, "assets", "x.txt")),
 		"auxiliary resource must stay visible through the adapter")
+	require.Equal(t, common.InstallInstalled, inst.State(entry, target))
+}
+
+func TestInstallCommandAdapterReplacesLegacyDirectorySymlink(t *testing.T) {
+	entry, target, inst := newTestInstaller(t, common.KindCommand)
+	target.Kind = common.KindSkill // legacy Codex command target shape
+	legacy := filepath.Join(target.Path, entry.Name)
+	require.NoError(t, os.Symlink(entry.Path, legacy))
+
+	tx := &dal.FileTransaction{}
+	_, err := inst.Install(tx, entry, target, false)
+	require.Error(t, err, "the legacy directory symlink must require force to replace")
+	_ = tx.Rollback()
+
+	tx = &dal.FileTransaction{}
+	changed, err := inst.Install(tx, entry, target, true)
+	require.NoError(t, err)
+	require.True(t, changed)
+	tx.Commit()
+
+	require.True(t, dal.IsDir(legacy))
+	require.False(t, dal.IsSymlink(legacy))
+	require.False(t, dal.IsSymlink(filepath.Join(legacy, "SKILL.md")))
 	require.Equal(t, common.InstallInstalled, inst.State(entry, target))
 }
 
@@ -121,7 +170,12 @@ func TestInstallCommandAdapterForSingleFileCommand(t *testing.T) {
 	adapter := filepath.Join(target.Path, "flatcmd")
 	require.True(t, dal.IsDir(adapter))
 	require.FileExists(t, filepath.Join(adapter, dal.AdapterMarker))
-	require.Equal(t, entry.MarkerPath(), dal.ResolveLink(filepath.Join(adapter, "SKILL.md")))
+	require.False(t, dal.IsSymlink(filepath.Join(adapter, "SKILL.md")))
+	actual, err := os.ReadFile(filepath.Join(adapter, "SKILL.md"))
+	require.NoError(t, err)
+	expected, err := os.ReadFile(entry.MarkerPath())
+	require.NoError(t, err)
+	require.Equal(t, string(expected), string(actual))
 	require.Equal(t, common.InstallInstalled, inst.State(entry, target))
 }
 

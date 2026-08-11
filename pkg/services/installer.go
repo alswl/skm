@@ -123,7 +123,7 @@ func (i *Installer) driverFor(strategy common.InstallStrategy, target common.Ins
 		return i.pluginFor(strategy, target)
 	}
 	switch strategy {
-	case common.StrategySkillSymlink, common.StrategyCommandMarker, common.StrategyCommandAdapter:
+	case common.StrategySkillSymlink, common.StrategyCommandSymlink, common.StrategyCommandMarker, common.StrategyCommandAdapter:
 		return builtinTargetDriver{strategy: strategy}, nil
 	}
 	return nil, fmt.Errorf("target %q: unknown strategy %q", target.Name, strategy)

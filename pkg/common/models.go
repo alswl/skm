@@ -83,6 +83,7 @@ type InstallStrategy string
 
 const (
 	StrategySkillSymlink   InstallStrategy = "skill-symlink"
+	StrategyCommandSymlink InstallStrategy = "command-symlink"
 	StrategyCommandMarker  InstallStrategy = "command-marker"
 	StrategyCommandAdapter InstallStrategy = "command-adapter"
 
@@ -128,7 +129,7 @@ func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
 	case KindSkill:
 		return s == StrategySkillSymlink
 	case KindCommand:
-		return s == StrategyCommandMarker || s == StrategyCommandAdapter
+		return s == StrategyCommandSymlink || s == StrategyCommandMarker || s == StrategyCommandAdapter
 	}
 	return false
 }

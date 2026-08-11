@@ -212,7 +212,7 @@ func (m *model) kindStrategies(kind common.EntryKind) []common.InstallStrategy {
 	case common.KindSkill:
 		out = []common.InstallStrategy{common.StrategySkillSymlink}
 	case common.KindCommand:
-		out = []common.InstallStrategy{common.StrategyCommandMarker, common.StrategyCommandAdapter}
+		out = []common.InstallStrategy{common.StrategyCommandSymlink, common.StrategyCommandMarker, common.StrategyCommandAdapter}
 	}
 	ids := make([]string, 0, len(m.svc.TargetPlugins))
 	for id := range m.svc.TargetPlugins {

@@ -59,7 +59,7 @@ func (d builtinTargetDriver) ID() string    { return "builtin:" + string(d.strat
 func (d builtinTargetDriver) Label() string { return string(d.strategy) }
 func (d builtinTargetDriver) Capability() TargetPluginCapability {
 	kinds := []common.EntryKind{common.KindSkill, common.KindCommand}
-	if d.strategy == common.StrategySkillSymlink {
+	if d.strategy == common.StrategySkillSymlink || d.strategy == common.StrategyCommandSymlink {
 		kinds = []common.EntryKind{common.KindSkill}
 	}
 	if d.strategy == common.StrategyCommandMarker || d.strategy == common.StrategyCommandAdapter {
@@ -98,6 +98,8 @@ func (d builtinTargetDriver) Install(tx *dal.FileTransaction, e *common.Entry, t
 	switch d.strategy {
 	case common.StrategySkillSymlink:
 		return engines.InstallSkill(tx, e, t, force)
+	case common.StrategyCommandSymlink:
+		return engines.InstallDirectory(tx, e, t, force)
 	case common.StrategyCommandMarker:
 		return engines.InstallClaudeMarkdown(tx, e, t, force)
 	case common.StrategyCommandAdapter:
@@ -109,6 +111,8 @@ func (d builtinTargetDriver) Uninstall(tx *dal.FileTransaction, e *common.Entry,
 	switch d.strategy {
 	case common.StrategySkillSymlink:
 		return engines.UninstallSkill(tx, e, t)
+	case common.StrategyCommandSymlink:
+		return engines.UninstallDirectory(tx, e, t)
 	case common.StrategyCommandMarker:
 		return engines.UninstallClaudeMarkdown(tx, e, t)
 	case common.StrategyCommandAdapter:

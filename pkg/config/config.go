@@ -83,9 +83,10 @@ func DefaultPluginDirs() []string {
 
 // defaultTargets returns the built-in targets restored when targets.json is
 // missing or has zero interpretable entries (FR-003). Each declares its own
-// accepts/strategies (FR-012/FR-013, data-model.md); codex receives skills
-// directly and commands via a command-adapter, exactly as before — nothing in
-// the installer branches on its name. pi has no separate commands concept (a
+// accepts/strategies (FR-012/FR-013, data-model.md). Codex receives skills as
+// directory links and commands through command-adapter, whose wrapper
+// directory contains a regular SKILL.md file. pi has no
+// separate commands concept (a
 // skill can be auto-registered as a /skill:name command by pi itself), so it
 // only accepts skill, via skill-symlink into its ~/.pi/agent/skills
 // convention. skm ships built-ins only for these widely-used public tools:
@@ -96,12 +97,6 @@ func defaultTargets() []common.InstallTarget {
 	if err != nil {
 		home = "~"
 	}
-	skillAndCommandAdapter := func() map[common.EntryKind]common.InstallStrategy {
-		return map[common.EntryKind]common.InstallStrategy{
-			common.KindSkill:   common.StrategySkillSymlink,
-			common.KindCommand: common.StrategyCommandAdapter,
-		}
-	}
 	return []common.InstallTarget{
 		{Name: "claude-skills", Platform: "claude", Path: filepath.Join(home, ".claude", "skills"), Builtin: true,
 			Accepts:    []common.EntryKind{common.KindSkill},
@@ -110,7 +105,8 @@ func defaultTargets() []common.InstallTarget {
 			Accepts:    []common.EntryKind{common.KindCommand},
 			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindCommand: common.StrategyCommandMarker}},
 		{Name: "codex", Platform: "codex", Path: filepath.Join(home, ".codex", "skills"), Builtin: true,
-			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: skillAndCommandAdapter()},
+			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: map[common.EntryKind]common.InstallStrategy{
+				common.KindSkill: common.StrategySkillSymlink, common.KindCommand: common.StrategyCommandAdapter}},
 		{Name: "pi", Platform: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Builtin: true,
 			Accepts:    []common.EntryKind{common.KindSkill},
 			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},

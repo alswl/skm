@@ -41,6 +41,20 @@ func TestLoadMigratesLegacyToolPathV1Entry(t *testing.T) {
 	}
 }
 
+func TestDefaultCodexUsesSkillCompatibleStrategies(t *testing.T) {
+	var codex common.InstallTarget
+	for _, target := range defaultTargets() {
+		if target.Name == "codex" {
+			codex = target
+			break
+		}
+	}
+
+	require.Equal(t, []common.EntryKind{common.KindSkill, common.KindCommand}, codex.Accepts)
+	require.Equal(t, common.StrategySkillSymlink, codex.Strategies[common.KindSkill])
+	require.Equal(t, common.StrategyCommandAdapter, codex.Strategies[common.KindCommand])
+}
+
 func TestLoadHandlesMixedV1AndV2Targets(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))

@@ -30,7 +30,32 @@ const (
 	txLink                       // create a symlink at dst
 	txRemove                     // remove dst (managed object)
 	txBackupRemove               // back up and remove dst (force overwrite)
+	txWrite                      // write a new regular file
 )
+
+// CopyFile records a regular-file copy at dst. The destination must not
+// already exist; rollback removes the copied file.
+func (t *FileTransaction) CopyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("transaction: prepare dir for %s: %w", dst, err)
+	}
+	if _, err := os.Lstat(dst); err == nil {
+		return fmt.Errorf("transaction: refusing to copy over existing %s", dst)
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("transaction: read %s: %w", src, err)
+	}
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("transaction: stat %s: %w", src, err)
+	}
+	if err := os.WriteFile(dst, data, info.Mode().Perm()); err != nil {
+		return fmt.Errorf("transaction: copy %s -> %s: %w", src, dst, err)
+	}
+	t.ops = append(t.ops, txOp{kind: txWrite, dst: dst})
+	return nil
+}
 
 // MoveStage records that staged content at src will be moved to dst. If dst
 // already exists it is moved to a backup so it can be restored on rollback.
@@ -150,6 +175,8 @@ func (t *FileTransaction) Rollback() error {
 			}
 		case txBackupRemove:
 			_ = os.Rename(op.backup, op.dst)
+		case txWrite:
+			_ = os.Remove(op.dst)
 		}
 	}
 	t.ops = nil
