@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # VERSION is derived from `git describe --tags`
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make build GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
+      - name: Package
+        run: |
+          cd bin
+          asset="skm-${{ matrix.goos }}-${{ matrix.goarch }}"
+          archive="skm-${GITHUB_REF_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
+          tar czf "../${archive}" "${asset}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skm-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: '*.tar.gz'
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: dist/*
