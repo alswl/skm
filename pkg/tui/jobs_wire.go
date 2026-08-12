@@ -87,3 +87,17 @@ func (m *model) cancelRunningTask() {
 		m.setStatus(fmt.Sprintf("cancelled task #%d; continuing with the next", id))
 	}
 }
+
+// runningJobStatus is the status-line text for the currently running job (and
+// how many are still queued behind it), or "" when the queue is idle.
+func (m model) runningJobStatus() string {
+	name, queued := m.queue.RunningStatus()
+	if name == "" {
+		return ""
+	}
+	text := "▶ " + name
+	if queued > 0 {
+		text += fmt.Sprintf(" · %d queued", queued)
+	}
+	return text
+}

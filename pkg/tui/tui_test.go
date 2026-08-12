@@ -1156,10 +1156,11 @@ func TestJobFailureVisibleRegardlessOfActiveScreen(t *testing.T) {
 	})
 }
 
-// TestBatchUpdateSurfacesFailureReason: the TUI batch-update status message
-// must name which entries failed and why, not just an aggregate count
-// (FR-005) — previously services.BatchUpdateResult.Failed discarded the
-// reason before it ever reached the TUI.
+// TestBatchUpdateSurfacesFailureReason: the TUI batch-update failure status
+// must name the failing entry and why, not just an aggregate count (FR-005) —
+// previously services.BatchUpdateResult.Failed discarded the reason before it
+// ever reached the TUI. The batch now runs as one job per entry behind a
+// confirmation, and a failing per-entry job's error carries the entry name.
 func TestBatchUpdateSurfacesFailureReason(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\ndescription: broken\n---\nbody\n")
@@ -1167,10 +1168,134 @@ func TestBatchUpdateSurfacesFailureReason(t *testing.T) {
 	m.applyScan(m.svc.Scan())
 
 	m.batchUpdate()
+	require.NotNil(t, m.confirm, "batch update asks for confirmation before running")
+	m.handleConfirmKey(runeKey('y'))
 	drainJob(t, &m)
-	require.Contains(t, m.status, "failed=1")
 	require.Contains(t, m.status, "broken", "the failing entry's name is reachable, not just the count")
-	require.Contains(t, m.status, "failed:", "a reason is reachable alongside the name")
+	require.Contains(t, m.status, "failed", "a reason is reachable alongside the name")
+}
+
+// TestBatchUpdateNoCandidatesGivesFeedback: pressing P with nothing updatable
+// in the current tab must say so instead of opening a meaningless
+// confirmation.
+func TestBatchUpdateNoCandidatesGivesFeedback(t *testing.T) {
+	m := newTestModel(t) // fixture entries have no origin
+	m.batchUpdate()
+	require.Nil(t, m.confirm, "no confirmation when nothing to update")
+	require.Contains(t, m.status, "nothing to update")
+}
+
+// TestBatchUpdateConfirmsBeforeRunning: P opens a confirmation instead of
+// running immediately; declining queues nothing.
+func TestBatchUpdateConfirmsBeforeRunning(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-a/meta.json", `{"address":"/fa","mode_id":"local"}`)
+	m.applyScan(m.svc.Scan())
+
+	m.batchUpdate()
+	require.NotNil(t, m.confirm, "batch update asks for confirmation first")
+	require.Empty(t, m.queue.Snapshot().Pending, "no jobs queued before confirmation")
+
+	m.handleConfirmKey(runeKey('n'))
+	require.Nil(t, m.confirm)
+	require.Empty(t, m.queue.Snapshot().Pending, "declining queues nothing")
+	require.Empty(t, m.queue.Snapshot().Completed, "declining runs nothing")
+}
+
+// TestBatchUpdateSplitsIntoPerEntryJobs: confirming a batch update queues one
+// job per active-with-origin entry, so each update is observable in the task
+// center and status bar instead of being hidden inside one monolithic
+// batch-update job.
+func TestBatchUpdateSplitsIntoPerEntryJobs(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-a/meta.json", `{"address":"/fa","mode_id":"local"}`)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-b/meta.json", `{"address":"/fb","mode_id":"local"}`)
+	m.applyScan(m.svc.Scan())
+
+	m.batchUpdate()
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	drainJob(t, &m) // would time out if fewer than two jobs were queued
+	done := m.queue.Snapshot().Completed
+	require.Len(t, done, 2, "one job per candidate entry")
+	require.Equal(t, "update skill-a", done[0].Name)
+	require.Equal(t, "update skill-b", done[1].Name)
+}
+
+// TestBatchUpdateScopesToCurrentTab: batch update refreshes only the active
+// entries in the current provider tab, not every entry with an origin. Entries
+// live under skills/<provider>/<name>/, so the provider directory (not
+// meta.json) is what defines the tab.
+func TestBatchUpdateScopesToCurrentTab(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/github/gh-skill/SKILL.md", "---\nname: gh-skill\ndescription: gh\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/github/gh-skill/meta.json", `{"address":"/fa","mode_id":"github"}`)
+	writeFileT(t, m.svc.Cfg.Root, "skills/gitlab/gl-skill/SKILL.md", "---\nname: gl-skill\ndescription: gl\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/gitlab/gl-skill/meta.json", `{"address":"/fb","mode_id":"gitlab"}`)
+	m.applyScan(m.svc.Scan())
+	githubTab := 0
+	for i, tab := range m.providerTabs {
+		if tab == "github" {
+			githubTab = i
+		}
+	}
+	require.NotEqual(t, 0, githubTab, "fixture has a github provider tab")
+	m.jumpToProviderTab(githubTab)
+
+	m.batchUpdate()
+	require.NotNil(t, m.confirm)
+	require.Contains(t, m.confirm.Prompt, "1 entry", "only the current tab's entries are candidates")
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	done := m.queue.Snapshot().Completed
+	require.Len(t, done, 1)
+	require.Equal(t, "update gh-skill", done[0].Name, "gitlab entry is not updated from the github tab")
+}
+
+// TestBatchUpdateResolvesSameNameByPath: two same-named entries in different
+// providers are both updated. Per-entry jobs address by path (the entry's
+// identity), not bare name — a bare name would resolve both jobs to the first
+// match, silently skipping one provider's copy.
+func TestBatchUpdateResolvesSameNameByPath(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/github/dup/SKILL.md", "---\nname: dup\ndescription: gh\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/github/dup/meta.json", `{"address":"/fa","mode_id":"github"}`)
+	writeFileT(t, m.svc.Cfg.Root, "skills/gitlab/dup/SKILL.md", "---\nname: dup\ndescription: gl\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/gitlab/dup/meta.json", `{"address":"/fb","mode_id":"gitlab"}`)
+	m.applyScan(m.svc.Scan())
+
+	m.batchUpdate() // default tab is all, so both same-named entries are candidates
+	require.NotNil(t, m.confirm)
+	require.Contains(t, m.confirm.Prompt, "2 entries")
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	drainJob(t, &m)
+	done := m.queue.Snapshot().Completed
+	require.Len(t, done, 2, "one job per same-named entry, not one shadowing the other")
+	require.Equal(t, "update dup", done[0].Name)
+	require.Equal(t, "update dup", done[1].Name)
+}
+
+// TestStatusBarShowsRunningJob: while a job runs, the status bar names it and
+// how many are queued behind it, so a multi-job batch stays visible without
+// opening the task center.
+func TestStatusBarShowsRunningJob(t *testing.T) {
+	m := newTestModel(t)
+	release := make(chan struct{})
+	block := func(ctx context.Context) (any, error) { <-release; return "done", nil }
+	m.submitJob("update skill-a", block)
+	m.submitJob("update skill-b", block)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(m.statusContent(), "update skill-a") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	require.Contains(t, m.statusContent(), "update skill-a", "status bar names the running job")
+	require.Contains(t, m.statusContent(), "1 queued", "status bar counts the jobs still queued")
+
+	close(release)
+	drainJob(t, &m)
+	drainJob(t, &m)
 }
 
 // TestDiscoverSurfacesProviderLoadFailure: a provider plugin that fails to

@@ -67,3 +67,24 @@ func TestBatchUpdateClassifiesResults(t *testing.T) {
 	require.NotContains(t, res.Updated, "d", "archived entries are not processed")
 	require.Equal(t, 4, res.Total)
 }
+
+// TestUpdatable locks the refresh-eligibility rule shared by the CLI
+// batch-update and the TUI batch jobs: only active entries with an origin can
+// be updated.
+func TestUpdatable(t *testing.T) {
+	svc := newUpdateSvc(t, t.TempDir())
+	cases := []struct {
+		name  string
+		entry *common.Entry
+		want  bool
+	}{
+		{"active with origin", &common.Entry{Status: common.StatusActive, Origin: &common.Origin{Address: "/x"}}, true},
+		{"active without origin", &common.Entry{Status: common.StatusActive}, false},
+		{"archived with origin", &common.Entry{Status: common.StatusArchived, Origin: &common.Origin{Address: "/x"}}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			require.Equal(t, c.want, svc.Updatable(c.entry))
+		})
+	}
+}

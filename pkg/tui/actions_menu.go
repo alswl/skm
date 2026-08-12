@@ -30,7 +30,7 @@ func (m *model) entryActions() []entryAction {
 	}
 	e := m.filtered[m.cursor]
 	install := e.Status == common.StatusActive && len(m.installs.forEntry(e.Path)) > 0
-	update := e.Status == common.StatusActive && e.Origin != nil
+	update := m.svc.Updatable(e)
 	normalize := e.Status == common.StatusNonStandard || e.Status == common.StatusActive
 	claim := e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
 	fix := e.Status == common.StatusActive && len(m.fixableTargets(e)) > 0

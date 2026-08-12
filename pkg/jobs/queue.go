@@ -67,12 +67,16 @@ type Snapshot struct {
 // single worker executes jobs one at a time; cancel marks the running job's id
 // stale so its late result is discarded and the next job proceeds (FR-011).
 // The worker is a daemon; quitting the app abandons it without waiting
-// (FR-012). Alongside the FIFO channel it tracks queued/running/completed
-// metadata so the TUI task center can list and manage jobs (FR-039).
+// (FR-012). Pending jobs sit in an unbounded slice so Submit never blocks — a
+// bounded channel would freeze a batch caller mid-enqueue; a condition
+// variable wakes the worker only when the backlog is empty. Alongside the
+// backlog it tracks queued/running/completed metadata so the TUI task center
+// can list and manage jobs (FR-039).
 type Queue struct {
 	mu            sync.Mutex
+	cond          *sync.Cond
 	nextID        int64
-	jobs          chan *Job
+	jobs          []*Job // FIFO backlog, unbounded
 	results       chan Result
 	runningID     int64
 	runningName   string
@@ -80,27 +84,35 @@ type Queue struct {
 	stale         map[int64]bool
 	pending       []JobInfo
 	completed     []JobInfo
+	closed        bool
 }
 
-// New creates a queue with the given buffered channels.
+// New creates a queue. buffer sizes the results channel; the job backlog is
+// unbounded.
 func New(buffer int) *Queue {
 	q := &Queue{
-		jobs:    make(chan *Job, buffer),
 		results: make(chan Result, buffer),
 		stale:   map[int64]bool{},
 	}
+	q.cond = sync.NewCond(&q.mu)
 	go q.worker()
 	return q
 }
 
-// Submit enqueues a job and returns its monotonic id.
+// Submit enqueues a job and returns its monotonic id (0 when the queue is
+// closed, in which case the job is refused). It never blocks: the backlog is
+// unbounded, so any number of jobs can be queued ahead of the single worker.
 func (q *Queue) Submit(name string, run func(ctx context.Context) (any, error)) int64 {
 	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return 0 // closed: the worker is gone, so a queued job would never run
+	}
 	q.nextID++
 	id := q.nextID
 	q.pending = append(q.pending, JobInfo{ID: id, Name: name, State: JobQueued})
-	q.mu.Unlock()
-	q.jobs <- &Job{ID: id, Name: name, Run: run}
+	q.jobs = append(q.jobs, &Job{ID: id, Name: name, Run: run})
+	q.cond.Signal()
 	return id
 }
 
@@ -183,11 +195,33 @@ func (q *Queue) RunningID() int64 {
 	return q.runningID
 }
 
-// Close stops accepting new jobs and waits for the worker to drain.
-func (q *Queue) Close() { close(q.jobs) }
+// RunningStatus returns the running job's name and how many jobs are queued
+// behind it ("", 0 when idle). It reads live fields without copying the
+// completed history, so it is cheap enough for the status bar's per-frame use.
+func (q *Queue) RunningStatus() (name string, queued int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.runningID == 0 {
+		return "", 0
+	}
+	return q.runningName, len(q.pending)
+}
 
+// Close stops accepting new jobs; the worker drains the backlog and exits.
+func (q *Queue) Close() {
+	q.mu.Lock()
+	q.closed = true
+	q.mu.Unlock()
+	q.cond.Broadcast()
+}
+
+// worker runs jobs one at a time until the queue is closed and drained.
 func (q *Queue) worker() {
-	for job := range q.jobs {
+	for {
+		job := q.dequeue()
+		if job == nil {
+			return
+		}
 		if q.startJob(job) {
 			continue // cancelled while queued: skipped, stale result already emitted
 		}
@@ -202,6 +236,23 @@ func (q *Queue) worker() {
 		q.finishJob(job, err)
 		q.results <- Result{ID: job.ID, Value: value, Err: err}
 	}
+}
+
+// dequeue returns the next queued job, blocking until one is available or the
+// queue is closed (nil).
+func (q *Queue) dequeue() *Job {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for len(q.jobs) == 0 && !q.closed {
+		q.cond.Wait()
+	}
+	if len(q.jobs) == 0 {
+		return nil
+	}
+	job := q.jobs[0]
+	q.jobs[0] = nil // release the reference so a drained batch doesn't pin job closures
+	q.jobs = q.jobs[1:]
+	return job
 }
 
 // startJob transitions a job from pending to running, or skips it when it was

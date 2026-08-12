@@ -495,18 +495,30 @@ func truncPad(s string, w int) string {
 }
 
 // statusContent is the bottom status line: the import prompt, the active search
-// input, the last action status, or the page + selected-entry summary.
+// input, the running job or last action status, or the page + selected-entry
+// summary.
 func (m model) statusContent() string {
 	switch {
 	case m.importing:
 		return components.StylePrompt.Render("Import address: ") + m.importAddr + "▏"
 	case m.searching:
 		return components.StyleTitle.Render("Search: ") + m.search + "▏"
-	case m.status != "":
-		return m.status
 	default:
+		if s := m.statusBarText(); s != "" {
+			return s
+		}
 		return m.selectionSummary()
 	}
+}
+
+// statusBarText is the transient status line shared by the list and detail
+// pages while no input owns the bar: the running job while the queue is busy
+// (so per-job progress stays visible), else the last action message.
+func (m model) statusBarText() string {
+	if r := m.runningJobStatus(); r != "" {
+		return r
+	}
+	return m.status
 }
 
 func (m model) selectionSummary() string {
@@ -545,7 +557,7 @@ func (m model) detailView() string {
 		sb.WriteString("│" + components.FitCell(l, inner, lipgloss.NewStyle()) + "│\n")
 	}
 	sb.WriteString(components.FrameSep(inner) + "\n")
-	sb.WriteString("│" + components.FitCell(m.status, inner, components.StyleStatusBar) + "│\n")
+	sb.WriteString("│" + components.FitCell(m.statusBarText(), inner, components.StyleStatusBar) + "│\n")
 	sb.WriteString(components.FrameSep(inner) + "\n")
 	sb.WriteString("│" + components.FitCell(m.detailHint(), inner, lipgloss.NewStyle()) + "│\n")
 	sb.WriteString(components.FrameBottom(inner))
@@ -619,7 +631,7 @@ func (m model) detailBindings() []pages.HintItem {
 		{Keys: "j/k", Label: "scroll", Enabled: len(components.SplitLines(m.detail)) > rows},
 		{Keys: "esc/q", Label: "back", Enabled: true},
 		{Keys: "i", Label: "installs", Enabled: e.Status == common.StatusActive && m.detailTargets > 0},
-		{Keys: "p", Label: "update", Enabled: e.Status == common.StatusActive && e.Origin != nil},
+		{Keys: "p", Label: "update", Enabled: m.svc.Updatable(e)},
 		{Keys: "a", Label: "archive", Enabled: true},
 		{Keys: "d", Label: "delete", Enabled: true},
 		{Keys: "n", Label: "move", Enabled: e.Status == common.StatusNonStandard},

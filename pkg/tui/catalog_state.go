@@ -71,6 +71,20 @@ func (m *model) activeProviderTab() string {
 	return m.providerTabs[m.providerTabIdx]
 }
 
+// matchesProviderTab reports whether entry e is visible in provider tab tab
+// (the same rule the list applies in refreshFiltered, so batch-update's scope
+// matches what the current tab shows).
+func matchesProviderTab(e *common.Entry, tab string) bool {
+	if tab == tabAll {
+		return true
+	}
+	id := e.ProviderIDValue()
+	if tab == tabNone {
+		return id == ""
+	}
+	return id == tab
+}
+
 func (m *model) refreshFiltered() {
 	q, tab := m.search, m.activeProviderTab()
 	m.filtered = nil
@@ -78,11 +92,8 @@ func (m *model) refreshFiltered() {
 		if !m.showArchived && e.Status == common.StatusArchived {
 			continue
 		}
-		if tab != tabAll {
-			id := e.ProviderIDValue()
-			if (tab == tabNone && id != "") || (tab != tabNone && id != tab) {
-				continue
-			}
+		if !matchesProviderTab(e, tab) {
+			continue
 		}
 		if q != "" && !containsFold(e.Name, q) && !containsFold(e.Description, q) {
 			continue

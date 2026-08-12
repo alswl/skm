@@ -195,3 +195,33 @@ func TestQueueCancelAll(t *testing.T) {
 	}
 	require.Equal(t, int64(0), q.RunningID())
 }
+
+// TestQueueSubmitNeverBlocks: the backlog is unbounded, so a batch of 100 jobs
+// must enqueue without blocking even while the worker is busy (the bounded
+// channel this replaced froze a batch caller mid-enqueue).
+func TestQueueSubmitNeverBlocks(t *testing.T) {
+	q := New(2) // tiny buffer, exactly the overflow scenario that used to block
+	defer q.Close()
+
+	release := make(chan struct{})
+	q.Submit("block", func(ctx context.Context) (any, error) { <-release; return "first", nil })
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			q.Submit("j", func(ctx context.Context) (any, error) { return "ok", nil })
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Submit blocked with a full backlog; batch enqueue must not block the caller")
+	}
+
+	close(release)
+	for i := 0; i < 101; i++ { // the block job plus the 100 queued
+		waitResult(t, q)
+	}
+}

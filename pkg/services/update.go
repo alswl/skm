@@ -44,6 +44,16 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 	return s.Repo.UpdateEntry(ctx, entry, staged)
 }
 
+// Updatable reports whether an entry can be refreshed from its origin (active
+// and carries an origin). It is the eligibility rule shared by the CLI
+// batch-update and the TUI's per-entry batch jobs, so "what can be updated"
+// lives with the update domain instead of being re-derived in the
+// presentation layer. (Update keeps its own two checks because it must report
+// which half of the rule failed.)
+func (s *Services) Updatable(e *common.Entry) bool {
+	return e.Status == common.StatusActive && e.Origin != nil
+}
+
 // fetchFromOrigin fetches an address through the first matching provider.
 func (s *Services) fetchFromOrigin(ctx context.Context, address string) (string, func(), error) {
 	p := s.Registry.Match(address)
@@ -88,7 +98,7 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 		if e.Status != common.StatusActive {
 			continue
 		}
-		if e.Origin == nil {
+		if !s.Updatable(e) { // active but originless: skipped, not failed
 			res.Skipped = append(res.Skipped, e.Name)
 			continue
 		}
