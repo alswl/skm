@@ -44,6 +44,16 @@ git clone git@github.com:alswl/skm.git && cd skm && make build && make install
 skm init ~/skills && cd ~/skills
 ```
 
+Don't start from a blank repo — you almost certainly have skills already sitting in
+`~/.claude/skills`, `~/.codex/skills`, and the like. Discover them and adopt the ones you want:
+
+```bash
+skm discover                        # what's out there but unmanaged?
+skm adopt ~/.codex/skills/review    # pull it into the repo, replace it with a managed install
+```
+
+In the TUI that's `o` to discover, then `enter` to adopt.
+
 Run `skm` with no arguments — that's the primary way to use it. A searchable catalog with one
 install column per tool, entry detail, a target editor (`t`), and a task center (`J`) where
 long-running jobs report progress while you keep browsing.
