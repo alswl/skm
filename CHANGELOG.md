@@ -1,3 +1,13 @@
+## [0.1.1] - 2026-08-12
+
+### 📚 Documentation
+
+- Highlight providers/targets, add tag-triggered release workflow
+- Recommend discover+adopt for quick start, sync zh-CN README
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.1.0-dev
 ## [0.1.0] - 2026-08-11
 
 ### 🚀 Features
@@ -22,3 +32,4 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Init gitignore
+- Bump version to v0.1.0
