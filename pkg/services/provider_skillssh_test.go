@@ -33,6 +33,13 @@ func TestParseSkillsShShortcutPageURL(t *testing.T) {
 	require.Equal(t, "find-skills", sc.name)
 }
 
+func TestParseSkillsShShortcutPageURLAcceptsWWW(t *testing.T) {
+	sc := parseSkillsShShortcut("https://www.skills.sh/mattpocock/skills/improve-codebase-architecture")
+	require.NotNil(t, sc)
+	require.Equal(t, "https://github.com/mattpocock/skills.git", sc.repoURL)
+	require.Equal(t, "improve-codebase-architecture", sc.name)
+}
+
 func TestParseSkillsShShortcutRejectsUnrelatedAddresses(t *testing.T) {
 	for _, addr := range []string{
 		"skills.sh://owner/repo",

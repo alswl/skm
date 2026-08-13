@@ -19,7 +19,7 @@ func NewSkillsSh() Provider {
 	return gitBackedProvider{
 		id: "skills-sh", label: "Skills.sh", scheme: "skills.sh://",
 		envHostVar: "SKM_SKILLS_SH_HOST", defaultHost: "github.com",
-		icon: "🌐",
+		icon: "△",
 	}
 }
 
@@ -37,9 +37,10 @@ type skillsShShortcut struct {
 var npxSkillsAddRe = regexp.MustCompile(`^\$?\s*npx\s+skills\s+add\s+(\S+)\s+--skill\s+(\S+)\s*$`)
 
 // skillsShPageURLRe matches a skills.sh skill page URL itself, e.g.
-// "https://skills.sh/owner/repo/name" — the same (owner, repo, name) triple
-// the npx command carries.
-var skillsShPageURLRe = regexp.MustCompile(`^https://skills\.sh/([^/\s]+)/([^/\s]+)/([^/\s]+)/?$`)
+// "https://skills.sh/owner/repo/name" or "https://www.skills.sh/owner/repo/name"
+// (the site itself links to the "www." host) — the same (owner, repo, name)
+// triple the npx command carries.
+var skillsShPageURLRe = regexp.MustCompile(`^https://(?:www\.)?skills\.sh/([^/\s]+)/([^/\s]+)/([^/\s]+)/?$`)
 
 // parseSkillsShShortcut recognizes the npx command line or page URL forms;
 // both name a skill skills.sh's own tooling resolves by searching the repo
