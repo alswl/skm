@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/services"
@@ -42,25 +43,22 @@ func (m *model) discoverExternal() {
 	}
 }
 
-// adoptExternal adopts each selected external skill in the background: import
-// into the repo and replace the external directory with a managed symlink.
+// adoptExternal isolates failures to the affected selected source.
 func (m *model) adoptExternal(sel []pages.PickerItem) {
 	if len(sel) == 0 {
 		m.setStatus("adopt: nothing selected")
 		return
 	}
-	paths := pickerValues(sel)
-	m.submitJob(fmt.Sprintf("adopt %d skill(s)", len(paths)), func(ctx context.Context) (any, error) {
-		var names []string
-		for _, p := range paths {
-			res, err := m.svc.AdoptExternal(ctx, p, false)
+	for _, path := range pickerValues(sel) {
+		path := path
+		m.submitJob("adopt "+filepath.Base(path), func(ctx context.Context) (any, error) {
+			res, err := m.svc.AdoptExternal(ctx, path, false)
 			if err != nil {
 				return nil, err
 			}
-			names = append(names, res.Name)
-		}
-		return fmt.Sprintf("adopted %d skill(s): %v", len(names), names), nil
-	})
+			return fmt.Sprintf("adopted %s", res.Name), nil
+		})
+	}
 }
 
 // confirmDeleteExternal asks for confirmation, then deletes the selected

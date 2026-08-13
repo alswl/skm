@@ -16,12 +16,7 @@ type AdoptResult struct {
 	Path   string `json:"path"`
 }
 
-// AdoptExternal turns a real, unmanaged external skill directory (as reported
-// by discover) into a managed repository entry: it imports the directory into
-// the repo local layer, then reinstalls it as a managed symlink into the target
-// that held it, replacing the real directory (FR-038). A symlink is never
-// adopted — discover only reports real directories, and this guards again so a
-// symlink is never removed implicitly.
+// AdoptExternal avoids inferring a provider for unmanaged target-side skills.
 func (s *Services) AdoptExternal(ctx context.Context, path string, force bool) (*AdoptResult, error) {
 	fi, err := os.Lstat(path)
 	if err != nil {
@@ -36,14 +31,15 @@ func (s *Services) AdoptExternal(ctx context.Context, path string, force bool) (
 		return nil, err
 	}
 
-	// Import as a local asset (copy into repo, no origin).
-	imp, err := s.Import(ctx, path, ImportOptions{Force: force})
+	// Keep the source directory name as the target-side install slot.
+	providerID := "unknown"
+	imp, err := s.Repo.ImportStagedAs(ctx, path, providerID, target.Name, filepath.Base(path), force,
+		&common.Origin{Address: path, ProviderID: &providerID, InstallSlot: filepath.Base(path)})
 	if err != nil {
 		return nil, err
 	}
 
-	// Replace the real external directory with a managed symlink into its target.
-	if _, err := s.Install(ctx, imp.Name, InstallOptions{Targets: []string{target.Name}, Force: true}); err != nil {
+	if _, err := s.Install(ctx, s.Repo.RelPath(imp.Path), InstallOptions{Targets: []string{target.Name}, Force: true}); err != nil {
 		return nil, err
 	}
 

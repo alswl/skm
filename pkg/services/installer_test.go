@@ -123,6 +123,31 @@ func TestInstallCommandAdapter(t *testing.T) {
 	require.Equal(t, common.InstallInstalled, inst.State(entry, target))
 }
 
+func TestPluginSkillTargetFallsBackToCommandAdapter(t *testing.T) {
+	entry, target, inst := newTestInstaller(t, common.KindCommand)
+	target.Kind = ""
+	target.Accepts = []common.EntryKind{common.KindSkill}
+	target.Strategies = map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("acme")}
+
+	tx := &dal.FileTransaction{}
+	changed, err := inst.Install(tx, entry, target, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	tx.Commit()
+
+	require.FileExists(t, filepath.Join(target.Path, entry.Name, "SKILL.md"))
+	require.FileExists(t, filepath.Join(target.Path, entry.Name, dal.AdapterMarker))
+	require.Equal(t, common.InstallInstalled, inst.State(entry, target))
+
+	tx = &dal.FileTransaction{}
+	changed, err = inst.Uninstall(tx, entry, target)
+	require.NoError(t, err)
+	require.True(t, changed)
+	tx.Commit()
+	require.NoDirExists(t, filepath.Join(target.Path, entry.Name))
+	require.Equal(t, common.InstallAbsent, inst.State(entry, target))
+}
+
 func TestInstallCommandAdapterReplacesLegacyDirectorySymlink(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
 	target.Kind = common.KindSkill // legacy Codex command target shape
@@ -285,4 +310,31 @@ func TestUninstallLeavesUnrecognizedDanglingLink(t *testing.T) {
 	require.False(t, changed)
 	_, err = os.Lstat(link)
 	require.NoError(t, err, "an arbitrary dangling user link must remain untouched")
+}
+
+func TestUninstallRemovesDanglingUnknownSkillAtOriginalDirectorySlot(t *testing.T) {
+	root := t.TempDir()
+	providerID := "unknown"
+	installSlot := "atc-cli"
+	entry := &common.Entry{
+		Name:       "atc",
+		Kind:       common.KindSkill,
+		Path:       filepath.Join(root, "skills", "unknown", "codex", "atc-cli"),
+		ProviderID: &providerID,
+		Origin:     &common.Origin{ProviderID: &providerID, InstallSlot: installSlot},
+	}
+	target := common.InstallTarget{Name: "codex", Path: filepath.Join(root, "target"), Kind: common.KindSkill}
+	mkdir(t, target.Path)
+	link := filepath.Join(target.Path, "atc-cli")
+	require.NoError(t, os.Symlink(entry.Path, link))
+
+	inst := NewInstaller([]common.InstallTarget{target}, nil)
+	require.Equal(t, common.InstallDangling, inst.State(entry, target))
+	tx := &dal.FileTransaction{}
+	changed, err := inst.Uninstall(tx, entry, target)
+	require.NoError(t, err)
+	require.True(t, changed)
+	tx.Commit()
+	_, err = os.Lstat(link)
+	require.True(t, os.IsNotExist(err), "the managed dangling unknown link is removable")
 }

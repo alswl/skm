@@ -67,12 +67,13 @@ const (
 // Origin records the provenance of an imported entry, stored in
 // <entry>/meta.json. Address is the source URL or local path, ProviderID the
 // provider id (persisted as "mode_id" for backward compatibility — 003 A-1),
-// and Path the entry's location relative to the repository root — together
-// they let an installed skill's meta.json track its source and layout.
+// and Path the entry's location relative to the repository root. InstallSlot
+// preserves a source directory name when it differs from the skill name.
 type Origin struct {
-	Address    string  `json:"address"`
-	ProviderID *string `json:"mode_id,omitempty"`
-	Path       string  `json:"path,omitempty"`
+	Address     string  `json:"address"`
+	ProviderID  *string `json:"mode_id,omitempty"`
+	Path        string  `json:"path,omitempty"`
+	InstallSlot string  `json:"install_slot,omitempty"`
 }
 
 // InstallStrategy is the on-disk shape a target uses to place an asset
@@ -161,6 +162,9 @@ func (t InstallTarget) AcceptsKind(kind EntryKind) bool {
 // command-adapter); a Kind:"command" target accepts only command.
 func (t InstallTarget) EffectiveAccepts() []EntryKind {
 	if len(t.Accepts) > 0 {
+		if slices.Contains(t.Accepts, KindSkill) && t.Strategies[KindSkill].IsPlugin() && !slices.Contains(t.Accepts, KindCommand) {
+			return append(append([]EntryKind(nil), t.Accepts...), KindCommand)
+		}
 		return t.Accepts
 	}
 	accepts, _ := legacyKindDefaults(t.Kind)
@@ -173,6 +177,9 @@ func (t InstallTarget) EffectiveAccepts() []EntryKind {
 func (t InstallTarget) EffectiveStrategy(kind EntryKind) (strategy InstallStrategy, ok bool) {
 	if len(t.Strategies) > 0 {
 		strategy, ok = t.Strategies[kind]
+		if !ok && kind == KindCommand && t.Strategies[KindSkill].IsPlugin() {
+			return StrategyCommandAdapter, true
+		}
 		return strategy, ok
 	}
 	_, strategies := legacyKindDefaults(t.Kind)

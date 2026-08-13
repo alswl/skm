@@ -22,7 +22,7 @@ func (m *model) normalizeSelected() {
 		m.setStatus(fmt.Sprintf("%s is %s; only non-standard or active entries can be moved", entry.Name, entry.Status))
 		return
 	}
-	m.openNormalizeProviderPicker(entry.Name)
+	m.openNormalizeProviderPicker(entry.Name, m.svc.Repo.RelPath(entry.Path))
 }
 
 // openNormalizeProviderPicker lists "local" (the safe default) and
@@ -30,7 +30,7 @@ func (m *model) normalizeSelected() {
 // provider already present in the repository, so a non-standard entry can be
 // moved to whichever one actually fits it — "移动到更合理的 providers" —
 // rather than always defaulting to "local".
-func (m *model) openNormalizeProviderPicker(name string) {
+func (m *model) openNormalizeProviderPicker(name, ref string) {
 	items := []pages.PickerItem{
 		{Label: "local", Value: "local"},
 		{Label: "self-build", Value: "self-build"},
@@ -53,15 +53,15 @@ func (m *model) openNormalizeProviderPicker(name string) {
 			if len(sel) > 0 {
 				provider = sel[0].Value
 			}
-			m.confirmNormalize(name, provider)
+			m.confirmNormalize(name, ref, provider)
 		},
 	}
 }
 
 // confirmNormalize previews the destination for provider and, once the user
 // confirms, runs the move as a background job.
-func (m *model) confirmNormalize(name, provider string) {
-	preview, err := m.svc.Normalize(m.ctx, name, provider, services.LifecycleOptions{DryRun: true})
+func (m *model) confirmNormalize(name, ref, provider string) {
+	preview, err := m.svc.Normalize(m.ctx, ref, provider, services.LifecycleOptions{DryRun: true})
 	if err != nil {
 		m.setStatus("normalize: " + err.Error())
 		return
@@ -70,7 +70,7 @@ func (m *model) confirmNormalize(name, provider string) {
 		Prompt: fmt.Sprintf("Move %q to %s?", name, preview.Path),
 		OnYes: func() {
 			m.submitJob("normalize "+name, func(ctx context.Context) (any, error) {
-				res, err := m.svc.Normalize(ctx, name, provider, services.LifecycleOptions{})
+				res, err := m.svc.Normalize(ctx, ref, provider, services.LifecycleOptions{})
 				if err != nil {
 					return nil, err
 				}

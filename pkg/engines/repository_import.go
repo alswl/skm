@@ -97,13 +97,26 @@ func frontmatterName(marker string) (string, error) {
 // ImportStaged validates a staged asset and places it under
 // <repo>/<kind>/<providerID>/<name>/ (or <repo>/<kind>/<providerID>/<group>/<name>/
 // when group is non-empty — e.g. "owner/repo" for a GitHub/GitLab import, see
-// gitHostProvider.Group), recording origin for remote imports (I3). The
-// global name space is checked first; --force overwrites the existing entry,
-// restoring it on failure (FR-021). Temp dirs are removed on failure (UC-05).
+// gitHostProvider.Group), recording origin for remote imports (I3).
 func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group string, force bool, origin *common.Origin) (*RepositoryImportResult, error) {
+	return r.importStaged(ctx, staged, providerID, group, "", force, origin)
+}
+
+// ImportStagedAs preserves a discovery source's directory identity.
+func (r *Repository) ImportStagedAs(ctx context.Context, staged, providerID, group, entryID string, force bool, origin *common.Origin) (*RepositoryImportResult, error) {
+	return r.importStaged(ctx, staged, providerID, group, entryID, force, origin)
+}
+
+func (r *Repository) importStaged(ctx context.Context, staged, providerID, group, entryID string, force bool, origin *common.Origin) (*RepositoryImportResult, error) {
 	kind, name, err := r.ProbeStaged(staged)
 	if err != nil {
 		return nil, common.WithExitCode(err, common.ExitError)
+	}
+	if entryID == "" {
+		entryID = name
+	}
+	if entryID == "." || entryID == ".." || filepath.Base(entryID) != entryID {
+		return nil, common.WithExitCode(fmt.Errorf("import: invalid entry id %q", entryID), common.ExitError)
 	}
 	// Normalize to a temp staged tree (copy for dirs, build for single .md).
 	tmp, err := r.stageCopy(staged)
@@ -115,29 +128,14 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 		return nil, common.WithExitCode(err, common.ExitError)
 	}
 
-	// Global name collision (I1 / FR-021). A non-standard entry supplied as
-	// the source is the one exception: importing it is an explicit claim of
-	// that same entry, so it is moved into the standard layout below rather
-	// than rejected as a collision with itself.
-	existing := r.findByName(name)
-	sameManagedSource := existing != nil && samePath(existing.Path, staged)
-	claimSource := sameManagedSource && (existing.Status == common.StatusNonStandard || existing.Status == common.StatusError)
-	// Importing an already-managed entry back into this repository must never
-	// turn into a forced replacement of the source itself. In particular, a
-	// TUI import of skills/self-build/<name> used to remove that directory and
-	// recreate the staged copy at skills/local/<name>. Non-standard and broken
-	// entries are the deliberate exception: importing them claims/repairs them.
+	// Importing non-standard entries is an explicit claim into standard layout.
+	sourceEntry := r.findByPath(staged)
+	sameManagedSource := sourceEntry != nil
+	claimSource := sameManagedSource && (sourceEntry.Status == common.StatusNonStandard || sourceEntry.Status == common.StatusError)
+	// Reject reimports so force cannot replace their own source.
 	if sameManagedSource && !claimSource {
 		return nil, common.WithExitCode(
-			fmt.Errorf("import: source %q is already managed at %s; install or move it instead of importing", name, existing.Path),
-			common.ExitObject)
-	}
-	if claimSource {
-		existing = nil
-	}
-	if existing != nil && !force {
-		return nil, common.WithExitCode(
-			common.WithNeedsForce(fmt.Errorf("import: name %q already exists (at %s); use --force to overwrite", name, existing.Path)),
+			fmt.Errorf("import: source %q is already managed at %s; install or move it instead of importing", name, sourceEntry.Path),
 			common.ExitObject)
 	}
 
@@ -147,7 +145,12 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 	}
 	defer lock.Release()
 
-	dest := filepath.Join(r.root, kind.TopDir(), providerID, group, name)
+	dest := filepath.Join(r.root, kind.TopDir(), providerID, group, entryID)
+	if dal.PathExists(dest) && (!claimSource || !samePath(dest, staged)) && !force {
+		return nil, common.WithExitCode(
+			common.WithNeedsForce(fmt.Errorf("import: destination %q already exists; use --force to overwrite", dest)),
+			common.ExitObject)
+	}
 	tx := &dal.FileTransaction{}
 	if dal.PathExists(dest) && (!claimSource || !samePath(dest, staged)) {
 		if err := tx.BackupRemove(dest); err != nil {
@@ -157,19 +160,6 @@ func (r *Repository) ImportStaged(ctx context.Context, staged, providerID, group
 	}
 	if claimSource {
 		if err := tx.BackupRemove(staged); err != nil {
-			_ = tx.Rollback()
-			return nil, common.WithExitCode(err, common.ExitError)
-		}
-	}
-	// A forced import replaces the colliding entry wherever it lives, not just
-	// when it happens to sit at dest. The two diverge as soon as anything about
-	// the layout changes — re-importing a flat <provider>/<name> entry now lands
-	// under <provider>/<group>/<name>, and a different --provider moves it too —
-	// and leaving the old copy behind would put two entries under one name,
-	// breaking the global uniqueness every name lookup here relies on
-	// (findByName, Services.FindEntry, the TUI's per-name install state).
-	if existing != nil && existing.Path != dest && dal.PathExists(existing.Path) {
-		if err := tx.BackupRemove(existing.Path); err != nil {
 			_ = tx.Rollback()
 			return nil, common.WithExitCode(err, common.ExitError)
 		}
@@ -325,10 +315,10 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// findByName returns the first entry with the given name (global name space).
-func (r *Repository) findByName(name string) *common.Entry {
+// findByPath permits several entries to share a frontmatter name.
+func (r *Repository) findByPath(path string) *common.Entry {
 	for _, e := range r.Scan() {
-		if e.Name == name {
+		if samePath(e.Path, path) {
 			return e
 		}
 	}

@@ -15,6 +15,7 @@ import (
 // done from a key handler or View.
 type fixPreview struct {
 	name    string
+	ref     string
 	targets []string
 	diff    string
 }
@@ -60,8 +61,9 @@ func (m *model) fixSelected() {
 		return
 	}
 	name := entry.Name
+	ref := m.svc.Repo.RelPath(entry.Path)
 	m.submitJob("prepare fix "+name, func(ctx context.Context) (any, error) {
-		return m.prepareFixPreview(ctx, entry, broken), nil
+		return m.prepareFixPreview(ctx, entry, ref, broken), nil
 	})
 }
 
@@ -102,7 +104,7 @@ func (m *model) showOrphanDanglingConfirmation(preview orphanDanglingPreview) {
 // prepareFixPreview collects a readable content diff for real target-side
 // conflicts. Dangling links have no content to compare, but are still listed
 // as replacements in the following confirmation.
-func (m *model) prepareFixPreview(ctx context.Context, entry *common.Entry, targets []string) fixPreview {
+func (m *model) prepareFixPreview(ctx context.Context, entry *common.Entry, ref string, targets []string) fixPreview {
 	var parts []string
 	for _, targetName := range targets {
 		if m.installState(entry.Path, targetName) != common.InstallConflict {
@@ -119,7 +121,7 @@ func (m *model) prepareFixPreview(ctx context.Context, entry *common.Entry, targ
 		}
 		parts = append(parts, fmt.Sprintf("%s:\n%s", targetName, diff))
 	}
-	return fixPreview{name: entry.Name, targets: targets, diff: strings.TrimSpace(strings.Join(parts, "\n\n"))}
+	return fixPreview{name: entry.Name, ref: ref, targets: targets, diff: strings.TrimSpace(strings.Join(parts, "\n\n"))}
 }
 
 func (m *model) installState(path, target string) common.InstallState {
@@ -138,10 +140,10 @@ func (m *model) showFixConfirmation(preview fixPreview) {
 	if preview.diff != "" {
 		prompt += ". Review the diff before applying."
 	}
-	name, broken := preview.name, preview.targets
+	name, ref, broken := preview.name, preview.ref, preview.targets
 	m.confirm = &pages.Confirm{Prompt: prompt, Diff: preview.diff, OnYes: func() {
 		m.submitJob("fix "+name, func(ctx context.Context) (any, error) {
-			result, err := m.svc.Install(ctx, name, services.InstallOptions{Targets: broken, Force: true})
+			result, err := m.svc.Install(ctx, ref, services.InstallOptions{Targets: broken, Force: true})
 			if err != nil {
 				return nil, err
 			}

@@ -14,12 +14,8 @@ type DiscoveredSkill struct {
 	Path string `json:"path"`
 }
 
-// Discover reports real, valid, non-duplicate external skills in install
-// targets: real directories containing a valid SKILL.md with no same-named
-// repository entry. Symlinks are ignored and never deleted (FR-027). When
-// sourceDir is non-empty only that directory is scanned.
+// Discover keeps same-named external skills distinct and ignores symlinks.
 func (r *Repository) Discover(targets []common.InstallTarget, sourceDir string) []DiscoveredSkill {
-	existing := r.entryNames()
 	var out []DiscoveredSkill
 	for _, t := range targets {
 		if !t.AcceptsKind(common.KindSkill) {
@@ -28,12 +24,12 @@ func (r *Repository) Discover(targets []common.InstallTarget, sourceDir string) 
 		if sourceDir != "" && t.Path != sourceDir {
 			continue
 		}
-		out = append(out, r.discoverDir(t.Path, existing)...)
+		out = append(out, r.discoverDir(t.Path)...)
 	}
 	return out
 }
 
-func (r *Repository) discoverDir(dir string, existing map[string]bool) []DiscoveredSkill {
+func (r *Repository) discoverDir(dir string) []DiscoveredSkill {
 	var out []DiscoveredSkill
 	children, err := os.ReadDir(dir)
 	if err != nil {
@@ -47,22 +43,10 @@ func (r *Repository) discoverDir(dir string, existing map[string]bool) []Discove
 		if dal.IsSymlink(p) {
 			continue // managed symlink / foreign link: never reported, never deleted
 		}
-		if existing[c.Name()] {
-			continue // duplicate of a repository entry
-		}
 		if !dal.PathExists(filepath.Join(p, "SKILL.md")) {
 			continue // must be a real skill with a valid marker
 		}
 		out = append(out, DiscoveredSkill{Name: c.Name(), Path: p})
 	}
 	return out
-}
-
-// entryNames returns the set of entry names in the
-func (r *Repository) entryNames() map[string]bool {
-	names := map[string]bool{}
-	for _, e := range r.Scan() {
-		names[e.Name] = true
-	}
-	return names
 }

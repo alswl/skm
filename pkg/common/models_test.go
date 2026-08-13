@@ -12,6 +12,22 @@ func TestInstallTargetEffectiveAcceptsV2(t *testing.T) {
 	}
 }
 
+func TestPluginSkillTargetAdaptsCommandsAsSkills(t *testing.T) {
+	target := InstallTarget{
+		Accepts: []EntryKind{KindSkill},
+		Strategies: map[EntryKind]InstallStrategy{
+			KindSkill: PluginStrategy("acme"),
+		},
+	}
+	if !target.AcceptsKind(KindCommand) {
+		t.Fatal("a plugin skill target must accept commands through the skill adapter fallback")
+	}
+	strategy, ok := target.EffectiveStrategy(KindCommand)
+	if !ok || strategy != StrategyCommandAdapter {
+		t.Fatalf("command fallback = %q,%v, want %q,true", strategy, ok, StrategyCommandAdapter)
+	}
+}
+
 func TestInstallTargetEffectiveAcceptsLegacyMapping(t *testing.T) {
 	cases := []struct {
 		kind    EntryKind

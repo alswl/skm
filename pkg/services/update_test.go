@@ -73,12 +73,14 @@ func TestBatchUpdateClassifiesResults(t *testing.T) {
 // be updated.
 func TestUpdatable(t *testing.T) {
 	svc := newUpdateSvc(t, t.TempDir())
+	unknown := "unknown"
 	cases := []struct {
 		name  string
 		entry *common.Entry
 		want  bool
 	}{
 		{"active with origin", &common.Entry{Status: common.StatusActive, Origin: &common.Origin{Address: "/x"}}, true},
+		{"adopted unknown origin", &common.Entry{Status: common.StatusActive, ProviderID: &unknown, Origin: &common.Origin{Address: "/x"}}, false},
 		{"active without origin", &common.Entry{Status: common.StatusActive}, false},
 		{"archived with origin", &common.Entry{Status: common.StatusArchived, Origin: &common.Origin{Address: "/x"}}, false},
 	}

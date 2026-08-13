@@ -34,6 +34,18 @@ func TestImportStagedLocalDirPlacesUnderLocalLayer(t *testing.T) {
 	require.FileExists(t, filepath.Join(src, "SKILL.md"))
 }
 
+func TestImportStagedAsRejectsPathTraversalEntryID(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(t.TempDir(), "skill")
+	writeFile(t, src, "SKILL.md", frontmatter("skill", "a skill"))
+
+	_, err := NewRepository(root).ImportStagedAs(context.Background(), src, "unknown", "target", "..", true, nil)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid entry id")
+	require.NoDirExists(t, filepath.Join(root, "skills", "unknown"))
+}
+
 func TestImportLocalSkillMarkerFileImportsEnclosingSkill(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(t.TempDir(), "d2")
@@ -115,14 +127,14 @@ func TestImportWithGroupNestsUnderOwnerRepoAndScanReportsIt(t *testing.T) {
 
 func TestImportCollisionRejectedWithoutForce(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "skills/local/existing/SKILL.md", frontmatter("dup", "first"))
+	writeFile(t, root, "skills/local/dup/SKILL.md", frontmatter("dup", "first"))
 	src := filepath.Join(t.TempDir(), "dup")
 	writeFile(t, src, "SKILL.md", frontmatter("dup", "second"))
 
 	_, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
-	require.Error(t, err, "global name collision must be rejected without force")
+	require.Error(t, err, "same destination collision must be rejected without force")
 	// Original intact.
-	require.FileExists(t, filepath.Join(root, "skills/local/existing/SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills/local/dup/SKILL.md"))
 }
 
 func TestImportForceOverwritePreservesExternalSource(t *testing.T) {
@@ -149,14 +161,8 @@ func TestImportForceOverwritePreservesExternalSource(t *testing.T) {
 	require.Equal(t, sourceBefore, sourceAfter, "force-importing into another repository must not modify the source")
 }
 
-// TestImportForceReplacesTheCollidingEntryWhereverItLives: --force must leave
-// exactly one entry per name even when the import lands somewhere else than
-// the entry it collides with. Grouped imports made that routine — an entry
-// imported flat as skills/github/<name> re-imports to
-// skills/github/<owner>/<repo>/<name> — and only the destination path used to
-// be cleared, so the old copy survived and the repository ended up with two
-// entries answering to one name.
-func TestImportForceReplacesTheCollidingEntryWhereverItLives(t *testing.T) {
+// TestImportAllowsSameNameAtDifferentPaths preserves path-based identity.
+func TestImportAllowsSameNameAtDifferentPaths(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/github/dup/SKILL.md", frontmatter("dup", "flat, pre-group import"))
 
@@ -168,9 +174,9 @@ func TestImportForceReplacesTheCollidingEntryWhereverItLives(t *testing.T) {
 	require.Equal(t, filepath.Join(root, "skills/github/octocat/hello-world/dup"), res.Path)
 
 	entries := NewRepository(root).Scan()
-	require.Len(t, entries, 1, "the flat copy must be gone, not left behind as a second entry named dup")
-	require.Equal(t, res.Path, entries[0].Path)
-	require.NoDirExists(t, filepath.Join(root, "skills/github/dup"))
+	require.Len(t, entries, 2)
+	require.FileExists(t, filepath.Join(root, "skills/github/dup/SKILL.md"))
+	require.FileExists(t, res.Path+"/SKILL.md")
 }
 
 func TestImportForceRejectsAnAlreadyManagedSourceWithoutMovingIt(t *testing.T) {

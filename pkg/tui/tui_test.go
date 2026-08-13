@@ -18,6 +18,7 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/jobs"
 	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/alswl/skm/skm/pkg/tui/components"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
@@ -487,12 +488,8 @@ func TestArchivedEntryHasNoInstallStateCells(t *testing.T) {
 	}
 }
 
-// TestInstallsPickerUncheckingConflictRemovesForeignObject: in the installs
-// picker a target in conflict state is shown unchecked (it is not installed);
-// leaving it unchecked and confirming means "remove the foreign object so the
-// target returns to absent" — the uninstall direction of the conflict state
-// transition. (Checking it would instead force-install over the object.)
-func TestInstallsPickerUncheckingConflictRemovesForeignObject(t *testing.T) {
+// TestInstallsPickerLeavesConflictUntouchedUntilExplicitlyChanged protects no-op by default.
+func TestInstallsPickerLeavesConflictUntouchedUntilExplicitlyChanged(t *testing.T) {
 	m := newTestModel(t)
 	require.Equal(t, "skill-a", m.filtered[0].Name)
 	entry := m.filtered[0]
@@ -509,11 +506,32 @@ func TestInstallsPickerUncheckingConflictRemovesForeignObject(t *testing.T) {
 	_ = m.handleKey(runeKey('i'))
 	require.NotNil(t, m.picker, "installs opens a target picker")
 	require.Contains(t, m.picker.Title, "Installs")
-	// The conflict target is unchecked (not installed). Confirm as-is: the
-	// unchecked conflict means "leave this target absent" -> remove the object.
+	idx := -1
+	for i, item := range m.picker.Items {
+		if item.Value == "t" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0)
+	require.True(t, m.picker.Items[idx].Indeterminate)
+	require.Contains(t, m.pickerView(), "[-]")
+
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
 	require.Nil(t, m.picker, "picker closes on confirm")
-	require.NotNil(t, m.confirm, "removing a foreign object requires confirmation")
+	require.Nil(t, m.confirm)
+	require.Empty(t, m.queue.Snapshot().Pending)
+	require.DirExists(t, conflictDir, "an untouched conflict stays in place")
+
+	// Only an explicit unchecked state authorizes removal.
+	_ = m.handleKey(runeKey('i'))
+	m.picker.Cursor = idx
+	_ = m.handlePickerKey(runeKey(' '))
+	require.True(t, m.picker.Items[idx].Checked)
+	require.False(t, m.picker.Items[idx].Indeterminate)
+	_ = m.handlePickerKey(runeKey(' '))
+	require.False(t, m.picker.Items[idx].Checked)
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	require.NotNil(t, m.confirm, "explicitly removing a foreign object requires confirmation")
 	require.Contains(t, m.confirm.Prompt, "Remove foreign object")
 	require.Contains(t, m.confirm.Prompt, "t", "the conflicted target is named")
 
@@ -635,6 +653,53 @@ func TestModelDeleteRequiresConfirmation(t *testing.T) {
 	require.Nil(t, m.svc.FindEntry("skill-a"), "deleted after confirming")
 }
 
+func TestModelDeleteUsesSelectedSameNamedEntryPath(t *testing.T) {
+	m := newTestModel(t)
+	root := m.svc.Cfg.Root
+	writeFileT(t, root, "skills/unknown/first/one/SKILL.md", "---\nname: duplicate\ndescription: first\n---\nbody\n")
+	writeFileT(t, root, "skills/unknown/second/two/SKILL.md", "---\nname: duplicate\ndescription: second\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	for i, entry := range m.filtered {
+		if entry.Path == filepath.Join(root, "skills", "unknown", "second", "two") {
+			m.cursor = i
+			break
+		}
+	}
+
+	m.deleteSelected()
+	require.NotNil(t, m.confirm)
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+
+	require.FileExists(t, filepath.Join(root, "skills", "unknown", "first", "one", "SKILL.md"))
+	require.NoDirExists(t, filepath.Join(root, "skills", "unknown", "second", "two"))
+}
+
+func TestModelArchiveUsesSelectedSameNamedEntryPath(t *testing.T) {
+	m := newTestModel(t)
+	root := m.svc.Cfg.Root
+	first := filepath.Join(root, "skills", "unknown", "first", "one")
+	second := filepath.Join(root, "skills", "unknown", "second", "two")
+	writeFileT(t, first, "SKILL.md", "---\nname: duplicate\ndescription: first\n---\nbody\n")
+	writeFileT(t, second, "SKILL.md", "---\nname: duplicate\ndescription: second\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	for i, entry := range m.filtered {
+		if entry.Path == second {
+			m.cursor = i
+			break
+		}
+	}
+
+	m.archiveSelected()
+	require.NotNil(t, m.confirm)
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+
+	require.DirExists(t, first, "the other same-named entry stays active")
+	require.NoDirExists(t, second)
+	require.DirExists(t, filepath.Join(root, "archived", "unknown", "second", "two"))
+}
+
 // TestModelDeleteCancelKeepsEntry: `n` dismisses the confirm without deleting.
 func TestModelDeleteCancelKeepsEntry(t *testing.T) {
 	m := newTestModel(t)
@@ -683,6 +748,68 @@ func TestModelDiscoverAdopts(t *testing.T) {
 	fi, err := os.Lstat(ext)
 	require.NoError(t, err)
 	require.NotZero(t, fi.Mode()&os.ModeSymlink, "external dir replaced by a symlink")
+}
+
+func TestModelDiscoverAdoptsEachSelectionAsAnIndependentJob(t *testing.T) {
+	m := newTestModel(t)
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	first := filepath.Join(target.Path, "first")
+	second := filepath.Join(target.Path, "second")
+	writeFileT(t, first, "SKILL.md", "---\nname: duplicate\ndescription: first\n---\nbody\n")
+	writeFileT(t, second, "SKILL.md", "---\nname: duplicate\ndescription: second\n---\nbody\n")
+
+	_ = m.handleKey(runeKey('o'))
+	require.NotNil(t, m.picker)
+	for i := range m.picker.Items {
+		m.picker.Items[i].Checked = true
+	}
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+
+	drainJob(t, &m)
+	drainJob(t, &m)
+	completed := m.queue.Snapshot().Completed
+	require.Len(t, completed, 2)
+	for _, job := range completed {
+		require.Equal(t, jobs.JobDone, job.State)
+		require.Contains(t, job.Name, "adopt ")
+	}
+	require.FileExists(t, filepath.Join(m.svc.Cfg.Root, "skills", "unknown", "t", "first", "SKILL.md"))
+	require.FileExists(t, filepath.Join(m.svc.Cfg.Root, "skills", "unknown", "t", "second", "SKILL.md"))
+}
+
+func TestModelDiscoverContinuesAfterOneAdoptFails(t *testing.T) {
+	m := newTestModel(t)
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	first := filepath.Join(target.Path, "first")
+	second := filepath.Join(target.Path, "second")
+	writeFileT(t, first, "SKILL.md", "---\nname: first\ndescription: first external\n---\nbody\n")
+	writeFileT(t, second, "SKILL.md", "---\nname: second\ndescription: second external\n---\nbody\n")
+	// The occupied first destination must not block the second job.
+	writeFileT(t, m.svc.Cfg.Root, "skills/unknown/t/first/SKILL.md", "---\nname: existing\ndescription: occupied\n---\nbody\n")
+
+	_ = m.handleKey(runeKey('o'))
+	require.NotNil(t, m.picker)
+	for i := range m.picker.Items {
+		m.picker.Items[i].Checked = true
+	}
+	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	drainJob(t, &m)
+	drainJob(t, &m)
+
+	completed := m.queue.Snapshot().Completed
+	require.Len(t, completed, 2)
+	states := map[jobs.JobState]int{}
+	for _, job := range completed {
+		states[job.State]++
+	}
+	require.Equal(t, 1, states[jobs.JobFailed])
+	require.Equal(t, 1, states[jobs.JobDone])
+	require.FileExists(t, filepath.Join(m.svc.Cfg.Root, "skills", "unknown", "t", "second", "SKILL.md"))
+	_, err := os.Lstat(second)
+	require.NoError(t, err)
+	require.True(t, dal.IsSymlink(second), "the later selected skill is adopted despite the earlier failure")
 }
 
 // TestHelpViewRowsFitFrameWidth: renderMainArea's showHelp branch used to

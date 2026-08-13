@@ -26,7 +26,7 @@ func InstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target commo
 		}
 		return false, fmt.Errorf("install %q: %w", entry.Name, err)
 	}
-	linkPath := filepath.Join(target.Path, entry.Name)
+	linkPath := filepath.Join(target.Path, installSlot(entry))
 	switch StateLink(linkPath, entry.Path) {
 	case common.InstallInstalled:
 		return false, nil
@@ -51,7 +51,7 @@ func InstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target commo
 
 // UninstallDirectory removes a managed directory symlink.
 func UninstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget) (bool, error) {
-	linkPath := filepath.Join(target.Path, entry.Name)
+	linkPath := filepath.Join(target.Path, installSlot(entry))
 	if !IsManagedLink(linkPath, entry.Path) {
 		return false, nil
 	}
@@ -59,6 +59,14 @@ func UninstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target com
 		return false, err
 	}
 	return true, nil
+}
+
+// installSlot preserves an adopted source's target-side directory name.
+func installSlot(entry *common.Entry) string {
+	if entry.Origin != nil && entry.Origin.InstallSlot != "" {
+		return entry.Origin.InstallSlot
+	}
+	return entry.Name
 }
 
 // InstallClaudeMarkdown creates the <name>.md marker symlink for a command in
@@ -152,7 +160,7 @@ func EntryResources(entry *common.Entry) ([]string, error) {
 // UninstallSkill removes the managed directory symlink of a skill, leaving any
 // non-managed same-named object untouched (FR-017).
 func UninstallSkill(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget) (bool, error) {
-	linkPath := filepath.Join(target.Path, entry.Name)
+	linkPath := filepath.Join(target.Path, installSlot(entry))
 	if !IsManagedLink(linkPath, entry.Path) && !IsLegacySelfBuildLink(linkPath, entry) {
 		return false, nil
 	}
@@ -277,7 +285,7 @@ func IsManagedAdapter(dir string, entry *common.Entry) bool {
 func State(strategy common.InstallStrategy, e *common.Entry, t common.InstallTarget) (common.InstallState, error) {
 	switch strategy {
 	case common.StrategySkillSymlink, common.StrategyCommandSymlink:
-		return StateLink(filepath.Join(t.Path, e.Name), e.Path), nil
+		return StateLink(filepath.Join(t.Path, installSlot(e)), e.Path), nil
 	case common.StrategyCommandMarker:
 		return StateLink(filepath.Join(t.Path, e.Name+".md"), e.MarkerPath()), nil
 	case common.StrategyCommandAdapter:
@@ -294,7 +302,7 @@ func RemoveForeign(strategy common.InstallStrategy, tx *dal.FileTransaction, e *
 	var state common.InstallState
 	switch strategy {
 	case common.StrategySkillSymlink, common.StrategyCommandSymlink:
-		dest = filepath.Join(t.Path, e.Name)
+		dest = filepath.Join(t.Path, installSlot(e))
 		state = StateLink(dest, e.Path)
 	case common.StrategyCommandMarker:
 		dest = filepath.Join(t.Path, e.Name+".md")

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDiscoverReportsOnlyRealValidNonDuplicate(t *testing.T) {
+func TestDiscoverReportsOnlyRealSkillDirectories(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/local/managed/SKILL.md", frontmatter("managed", "in repo"))
 
@@ -24,7 +24,7 @@ func TestDiscoverReportsOnlyRealValidNonDuplicate(t *testing.T) {
 	targets := []common.InstallTarget{{Name: "t", Path: target, Kind: common.KindSkill}}
 	found := NewRepository(root).Discover(targets, "")
 
-	require.Len(t, found, 1, "only the real, valid, non-duplicate skill is reported")
+	require.Len(t, found, 1, "only the real skill directory is reported")
 	require.Equal(t, "ext-skill", found[0].Name)
 	// The symlink must be untouched.
 	require.True(t, dalIsSymlink(filepath.Join(target, "managed")), "symlinks are never deleted")

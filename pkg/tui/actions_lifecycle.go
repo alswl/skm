@@ -17,10 +17,10 @@ func (m *model) archiveSelected() {
 		return
 	}
 	entry := m.filtered[m.cursor]
-	name := entry.Name
+	name, ref := entry.Name, m.svc.Repo.RelPath(entry.Path)
 	if entry.Status == common.StatusArchived {
 		m.submitJob("unarchive "+name, func(ctx context.Context) (any, error) {
-			if _, err := m.svc.Unarchive(ctx, name, services.LifecycleOptions{}); err != nil {
+			if _, err := m.svc.Unarchive(ctx, ref, services.LifecycleOptions{}); err != nil {
 				return nil, err
 			}
 			return "unarchived " + name, nil
@@ -32,10 +32,10 @@ func (m *model) archiveSelected() {
 		OnYes: func() {
 			m.submitJob("archive "+name, func(ctx context.Context) (any, error) {
 				// Uninstall first (managed installs only), then archive (FR-013).
-				if _, err := m.svc.Uninstall(ctx, name, services.InstallOptions{}); err != nil {
+				if _, err := m.svc.Uninstall(ctx, ref, services.InstallOptions{}); err != nil {
 					return nil, err
 				}
-				if _, err := m.svc.Archive(ctx, name, services.LifecycleOptions{}); err != nil {
+				if _, err := m.svc.Archive(ctx, ref, services.LifecycleOptions{}); err != nil {
 					return nil, err
 				}
 				return "archived " + name, nil
@@ -51,12 +51,13 @@ func (m *model) deleteSelected() {
 	if m.cursor >= len(m.filtered) {
 		return
 	}
-	name := m.filtered[m.cursor].Name
+	entry := m.filtered[m.cursor]
+	name, ref := entry.Name, m.svc.Repo.RelPath(entry.Path)
 	m.confirm = &pages.Confirm{
 		Prompt: fmt.Sprintf("Delete %q from the repository permanently?", name),
 		OnYes: func() {
 			m.submitJob("delete "+name, func(ctx context.Context) (any, error) {
-				if _, err := m.svc.Delete(ctx, name, services.LifecycleOptions{Force: true}); err != nil {
+				if _, err := m.svc.Delete(ctx, ref, services.LifecycleOptions{Force: true}); err != nil {
 					return nil, err
 				}
 				return "deleted " + name, nil

@@ -51,7 +51,7 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 // presentation layer. (Update keeps its own two checks because it must report
 // which half of the rule failed.)
 func (s *Services) Updatable(e *common.Entry) bool {
-	return e.Status == common.StatusActive && e.Origin != nil
+	return e.Status == common.StatusActive && e.Origin != nil && e.ProviderIDValue() != "unknown"
 }
 
 // fetchFromOrigin fetches an address through the first matching provider.

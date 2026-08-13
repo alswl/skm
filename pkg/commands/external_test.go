@@ -25,7 +25,7 @@ func TestAdoptCommandCreatesManagedInstall(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, `"action":"adopt"`)
 	require.Contains(t, out, `"name":"external"`)
-	require.FileExists(t, filepath.Join(root, "skills", "local", "external", "SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills", "unknown", "t", "external", "SKILL.md"))
 	info, err := os.Lstat(externalPath)
 	require.NoError(t, err)
 	require.NotZero(t, info.Mode()&os.ModeSymlink)
@@ -37,7 +37,7 @@ func TestAdoptCommandDryRunDoesNotWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, `"action":"adopt"`)
 	require.Contains(t, out, `"dry_run":true`)
-	require.NoDirExists(t, filepath.Join(root, "skills", "local", "external"))
+	require.NoDirExists(t, filepath.Join(root, "skills", "unknown", "t", "external"))
 	info, err := os.Lstat(externalPath)
 	require.NoError(t, err)
 	require.Zero(t, info.Mode()&os.ModeSymlink, "dry-run must not replace the external directory")
@@ -52,8 +52,8 @@ func TestAdoptCommandAcceptsMultipleExternalSkills(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out, `"name":"external"`)
 	require.Contains(t, out, `"name":"second"`)
-	require.FileExists(t, filepath.Join(root, "skills", "local", "external", "SKILL.md"))
-	require.FileExists(t, filepath.Join(root, "skills", "local", "second", "SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills", "unknown", "t", "external", "SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills", "unknown", "t", "second", "SKILL.md"))
 }
 
 func TestDeleteExternalCommandRequiresForceAndSupportsDryRun(t *testing.T) {

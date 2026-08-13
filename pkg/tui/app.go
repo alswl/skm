@@ -364,23 +364,37 @@ func (m *model) openInstallsPicker(entry *common.Entry) {
 		if c.state == common.InstallConflict || c.state == common.InstallDangling {
 			label = "⚠ " + label
 		}
-		items[i] = pages.PickerItem{Label: label, Value: c.name, Checked: c.state == common.InstallInstalled}
+		items[i] = pages.PickerItem{
+			Label:         label,
+			Value:         c.name,
+			Checked:       c.state == common.InstallInstalled,
+			Indeterminate: c.state == common.InstallConflict || c.state == common.InstallDangling,
+		}
 	}
 	name := entry.Name
+	ref := m.svc.Repo.RelPath(entry.Path)
 	m.picker = &pages.Picker{
 		Title: "Installs · " + name,
-		Hint:  "[space] set installed  [enter] apply  [esc/q] cancel",
+		Hint:  "[space] cycle state  [enter] apply  [esc/q] cancel",
 		Items: items,
 		OnConfirm: func(sel []pages.PickerItem) {
 			desired := make(map[string]bool, len(sel))
+			unchanged := make(map[string]bool, len(sel))
 			for _, it := range sel {
-				desired[it.Value] = true
+				if it.Indeterminate {
+					unchanged[it.Value] = true
+				} else {
+					desired[it.Value] = true
+				}
 			}
 			// cells is the state the picker was drawn from, so what gets applied
 			// is exactly what the user was shown — and, like everywhere else,
 			// costs no probe on the event loop.
 			var installTargets, uninstallTargets, removeTargets []string
 			for _, c := range cells {
+				if unchanged[c.name] {
+					continue
+				}
 				if desired[c.name] && c.state != common.InstallInstalled {
 					installTargets = append(installTargets, c.name)
 				}
@@ -396,18 +410,18 @@ func (m *model) openInstallsPicker(entry *common.Entry) {
 					}
 				}
 			}
-			m.applyInstallChanges(name, installTargets, uninstallTargets, removeTargets)
+			m.applyInstallChanges(ref, name, installTargets, uninstallTargets, removeTargets)
 		},
 	}
 }
 
-func (m *model) applyInstallChanges(name string, installTargets, uninstallTargets, removeTargets []string) {
+func (m *model) applyInstallChanges(ref, name string, installTargets, uninstallTargets, removeTargets []string) {
 	if len(installTargets) == 0 && len(uninstallTargets) == 0 && len(removeTargets) == 0 {
 		m.setStatus("installs: no changes for " + name)
 		return
 	}
 	if len(uninstallTargets) == 0 && len(removeTargets) == 0 {
-		m.runInstallChanges(name, installTargets, nil, nil)
+		m.runInstallChanges(ref, name, installTargets, nil, nil)
 		return
 	}
 	prompt := "Apply install changes for " + name + "?"
@@ -421,7 +435,7 @@ func (m *model) applyInstallChanges(name string, installTargets, uninstallTarget
 		prompt += "\nRemove foreign object: " + strings.Join(removeTargets, ", ")
 	}
 	m.confirm = &pages.Confirm{Prompt: prompt, OnYes: func() {
-		m.runInstallChanges(name, installTargets, uninstallTargets, removeTargets)
+		m.runInstallChanges(ref, name, installTargets, uninstallTargets, removeTargets)
 	}}
 }
 
@@ -429,19 +443,19 @@ func (m *model) applyInstallChanges(name string, installTargets, uninstallTarget
 // install state. Removals run first; uninstalls only ever remove managed
 // installs, while a conflict's foreign object is removed explicitly
 // (removeTargets), restoring that target to absent.
-func (m *model) runInstallChanges(name string, installTargets, uninstallTargets, removeTargets []string) {
+func (m *model) runInstallChanges(ref, name string, installTargets, uninstallTargets, removeTargets []string) {
 	attempt := func(force bool) func(ctx context.Context) (any, error) {
 		return func(ctx context.Context) (any, error) {
 			var messages []string
 			if len(uninstallTargets) > 0 {
-				result, err := m.svc.Uninstall(ctx, name, services.InstallOptions{Targets: uninstallTargets})
+				result, err := m.svc.Uninstall(ctx, ref, services.InstallOptions{Targets: uninstallTargets})
 				if err != nil {
 					return nil, err
 				}
 				messages = append(messages, installStatusMessage("uninstall", name, result))
 			}
 			if len(removeTargets) > 0 {
-				result, err := m.svc.RemoveForeign(ctx, name, removeTargets)
+				result, err := m.svc.RemoveForeign(ctx, ref, removeTargets)
 				if err != nil {
 					return nil, err
 				}
@@ -454,7 +468,7 @@ func (m *model) runInstallChanges(name string, installTargets, uninstallTargets,
 				messages = append(messages, fmt.Sprintf("removed %d foreign object(s) for %s", removed, name))
 			}
 			if len(installTargets) > 0 {
-				result, err := m.svc.Install(ctx, name, services.InstallOptions{Targets: installTargets, Force: force})
+				result, err := m.svc.Install(ctx, ref, services.InstallOptions{Targets: installTargets, Force: force})
 				if err != nil {
 					return nil, err
 				}

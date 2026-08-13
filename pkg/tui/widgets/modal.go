@@ -10,9 +10,10 @@ import (
 
 // PickerItem is one selectable row in a Picker modal.
 type PickerItem struct {
-	Label   string
-	Value   string
-	Checked bool
+	Label         string
+	Value         string
+	Checked       bool
+	Indeterminate bool
 }
 
 // Picker is a reusable modal: a multi-select checkbox list (targets,
@@ -46,7 +47,13 @@ func (p *Picker) ToggleCurrent() {
 	if p.Single || len(p.Items) == 0 {
 		return
 	}
-	p.Items[p.Cursor].Checked = !p.Items[p.Cursor].Checked
+	it := &p.Items[p.Cursor]
+	if it.Indeterminate {
+		it.Indeterminate = false
+		it.Checked = true
+		return
+	}
+	it.Checked = !it.Checked
 }
 
 // Selection returns the confirmed items: the highlighted one for a radio
@@ -60,7 +67,7 @@ func (p *Picker) Selection() []PickerItem {
 	}
 	var out []PickerItem
 	for _, it := range p.Items {
-		if it.Checked {
+		if it.Checked || it.Indeterminate {
 			out = append(out, it)
 		}
 	}
@@ -87,6 +94,8 @@ func PickerView(width, height int, status string, p *Picker) string {
 			mark = "(•)"
 		case p.Single:
 			mark = "( )"
+		case it.Indeterminate:
+			mark = "[-]"
 		case it.Checked:
 			mark = "[x]"
 		}

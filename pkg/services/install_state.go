@@ -1,8 +1,6 @@
 package services
 
 import (
-	"path/filepath"
-
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/engines"
 )
@@ -15,15 +13,12 @@ func (i *Installer) State(entry *common.Entry, target common.InstallTarget) comm
 	if !ok {
 		return common.InstallAbsent
 	}
-	switch strategy {
-	case common.StrategySkillSymlink:
-		return engines.StateLink(filepath.Join(target.Path, entry.Name), entry.Path)
-	case common.StrategyCommandSymlink:
-		return engines.StateLink(filepath.Join(target.Path, entry.Name), entry.Path)
-	case common.StrategyCommandMarker:
-		return engines.StateLink(filepath.Join(target.Path, entry.Name+".md"), entry.MarkerPath())
-	case common.StrategyCommandAdapter:
-		return engines.StateAdapter(filepath.Join(target.Path, entry.Name), entry)
+	if !strategy.IsPlugin() {
+		state, err := engines.State(strategy, entry, target)
+		if err != nil {
+			return common.InstallAbsent
+		}
+		return state
 	}
 	driver, err := i.driverFor(strategy, target)
 	if err != nil {
