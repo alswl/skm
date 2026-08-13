@@ -39,8 +39,8 @@
       "id": "skills-sh",
       "label": "Skills.sh",
       "kind": "builtin",
-      "description": "Fetches git-backed assets from skills.sh://<path> addresses",
-      "schemes": ["skills.sh://"],
+      "description": "Fetches a skill named on a skills.sh page — paste either its npx install command or the page URL itself — by searching the repo for a matching directory",
+      "schemes": ["npx skills add <repo-url> --skill <name>", "https://skills.sh/<owner>/<repo>/<name>"],
       "loaded": true,
       "error": null
     }

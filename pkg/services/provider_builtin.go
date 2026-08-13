@@ -30,33 +30,52 @@ func (g gitBackedProvider) ID() string { return g.id }
 // Label returns the human label.
 func (g gitBackedProvider) Label() string { return g.label }
 
-// Capability describes what this provider handles.
+// Capability describes what this provider handles. For skills.sh, the
+// advertised schemes are the two copy-paste forms its own site actually
+// shows (an npx install command, a skill's page URL) rather than this
+// provider's own "skills.sh://" scheme — that scheme is still accepted by
+// CanHandle/Fetch (parseSkillsShShortcut's error message points to it as an
+// exact-path fallback), it's just not something anyone is ever handed to
+// paste, so it isn't advertised.
 func (g gitBackedProvider) Capability() Capability {
+	schemes := []string{g.scheme}
+	description := fmt.Sprintf("Fetches git-backed assets from %s<path> addresses", g.scheme)
+	if g.id == "skills-sh" {
+		schemes = []string{
+			"npx skills add <repo-url> --skill <name>",
+			"https://skills.sh/<owner>/<repo>/<name>",
+		}
+		description = "Fetches a skill named on a skills.sh page — paste either its npx " +
+			"install command or the page URL itself — by searching the repo for a " +
+			"matching directory"
+	}
 	return Capability{
 		ID: g.id, Label: g.label,
-		Description: fmt.Sprintf("Fetches git-backed assets from %s<path> addresses", g.scheme),
-		Schemes:     []string{g.scheme},
+		Description: description,
+		Schemes:     schemes,
 		Icon:        g.icon,
 	}
 }
 
-// CanHandle reports whether address uses this provider's scheme.
+// CanHandle reports whether address uses this provider's scheme, or (for
+// skills.sh) one of parseSkillsShShortcut's copy-paste forms.
 func (g gitBackedProvider) CanHandle(address string) bool {
-	return strings.HasPrefix(address, g.scheme)
+	if strings.HasPrefix(address, g.scheme) {
+		return true
+	}
+	return g.id == "skills-sh" && parseSkillsShShortcut(address) != nil
 }
 
-// Normalize resolves a scheme-prefixed address to its canonical git URL.
-// An address that doesn't use this provider's scheme is returned unchanged
-// (Local/GitHub convention: normalize is best-effort, not validation). A path
-// naming a subdirectory (splitRepoSubpath) normalizes to its repository alone
-// — a clone URL has no way to carry a subdirectory, that part only matters to
-// Fetch.
+// Normalize returns the address unchanged. Rewriting it to a plain clone URL
+// here would strip both the scheme (which CanHandle and Fetch require to
+// claim and parse the address) and any subdirectory (which a clone URL has
+// no way to carry) before Fetch — the only place with the machinery to
+// resolve either — ever sees them; import_service.fetchProvider calls Fetch
+// with Normalize's result, not the original address. Fetch resolves the real
+// clone URL itself, exactly like GitHub's owner/repo/subdir shorthand leaves
+// Normalize a no-op for the same reason.
 func (g gitBackedProvider) Normalize(address string) (string, error) {
-	if !g.CanHandle(address) {
-		return address, nil
-	}
-	repoPath, _ := splitRepoSubpath(strings.TrimPrefix(address, g.scheme))
-	return fmt.Sprintf("https://%s/%s.git", g.resolveHost(), repoPath), nil
+	return address, nil
 }
 
 // splitRepoSubpath splits a "owner/repo[/sub/dir]" path into the repository
@@ -91,21 +110,29 @@ func (g gitBackedProvider) resolveHost() string {
 // Fetch clones the resolved git URL into a temp dir and returns its path. An
 // address naming a subdirectory (splitRepoSubpath) clones the repository to
 // the side and stages just that directory — the same technique GitHub's
-// browse-URL/subpath-shorthand support uses (provider_git_weburl.go), for the
-// same reason: a skill can live below the repository root.
+// browse-URL/subpath-shorthand support uses (provider_git_weburl.go). A
+// skills.sh shortcut (parseSkillsShShortcut) instead searches the clone by
+// name, since it carries no path.
 func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, error) {
-	if !g.CanHandle(address) {
+	if g.id == "skills-sh" {
+		if sc := parseSkillsShShortcut(address); sc != nil {
+			return g.cloneAndStage(ctx, sc.repoURL, func(work string) (string, error) {
+				return findSkillDirectory(work, sc.name)
+			})
+		}
+	}
+	if !strings.HasPrefix(address, g.scheme) {
 		return "", &ProviderError{Code: CodeUnsupportedAddress,
 			Message: fmt.Sprintf("%s: address %q does not use the %s scheme", g.id, address, g.scheme)}
 	}
 	repoPath, subdir := splitRepoSubpath(strings.TrimPrefix(address, g.scheme))
 	repoURL := fmt.Sprintf("https://%s/%s.git", g.resolveHost(), repoPath)
 
-	tmp, err := os.MkdirTemp("", "skm-"+g.id+"-*")
-	if err != nil {
-		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: create temp dir: %s", g.id, err)}
-	}
 	if subdir == "" {
+		tmp, err := os.MkdirTemp("", "skm-"+g.id+"-*")
+		if err != nil {
+			return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: create temp dir: %s", g.id, err)}
+		}
 		if err := g.clone(ctx, repoURL, tmp); err != nil {
 			_ = os.RemoveAll(tmp)
 			return "", err
@@ -113,9 +140,27 @@ func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, e
 		return tmp, nil
 	}
 
-	// The caller frees exactly the path returned here, so the clone cannot
-	// stay wrapped around it: clone to the side, then move the requested
-	// directory into tmp and drop the rest (mirrors gitHostProvider.Fetch).
+	return g.cloneAndStage(ctx, repoURL, func(work string) (string, error) {
+		src, err := containedPath(work, subdir)
+		if err != nil {
+			return "", err
+		}
+		if fi, serr := os.Stat(src); serr != nil || !fi.IsDir() {
+			return "", fmt.Errorf("%s has no directory %q", repoPath, subdir)
+		}
+		return src, nil
+	})
+}
+
+// cloneAndStage clones repoURL to a side directory, resolves the directory to
+// keep via locate, and moves just that into a fresh temp dir — the caller
+// frees exactly the path returned here, so the clone cannot stay wrapped
+// around it (mirrors gitHostProvider.Fetch).
+func (g gitBackedProvider) cloneAndStage(ctx context.Context, repoURL string, locate func(work string) (string, error)) (string, error) {
+	tmp, err := os.MkdirTemp("", "skm-"+g.id+"-*")
+	if err != nil {
+		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: create temp dir: %s", g.id, err)}
+	}
 	work, err := os.MkdirTemp("", "skm-"+g.id+"-clone-*")
 	if err != nil {
 		_ = os.RemoveAll(tmp)
@@ -127,21 +172,16 @@ func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, e
 		_ = os.RemoveAll(tmp)
 		return "", err
 	}
-	src, err := containedPath(work, subdir)
+	src, err := locate(work)
 	if err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: %s", g.id, err)}
 	}
-	if fi, serr := os.Stat(src); serr != nil || !fi.IsDir() {
-		_ = os.RemoveAll(tmp)
-		return "", &ProviderError{Code: CodeFetchFailed,
-			Message: fmt.Sprintf("%s: %s has no directory %q", g.id, repoPath, subdir)}
-	}
 	if err := os.RemoveAll(tmp); err != nil {
-		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: stage %q: %s", g.id, subdir, err)}
+		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: stage: %s", g.id, err)}
 	}
 	if err := os.Rename(src, tmp); err != nil {
-		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: stage %q: %s", g.id, subdir, err)}
+		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: stage: %s", g.id, err)}
 	}
 	return tmp, nil
 }

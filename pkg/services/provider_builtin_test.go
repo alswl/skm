@@ -58,11 +58,15 @@ func TestBuiltinProvidersNormalizeToCanonicalGitURL(t *testing.T) {
 	url, err = NewGitLab().Normalize("https://gitlab.com/team/skills-repo.git")
 	require.NoError(t, err)
 	require.Equal(t, "https://gitlab.com/team/skills-repo.git", url)
+}
 
-	// skills.sh indexes GitHub repos, so the scheme resolves to github.com.
-	url, err = NewSkillsSh().Normalize("skills.sh://owner/skills-repo")
+// skills.sh's Normalize is a no-op (see gitBackedProvider.Normalize):
+// fetchProvider calls Fetch with Normalize's result, so rewriting the
+// scheme away here would leave Fetch nothing it can claim or parse.
+func TestSkillsShNormalizeIsANoOp(t *testing.T) {
+	url, err := NewSkillsSh().Normalize("skills.sh://owner/skills-repo")
 	require.NoError(t, err)
-	require.Equal(t, "https://github.com/owner/skills-repo.git", url)
+	require.Equal(t, "skills.sh://owner/skills-repo", url)
 }
 
 func TestBuiltinProviderNormalizeUnrelatedAddressIsUnchanged(t *testing.T) {
@@ -83,16 +87,26 @@ func TestBuiltinProviderFetchRejectsMismatchedAddress(t *testing.T) {
 // skills.sh addresses are owner/repo paths by construction (it indexes skills
 // living in public GitHub repos), so a third path segment can only be a
 // subdirectory — the same shape GitHub's owner/repo/subdir shorthand accepts,
-// and for the same reason: no subgroup nesting to be ambiguous with.
-func TestSkillsShNormalizeDropsSubpathButKeepsTheRepoURL(t *testing.T) {
+// and for the same reason: no subgroup nesting to be ambiguous with. Fetch
+// (not Normalize) is what resolves the subpath, so Normalize must keep it
+// intact for Fetch to see.
+func TestSkillsShNormalizeKeepsSubpath(t *testing.T) {
 	url, err := NewSkillsSh().Normalize("skills.sh://alswl/mind-forge/skills/mf-cli")
 	require.NoError(t, err)
-	require.Equal(t, "https://github.com/alswl/mind-forge.git", url,
-		"Normalize resolves to a clonable repository URL; the subpath isn't representable in one")
+	require.Equal(t, "skills.sh://alswl/mind-forge/skills/mf-cli", url)
 }
 
 func TestSkillsShCanHandleSubpathAddress(t *testing.T) {
 	require.True(t, NewSkillsSh().CanHandle("skills.sh://alswl/mind-forge/skills/mf-cli"))
+}
+
+// skills.sh's own site shows two copy-paste forms — its npx install command
+// and a skill's page URL — that name a skill by its short directory name,
+// not its "skills.sh://" scheme. Both must be recognized directly.
+func TestSkillsShCanHandleCopyPasteForms(t *testing.T) {
+	require.True(t, NewSkillsSh().CanHandle("npx skills add https://github.com/vercel-labs/skills --skill find-skills"))
+	require.True(t, NewSkillsSh().CanHandle("$ npx skills add https://github.com/mattpocock/skills --skill grill-me"))
+	require.True(t, NewSkillsSh().CanHandle("https://skills.sh/vercel-labs/skills/find-skills"))
 }
 
 func TestSplitRepoSubpath(t *testing.T) {

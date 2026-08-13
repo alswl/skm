@@ -175,14 +175,16 @@ Two extra sources ship as **built-in** Providers — no plugin needed:
 | Provider id | Address form | Resolves to |
 |---|---|---|
 | `gitlab` | `owner/repo` or a git URL | `https://gitlab.com/<org>/<repo>` (shorthand) |
-| `skills-sh` | `skills.sh://<owner>/<repo>` | `https://$SKM_SKILLS_SH_HOST/<owner>/<repo>.git` |
+| `skills-sh` | `npx skills add <repo-url> --skill <name>` (the install command every skill's page shows — paste it as-is) | `<repo-url>`, searched for a directory named `name` |
+| `skills-sh` | `https://skills.sh/<owner>/<repo>/<name>` (the page URL itself) | same repo, searched for a directory named `name` |
 
 `gitlab` shares GitHub's exact access pattern — git URLs (`git@`/`https`/`ssh`/`.git`)
 plus the `owner/repo` shorthand, resolved to its own https host — only the host
 differs (`gitlab.com`). `skills-sh` covers the [skills.sh](https://skills.sh/)
-directory, which indexes skills living in public GitHub repos, so its scheme
-resolves to `github.com` by default; override with `SKM_SKILLS_SH_HOST` before
-running skm.
+directory, which indexes skills living in public GitHub repos: paste either
+of the two forms above straight from a skill's page and it resolves the
+repo, clones it, and searches for a directory matching the given name — no
+need to know the skill's actual path inside the repo.
 
 ## Target plugins
 

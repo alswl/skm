@@ -37,10 +37,33 @@ One column per tool. A `✓` means installed there. That's the whole idea.
 
 ## 🏁 Quick start
 
+### Install the latest release (macOS & Linux)
+
+Downloads the release binary for your platform, verifies its checksum, and installs it to
+the first writable directory on your `PATH`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+```
+
+Pin a version or pick the install directory with environment variables:
+
+```bash
+SKM_VERSION=v0.1.1 SKM_INSTALL_DIR=$HOME/.local/bin \
+  curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+```
+
+### Build from source instead
+
 Requires Go 1.26+ and `git` on your `PATH`.
 
 ```bash
 git clone git@github.com:alswl/skm.git && cd skm && make build && make install
+```
+
+Then point skm at your skills repo:
+
+```bash
 skm init ~/skills && cd ~/skills
 ```
 
@@ -101,7 +124,7 @@ built-ins, and both are pluggable with plain executables — no Go, no rebuildin
 |---|---|
 | Local | A path on disk |
 | SelfBuild | A skill/command you author in place |
-| GitHub | Any GitHub repo |
+| GitHub | A repo, a subdirectory, or one file's URL — paste `owner/repo`, `owner/repo/path/to/skill`, or a `blob` link straight from the address bar |
 | GitLab | Any GitLab repo |
 | Skills.sh | The Skills.sh registry |
 | *your own* | Anything a plugin executable can fetch |

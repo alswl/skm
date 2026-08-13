@@ -37,10 +37,32 @@ AI 编程工具,就多一个技能目录，你精心写好的技能最后被复�
 
 ## 🏁 快速上手
 
+### 安装最新发布版（macOS 与 Linux）
+
+下载对应平台的发布二进制、校验 checksum，并安装到 `PATH` 中第一个可写的目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+```
+
+可用环境变量固定版本或指定安装目录：
+
+```bash
+SKM_VERSION=v0.1.1 SKM_INSTALL_DIR=$HOME/.local/bin \
+  curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+```
+
+### 或者从源码构建
+
 需要 Go 1.26+ 和 `PATH` 里的 `git`。
 
 ```bash
 git clone git@github.com:alswl/skm.git && cd skm && make build && make install
+```
+
+然后让 skm 指向你的技能仓库：
+
+```bash
 skm init ~/skills && cd ~/skills
 ```
 
@@ -98,7 +120,7 @@ provider 决定资产从哪里来，target 决定它们装到哪里。两者都�
 |---|---|
 | Local | 本地磁盘上的一个路径 |
 | SelfBuild | 你就地编写的一个 skill/command |
-| GitHub | 任意 GitHub 仓库 |
+| GitHub | 一个仓库、一个子目录，或直接一个文件的 URL——粘贴 `owner/repo`、`owner/repo/path/to/skill`，或地址栏里的 `blob` 链接都行 |
 | GitLab | 任意 GitLab 仓库 |
 | Skills.sh | Skills.sh 注册表 |
 | *自定义* | 任何插件可执行文件能拉取到的东西 |
