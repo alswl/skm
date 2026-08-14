@@ -1,3 +1,22 @@
+## [0.1.2] - 2026-08-14
+
+### 🚀 Features
+
+- Recognize skills.sh's npx command and page URL as import addresses
+- Preserve external skill directory identity on adopt
+
+### 🐛 Bug Fixes
+
+- Batch update
+- Accept www.skills.sh page URLs and use triangle icon for skills-sh provider
+
+### 📚 Documentation
+
+- Add animated TUI demo gif, restructure and re-sync READMEs
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.1.1-dev
 ## [0.1.1] - 2026-08-12
 
 ### 📚 Documentation
@@ -8,6 +27,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.1.0-dev
+- Bump version to v0.1.1
 ## [0.1.0] - 2026-08-11
 
 ### 🚀 Features
