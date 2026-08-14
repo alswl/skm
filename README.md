@@ -1,6 +1,6 @@
 # skm
 
-**One repo for your AI coding skills. Installed everywhere, in sync.**
+**Local-first AI coding-skill management: one personal Git repo, installed everywhere.**
 
 English | [简体中文](README.zh-CN.md)
 
@@ -13,9 +13,10 @@ Claude Code has `~/.claude/skills`. Codex has `~/.codex/skills`. Pi has its own.
 brings another directory, and your carefully written skills end up copy-pasted into all of them —
 drifting, duplicating, and quietly rotting.
 
-`skm` keeps **one git-friendly repository** of skills and commands and installs them into every tool
-you use. Import from a local path or a git URL, install everywhere with one command, update them all
-later. Browse it in a TUI, or script it in CI.
+`skm` keeps **your own, local-first Git repository** of skills and commands and installs them into
+every tool you use. Adopt skills you already have locally, or import from GitHub, GitLab, Skills.sh,
+and local files. Then batch-update them with one automated command, browse them in a TUI, or script
+them in CI.
 
 ![skm TUI demo: init, import from skills.sh and GitHub, discover and adopt an unmanaged skill, install, and inspect it](docs/assets/demo.gif)
 
@@ -23,14 +24,19 @@ One column per tool. A `✓` means installed there. That's the whole idea.
 
 ## ✨ What you get
 
+- 📦 **Local first, fully yours.** Skills live in your personal Git repo: plain directories and
+  Markdown, usable offline and easy to commit, branch, review, and back up like any other code.
+- 📥 **Import from the platforms you use.** Bring in skills from GitHub, GitLab, Skills.sh, local
+  paths, or files — and discover and adopt skills already installed for Claude Code, Codex, and more.
+- 🔄 **Automated batch updates in one command.** `skm update --all` (or `P` in the TUI) updates every
+  eligible entry and keeps the result for each one, so there is no repetitive manual cleanup.
 - 🔁 **Write once, install everywhere.** `skm install code-review` puts it in every tool that accepts
   skills. No more three copies drifting apart.
-- 📦 **Your skills become a git repo.** Plain directories and markdown — commit, branch, review, share
-  with your team like any other code.
 - 🔍 **Always know where things stand.** The install columns and `skm status` tell you what's installed
   where, what's dangling, what drifted.
-- 🔌 **New tool tomorrow? Add it in one command.** Tools are configuration, not code. `skm target add`
-  teaches skm a new agent; no waiting for a release.
+- 🔌 **Built to extend.** Platforms and targets are configuration, not code: `skm target add` connects
+  another local destination, while provider and target plugins support custom platforms and install
+  behavior — no release required.
 
 Providers say where assets come from; targets say where they get installed. Both ship with
 built-ins, and both are pluggable with plain executables — no Go, no rebuilding skm.
