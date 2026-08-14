@@ -17,92 +17,9 @@ AI 编程工具,就多一个技能目录，你精心写好的技能最后被复�
 个工具里。从本地路径或 git 地址导入，一条命令装到所有工具，之后统一更新。可以在 TUI 里浏览，也可以
 在 CI 里脚本化。
 
-```
-┌─ skm · ~/skills ─────────────────────────────────────────────────────────────────────────────────┐
-│ 0*  1L                                                                                           │
-│       name                     kind    version  status       Claude Claude* Codex Pi             │
-│  ▶ 📂 changelog                skill   —        active         ✓                                 │
-│    📂 code-review              skill   —        active         ✓              ✓                  │
-│    📂 pr-triage                skill   —        active                                           │
-│                                                                                                  │
-│                                                                                                  │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│1/1 · local · changelog · skill · active                                                          │
-├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│[j/k] up/down  [/] search  [i] installs  [m] import  [c] claim  [x] actions  [q] quit             │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+![skm TUI 演示：初始化、从 skills.sh 和 GitHub 导入、发现并收编未托管的 skill、安装、查看详情](docs/assets/demo.gif)
 
 每个工具一列，`✓` 表示已在该工具中安装。核心思路就这么简单。
-
-## 🏁 快速上手
-
-### 安装最新发布版（macOS 与 Linux）
-
-下载对应平台的发布二进制、校验 checksum，并安装到 `PATH` 中第一个可写的目录：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
-```
-
-可用环境变量固定版本或指定安装目录：
-
-```bash
-SKM_VERSION=v0.1.1 SKM_INSTALL_DIR=$HOME/.local/bin \
-  curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
-```
-
-### 或者从源码构建
-
-需要 Go 1.26+ 和 `PATH` 里的 `git`。
-
-```bash
-git clone git@github.com:alswl/skm.git && cd skm && make build && make install
-```
-
-然后让 skm 指向你的技能仓库：
-
-```bash
-skm init ~/skills && cd ~/skills
-```
-
-不用从空仓库开始——你的 `~/.claude/skills`、`~/.codex/skills` 之类的地方大概率已经躺着一些技能了。
-先发现它们，再收编你想要的：
-
-```bash
-skm discover                        # 有哪些东西存在，但 skm 还没管？
-skm adopt ~/.codex/skills/review    # 挪进仓库，替换成受管理的安装
-```
-
-在 TUI 里对应的按键是 `o`（发现）再 `enter`（收编）。
-
-不带任何参数运行 `skm`——这是主要的使用方式。你会看到一个可搜索的目录列表，每个工具一列安装状态，
-还有条目详情、目标编辑器（`t`）、以及后台任务中心（`J`）——长时间运行的任务在这里汇报进度，你可以
-继续浏览别的内容。
-
-| 按键 | 作用 |
-|---|---|
-| `j` / `k` | 上下移动 · `/` 搜索 · `enter` 详情 |
-| `i` | 对选中条目执行安装/卸载 |
-| `m` | 导入 · `p` 更新 · `P` 全部更新 · `a` 归档 · `d` 删除 |
-| `o` | 发现未受管理的技能 · `c` 收编进仓库 |
-| `x` | 当前条目的全部操作 |
-| `t` | 目标管理 · `J` 任务中心 · `?` 完整按键表 |
-
-底部状态栏始终显示*此刻*能做什么——不可用的操作会变暗，按下去会告诉你原因，而不是悄无声息地什么
-都不做。破坏性操作的确认提示会先说清楚后果。
-
-想用脚本？每个操作都有对应的 CLI 命令：
-
-```bash
-skm import ./my-skill --kind skill
-skm install code-review --target codex
-skm list
-skm status code-review
-```
-
-然后对这个仓库执行 `git init && git commit`，大功告成——你的技能现在被版本化、可迁移，并且已经装
-进了每一个工具。
 
 ## ✨ 你能得到什么
 
@@ -133,6 +50,57 @@ provider 决定资产从哪里来，target 决定它们装到哪里。两者都�
 | pi | `~/.pi/agent/skills` |
 | *自定义* | 任意路径，通过 `skm target add` 添加 |
 
+## 🏁 快速上手
+
+下载对应平台的发布二进制、校验 checksum，并安装到 `PATH` 中第一个可写的目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+```
+
+## 🚀 首次运行
+
+让 skm 指向你的技能仓库，然后直接运行 `skm`——这是主要的使用方式：
+
+```bash
+skm init ~/skills && cd ~/skills
+skm
+```
+
+你会看到一个可搜索的目录列表，每个工具一列安装状态，还有条目详情、目标编辑器（`t`）、以及后台任务
+中心（`J`）——长时间运行的任务在这里汇报进度，你可以继续浏览别的内容。
+
+不用从空仓库开始——你的 `~/.claude/skills`、`~/.codex/skills` 之类的地方大概率已经躺着一些技能了。
+按 `o` 发现它们，`enter` 收编你想要的进仓库。
+
+| 按键 | 作用 |
+|---|---|
+| `j` / `k` | 上下移动 · `/` 搜索 · `enter` 详情 |
+| `i` | 对选中条目执行安装/卸载 |
+| `m` | 导入 · `p` 更新 · `P` 全部更新 · `a` 归档 · `d` 删除 |
+| `o` | 发现未受管理的技能 · `c` 收编进仓库 |
+| `x` | 当前条目的全部操作 |
+| `t` | 目标管理 · `J` 任务中心 · `?` 完整按键表 |
+
+底部状态栏始终显示*此刻*能做什么——不可用的操作会变暗，按下去会告诉你原因，而不是悄无声息地什么
+都不做。破坏性操作的确认提示会先说清楚后果。
+
+想用脚本？每个操作都有对应的 CLI 命令：
+
+```bash
+skm discover
+skm adopt ~/.codex/skills/review
+skm import ./my-skill --kind skill
+skm install code-review --target codex
+skm list
+skm status code-review
+```
+
+然后对这个仓库执行 `git init && git commit`，大功告成——你的技能现在被版本化、可迁移，并且已经装
+进了每一个工具。
+
+## 🔌 插件
+
 自定义 provider 和 target 以插件形式和内置实现放在一起——一个坏掉、卡住或运行缓慢的插件是被隔离
 的，不会拖垮 skm，也不会阻塞其他插件：
 
@@ -153,7 +121,11 @@ skm target plugin list
 
 ## 📚 文档与开发
 
-完整命令参考：[docs/cli](docs/cli/)——或者对任何命令执行 `skm <command> --help`。
+完整命令参考：[docs/cli](docs/cli/)——或者对任何命令执行 `skm <command> --help`。想从源码构建：
+
+```bash
+git clone git@github.com:alswl/skm.git && cd skm && make build && make install
+```
 
 ```bash
 make build && make test && make lint
