@@ -338,3 +338,52 @@ func TestUninstallRemovesDanglingUnknownSkillAtOriginalDirectorySlot(t *testing.
 	_, err = os.Lstat(link)
 	require.True(t, os.IsNotExist(err), "the managed dangling unknown link is removable")
 }
+
+func TestInstallRejectsNonKebabNameForNameRuleTarget(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "local", "My Skill")
+	mkdir(t, skillDir)
+	write(t, filepath.Join(skillDir, "SKILL.md"), "---\nname: My Skill\ndescription: a demo\n---\nbody\n")
+	entry := &common.Entry{Name: "My Skill", Kind: common.KindSkill, Path: skillDir}
+	target := common.InstallTarget{
+		Name: "dsh", Path: filepath.Join(root, "targets", "dsh"),
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
+		NameRule:   "kebab-case",
+	}
+	mkdir(t, target.Path)
+	inst := NewInstaller([]common.InstallTarget{target}, nil)
+
+	tx := &dal.FileTransaction{}
+	changed, err := inst.Install(tx, entry, target, false)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "kebab-case")
+	require.False(t, changed)
+
+	// No filesystem write happened: the target dir stays empty.
+	entries, _ := os.ReadDir(target.Path)
+	require.Empty(t, entries, "nothing may be written to the target when the name rule rejects")
+}
+
+func TestInstallAcceptsKebabNameForNameRuleTarget(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "skills", "local", "my-skill")
+	mkdir(t, skillDir)
+	write(t, filepath.Join(skillDir, "SKILL.md"), "---\nname: my-skill\ndescription: a demo\n---\nbody\n")
+	entry := &common.Entry{Name: "my-skill", Kind: common.KindSkill, Path: skillDir}
+	target := common.InstallTarget{
+		Name: "dsh", Path: filepath.Join(root, "targets", "dsh"),
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
+		NameRule:   "kebab-case",
+	}
+	mkdir(t, target.Path)
+	inst := NewInstaller([]common.InstallTarget{target}, nil)
+
+	tx := &dal.FileTransaction{}
+	changed, err := inst.Install(tx, entry, target, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	tx.Commit()
+	require.True(t, dal.IsSymlink(filepath.Join(target.Path, "my-skill")))
+}

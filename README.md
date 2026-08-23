@@ -56,6 +56,8 @@ built-ins, and both are pluggable with plain executables — no Go, no rebuildin
 | Claude commands | `~/.claude/commands` |
 | Codex | `~/.codex/skills` |
 | pi | `~/.pi/agent/skills` |
+| dsh (deepseek-harness) | `~/.dsh/skills` (or `$DSH_HOME`/skills) |
+| shared agents | `~/.agents/skills` (or `$DSH_AGENTS_HOME`/skills) |
 | *your own* | Any path, via `skm target add` |
 
 ## 🏁 Quick start

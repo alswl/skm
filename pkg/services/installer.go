@@ -166,6 +166,16 @@ func (i *Installer) matches(entry *common.Entry, t common.InstallTarget) bool {
 // (FR-014..FR-018). Dispatch is entirely by the target's declared strategy
 // for entry.Kind — no tool name is consulted.
 func (i *Installer) Install(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
+	// A declared name rule (e.g. the deepseek-harness targets' "kebab-case")
+	// rejects non-conforming skill names before any filesystem write: such a
+	// skill would silently never be discovered by the consuming tool
+	// (006-deepseek-harness-target FR-006). The rule lives on the target, not
+	// in this switch — no tool name drives it.
+	if entry.Kind == common.KindSkill && target.NameRule != "" && !common.NameSatisfies(target.NameRule, entry.Name) {
+		return false, common.WithExitCode(
+			fmt.Errorf("skill %q rejected by target %q name rule %q: expected a %s name like %q",
+				entry.Name, target.Name, target.NameRule, target.NameRule, "my-skill"), common.ExitError)
+	}
 	strategy, ok := target.EffectiveStrategy(entry.Kind)
 	if !ok {
 		return false, nil

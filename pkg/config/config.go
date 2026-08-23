@@ -81,6 +81,17 @@ func DefaultPluginDirs() []string {
 	return []string{filepath.Join(DefaultConfigDir(), "plugins")}
 }
 
+// envHome returns the value of env var varName when set, else
+// filepath.Join(home, fallbackDir). The deepseek-harness built-ins use it so
+// their user-level skill roots honor the standard DSH_HOME / DSH_AGENTS_HOME
+// overrides (006-deepseek-harness-target FR-002).
+func envHome(home, varName, fallbackDir string) string {
+	if v := os.Getenv(varName); v != "" {
+		return v
+	}
+	return filepath.Join(home, fallbackDir)
+}
+
 // defaultTargets returns the built-in targets restored when targets.json is
 // missing or has zero interpretable entries (FR-003). Each declares its own
 // accepts/strategies (FR-012/FR-013, data-model.md). Codex receives skills as
@@ -89,9 +100,12 @@ func DefaultPluginDirs() []string {
 // separate commands concept (a
 // skill can be auto-registered as a /skill:name command by pi itself), so it
 // only accepts skill, via skill-symlink into its ~/.pi/agent/skills
-// convention. skm ships built-ins only for these widely-used public tools:
-// any other tool (private or public) is added via `skm target add`, not a
-// hardcoded default.
+// convention. The deepseek-harness built-ins (dsh, agents) cover dsh's
+// user-level skill roots — dsh's own directory and the shared cross-agent
+// directory — skills-only via skill-symlink, with a kebab-case name rule
+// (006-deepseek-harness-target). skm ships built-ins only for these
+// widely-used public tools: any other tool (private or public) is added via
+// `skm target add`, not a hardcoded default.
 func defaultTargets() []common.InstallTarget {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -110,7 +124,22 @@ func defaultTargets() []common.InstallTarget {
 		{Name: "pi", Platform: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Builtin: true,
 			Accepts:    []common.EntryKind{common.KindSkill},
 			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
+		{Name: "dsh", Platform: "dsh", Path: filepath.Join(envHome(home, "DSH_HOME", ".dsh"), "skills"), Builtin: true,
+			Accepts:    []common.EntryKind{common.KindSkill},
+			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
+			NameRule:   "kebab-case"},
+		{Name: "agents", Platform: "agents", Path: filepath.Join(envHome(home, "DSH_AGENTS_HOME", ".agents"), "skills"), Builtin: true,
+			Accepts:    []common.EntryKind{common.KindSkill},
+			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
+			NameRule:   "kebab-case"},
 	}
+}
+
+// DefaultTargets returns the built-in targets, exposed so the services layer
+// can report built-in default paths and path divergence in `target list` and
+// `target validate` (006-deepseek-harness-target FR-004).
+func DefaultTargets() []common.InstallTarget {
+	return defaultTargets()
 }
 
 // Load builds a Config. configDir defaults to ~/.config/skm when

@@ -170,7 +170,7 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 	_, cfgDir := e2eFixture(t)
 
 	out, _, _ := e2eRun(t, "target", "list", "--config", cfgDir, "--json")
-	require.Len(t, e2eJSON(t, out)["targets"].([]any), 4, "fixture's one claude-skills entry merges with the 3 other built-ins")
+	require.Len(t, e2eJSON(t, out)["targets"].([]any), 6, "fixture's one claude-skills entry merges with the 5 other built-ins")
 
 	newTarget := filepath.Join(t.TempDir(), "my-tool")
 	_, stderr, code := e2eRun(t, "target", "add", "--config", cfgDir,
@@ -180,7 +180,7 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 
 	out, _, _ = e2eRun(t, "target", "list", "--config", cfgDir, "--json")
 	targets := e2eJSON(t, out)["targets"].([]any)
-	require.Len(t, targets, 5)
+	require.Len(t, targets, 7)
 	var myTool map[string]any
 	for _, tgt := range targets {
 		if tgt.(map[string]any)["name"] == "my-tool" {
@@ -202,7 +202,7 @@ func TestE2ECLITargetLifecycle(t *testing.T) {
 	require.Equal(t, 0, code)
 
 	out, _, _ = e2eRun(t, "target", "list", "--config", cfgDir, "--json")
-	require.Len(t, e2eJSON(t, out)["targets"].([]any), 4, "back to the fixture's merged built-ins")
+	require.Len(t, e2eJSON(t, out)["targets"].([]any), 6, "back to the fixture's merged built-ins")
 }
 
 // TestE2ECLISingleFileCommandFullLifecycle drives the real skm binary through

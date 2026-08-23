@@ -158,12 +158,12 @@ func TestLoadMergesBuiltinsWithASingleCustomEntry(t *testing.T) {
 
 	cfg, err := Load(root, dir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 5, "the 4 built-ins plus the acme entry")
+	require.Len(t, cfg.Targets, 7, "the 6 built-ins plus the acme entry")
 	byName := map[string]common.InstallTarget{}
 	for _, t := range cfg.Targets {
 		byName[t.Name] = t
 	}
-	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi", "acme"} {
+	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi", "dsh", "agents", "acme"} {
 		require.Contains(t, byName, name)
 	}
 }

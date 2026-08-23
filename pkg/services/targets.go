@@ -29,6 +29,28 @@ type TargetInfo struct {
 	Valid      bool                                        `json:"valid"`
 	PathState  string                                      `json:"path_state"`
 	Error      *string                                     `json:"error"`
+	NameRule   string                                      `json:"name_rule,omitempty"`
+	// DefaultPath/PathDiverged are populated for built-in targets only
+	// (006-deepseek-harness-target FR-004): the current env-resolved default
+	// path and whether the stored path diverges from it.
+	DefaultPath  string `json:"default_path,omitempty"`
+	PathDiverged bool   `json:"path_diverged,omitempty"`
+}
+
+// builtinDefault returns the current env-resolved default path for a built-in
+// target (matched by name against config.DefaultTargets) and whether the
+// stored path diverges from it. Non-built-in targets return ("", false):
+// divergence is meaningful only where a default exists.
+func builtinDefault(t common.InstallTarget) (defaultPath string, diverged bool) {
+	if !t.Builtin {
+		return "", false
+	}
+	for _, d := range config.DefaultTargets() {
+		if d.Name == t.Name {
+			return d.Path, d.Path != t.Path
+		}
+	}
+	return "", false
 }
 
 // TargetListResult is the CLI JSON report for `target list`.
@@ -43,10 +65,12 @@ type TargetListResult struct {
 func (s *Services) TargetList() *TargetListResult {
 	res := &TargetListResult{ConfigDir: s.Cfg.ConfigDir, Targets: []TargetInfo{}, Invalid: s.Cfg.InvalidTargets}
 	for _, t := range s.Cfg.Targets {
+		defPath, diverged := builtinDefault(t)
 		res.Targets = append(res.Targets, TargetInfo{
 			Name: t.Name, Platform: t.Platform, Path: t.Path,
 			Accepts: t.EffectiveAccepts(), Strategies: t.Strategies, Builtin: t.Builtin,
 			Valid: true, PathState: config.PathState(t.Path),
+			NameRule: t.NameRule, DefaultPath: defPath, PathDiverged: diverged,
 		})
 	}
 	if res.Invalid == nil {
@@ -105,6 +129,11 @@ type TargetValidateEntry struct {
 	OK        bool    `json:"ok"`
 	PathState string  `json:"path_state"`
 	Error     *string `json:"error"`
+	// name_rule/default_path/path_diverged mirror TargetInfo
+	// (006-deepseek-harness-target FR-004).
+	NameRule     string `json:"name_rule,omitempty"`
+	DefaultPath  string `json:"default_path,omitempty"`
+	PathDiverged bool   `json:"path_diverged,omitempty"`
 }
 
 // TargetValidateResult is the CLI JSON report for `target validate`.
@@ -122,7 +151,9 @@ func (s *Services) TargetValidate(name string) *TargetValidateResult {
 		if name != "" && t.Name != name {
 			continue
 		}
-		entry := TargetValidateEntry{Name: t.Name, PathState: config.PathState(t.Path), OK: true}
+		defPath, diverged := builtinDefault(t)
+		entry := TargetValidateEntry{Name: t.Name, PathState: config.PathState(t.Path), OK: true,
+			NameRule: t.NameRule, DefaultPath: defPath, PathDiverged: diverged}
 		if reason := config.ValidateTarget(t); reason != "" {
 			entry.OK = false
 			entry.Error = &reason

@@ -25,7 +25,7 @@ func TestLoadMigratesLegacyToolPathV1Entry(t *testing.T) {
 
 	cfg, err := Load(root, cfgDir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the user's acme entry")
+	require.Len(t, cfg.Targets, 7, "the 6 built-ins are always merged in alongside the user's acme entry")
 	byName := map[string]common.InstallTarget{}
 	for _, t := range cfg.Targets {
 		byName[t.Name] = t
@@ -36,8 +36,23 @@ func TestLoadMigratesLegacyToolPathV1Entry(t *testing.T) {
 	require.ElementsMatch(t, []common.EntryKind{common.KindSkill, common.KindCommand}, cf.Accepts)
 	require.Equal(t, common.StrategyCommandAdapter, cf.Strategies[common.KindCommand],
 		"the legacy tool's commands still install via the adapter strategy, exactly as the hardcoded 001 logic did")
-	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi"} {
+	for _, name := range []string{"claude-skills", "claude-commands", "codex", "pi", "dsh", "agents"} {
 		require.Contains(t, byName, name, "built-ins stay visible even once the user has a targets.json entry")
+	}
+}
+
+func TestDefaultDshAndAgentsBuiltins(t *testing.T) {
+	byName := map[string]common.InstallTarget{}
+	for _, target := range defaultTargets() {
+		byName[target.Name] = target
+	}
+	for _, name := range []string{"dsh", "agents"} {
+		target, ok := byName[name]
+		require.True(t, ok, "built-in %q exists", name)
+		require.True(t, target.Builtin)
+		require.ElementsMatch(t, []common.EntryKind{common.KindSkill}, target.Accepts)
+		require.Equal(t, common.StrategySkillSymlink, target.Strategies[common.KindSkill])
+		require.Equal(t, "kebab-case", target.NameRule)
 	}
 }
 
@@ -67,7 +82,7 @@ func TestLoadHandlesMixedV1AndV2Targets(t *testing.T) {
 
 	cfg, err := Load(root, cfgDir)
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 6, "the 4 built-ins are always merged in alongside the user's 2 entries")
+	require.Len(t, cfg.Targets, 8, "the 6 built-ins are always merged in alongside the user's 2 entries")
 	require.Empty(t, cfg.InvalidTargets)
 
 	byName := map[string]common.InstallTarget{}
@@ -95,7 +110,7 @@ func TestLoadFallsBackToLegacyConfigDirWhenNewDirHasNoTargetsFile(t *testing.T) 
 	// no targets.json, so the legacy dir must be consulted.
 	cfg, err := Load(root, "")
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the legacy-dir entry")
+	require.Len(t, cfg.Targets, 7, "the 6 built-ins are always merged in alongside the legacy-dir entry")
 	require.Equal(t, "from-legacy-dir", cfg.Targets[len(cfg.Targets)-1].Name)
 	require.Equal(t, legacyDir, cfg.ConfigDir, "writes must land back in the same file the user already has")
 }
@@ -119,7 +134,7 @@ func TestLoadPrefersNewConfigDirOverLegacyWhenBothExist(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
 	cfg, err := Load(root, "")
 	require.NoError(t, err)
-	require.Len(t, cfg.Targets, 5, "the 4 built-ins are always merged in alongside the new-dir entry")
+	require.Len(t, cfg.Targets, 7, "the 6 built-ins are always merged in alongside the new-dir entry")
 	require.Equal(t, "new", cfg.Targets[len(cfg.Targets)-1].Name, "the new-style config dir wins once it exists")
 }
 
