@@ -28,9 +28,9 @@ type Services struct {
 // declaring a "plugin:<id>" strategy resolves against an already-loaded set.
 func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	reg := NewRegistry()
-	builtins := []Provider{
-		NewLocal(), NewSelfBuild(), NewGitHub(),
-		NewGitLab(), NewSkillsSh(),
+	builtins, err := BuiltinProviders()
+	if err != nil {
+		return nil, err
 	}
 	for _, p := range builtins {
 		if err := reg.Register(p); err != nil {

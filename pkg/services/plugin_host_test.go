@@ -79,3 +79,29 @@ esac
 	require.Equal(t, "preview", items[0].TargetName)
 	require.NoError(t, p.RepairDangling(t.Context(), items[0], target))
 }
+
+func TestInstallerDispatchesPluginStrategyThroughTargetDriver(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dispatch.sh")
+	script := `#!/bin/sh
+IFS= read -r line
+case "$line" in
+  *'"action":"id"'*) echo '{"id":"dispatch"}' ;;
+  *'"action":"diff"'*) echo '{"diff":"plugin diff"}' ;;
+  *) echo '{"error":{"code":"protocol_error","message":"unsupported"}}' ;;
+esac
+`
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	plugin, err := NewTargetPlugin(path)
+	require.NoError(t, err)
+	entry := &common.Entry{Name: "demo", Kind: common.KindSkill, Path: filepath.Join(dir, "source")}
+	target := common.InstallTarget{
+		Name: "dispatch-target", Path: filepath.Join(dir, "target"),
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("dispatch")},
+	}
+	inst := NewInstaller([]common.InstallTarget{target}, map[string]TargetDriver{"dispatch": externalTargetDriver{plugin}})
+	diff, err := inst.Diff(context.Background(), entry, target)
+	require.NoError(t, err)
+	require.Equal(t, "plugin diff", diff)
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	targetbuiltins "github.com/alswl/skm/skm/pkg/config/builtins"
 )
 
 // Config holds resolved runtime configuration shared by CLI and TUI.
@@ -81,17 +82,6 @@ func DefaultPluginDirs() []string {
 	return []string{filepath.Join(DefaultConfigDir(), "plugins")}
 }
 
-// envHome returns the value of env var varName when set, else
-// filepath.Join(home, fallbackDir). The deepseek-harness built-ins use it so
-// their user-level skill roots honor the standard DSH_HOME / DSH_AGENTS_HOME
-// overrides (006-deepseek-harness-target FR-002).
-func envHome(home, varName, fallbackDir string) string {
-	if v := os.Getenv(varName); v != "" {
-		return v
-	}
-	return filepath.Join(home, fallbackDir)
-}
-
 // defaultTargets returns the built-in targets restored when targets.json is
 // missing or has zero interpretable entries (FR-003). Each declares its own
 // accepts/strategies (FR-012/FR-013, data-model.md). Codex receives skills as
@@ -111,28 +101,13 @@ func defaultTargets() []common.InstallTarget {
 	if err != nil {
 		home = "~"
 	}
-	return []common.InstallTarget{
-		{Name: "claude-skills", Platform: "claude", Path: filepath.Join(home, ".claude", "skills"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindSkill},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
-		{Name: "claude-commands", Platform: "claude", Path: filepath.Join(home, ".claude", "commands"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindCommand},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindCommand: common.StrategyCommandMarker}},
-		{Name: "codex", Platform: "codex", Path: filepath.Join(home, ".codex", "skills"), Builtin: true,
-			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: map[common.EntryKind]common.InstallStrategy{
-				common.KindSkill: common.StrategySkillSymlink, common.KindCommand: common.StrategyCommandAdapter}},
-		{Name: "pi", Platform: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindSkill},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
-		{Name: "dsh", Platform: "dsh", Path: filepath.Join(envHome(home, "DSH_HOME", ".dsh"), "skills"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindSkill},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
-			NameRule:   "kebab-case"},
-		{Name: "agents", Platform: "agents", Path: filepath.Join(envHome(home, "DSH_AGENTS_HOME", ".agents"), "skills"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindSkill},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
-			NameRule:   "kebab-case"},
+	ctx := targetbuiltins.Context{Home: home, Getenv: os.Getenv}
+	defs := targetbuiltins.All()
+	targets := make([]common.InstallTarget, 0, len(defs))
+	for _, definition := range defs {
+		targets = append(targets, definition.Materialize(ctx))
 	}
+	return targets
 }
 
 // DefaultTargets returns the built-in targets, exposed so the services layer

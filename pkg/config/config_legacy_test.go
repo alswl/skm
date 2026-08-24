@@ -56,6 +56,18 @@ func TestDefaultDshAndAgentsBuiltins(t *testing.T) {
 	}
 }
 
+func TestDefaultTargetsPreserveFullFieldOrderAndFreshCollections(t *testing.T) {
+	first := defaultTargets()
+	second := defaultTargets()
+	require.Equal(t, []string{"claude-skills", "claude-commands", "codex", "pi", "dsh", "agents"},
+		[]string{first[0].Name, first[1].Name, first[2].Name, first[3].Name, first[4].Name, first[5].Name})
+	require.Equal(t, first, second)
+	first[0].Accepts[0] = common.KindCommand
+	first[0].Strategies[common.KindSkill] = common.StrategyCommandMarker
+	require.Equal(t, common.KindSkill, second[0].Accepts[0])
+	require.Equal(t, common.StrategySkillSymlink, second[0].Strategies[common.KindSkill])
+}
+
 func TestDefaultCodexUsesSkillCompatibleStrategies(t *testing.T) {
 	var codex common.InstallTarget
 	for _, target := range defaultTargets() {

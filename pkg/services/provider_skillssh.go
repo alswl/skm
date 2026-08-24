@@ -10,6 +10,8 @@ import (
 	"github.com/alswl/skm/skm/pkg/dal"
 )
 
+var skillsShBuiltinDefinition = BuiltinProviderDefinition{ID: "skills-sh", New: NewSkillsSh}
+
 // NewSkillsSh returns the built-in skills.sh provider (git-backed,
 // "skills.sh://<owner>/<repo>"; host overridable via SKM_SKILLS_SH_HOST).
 // skills.sh indexes skills living in public GitHub repos, so the default host
