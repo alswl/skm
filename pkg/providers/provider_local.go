@@ -1,4 +1,4 @@
-package services
+package providers
 
 import (
 	"context"
@@ -33,17 +33,17 @@ func (Local) Capability() Capability {
 }
 
 // Normalize expands paths entered outside a shell and trims pasted whitespace.
-func (Local) Normalize(address string) (string, error) { return normalizeImportSource(address), nil }
+func (Local) Normalize(address string) (string, error) { return normalizeLocalSource(address), nil }
 
 // CanHandle reports whether address is an existing local path.
 func (Local) CanHandle(address string) bool {
-	return dal.PathExists(normalizeImportSource(address))
+	return dal.PathExists(normalizeLocalSource(address))
 }
 
 // Fetch returns the local source path itself; the import manager copies it
 // into the repository under a transaction.
 func (Local) Fetch(_ context.Context, address string) (string, error) {
-	return normalizeImportSource(address), nil
+	return normalizeLocalSource(address), nil
 }
 
 // borrowsSource reports whether p.Fetch hands back a path the caller already

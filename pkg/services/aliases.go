@@ -14,10 +14,6 @@ type DiscoveredSkill = engines.DiscoveredSkill
 // UpdateResult reports a single-entry update.
 type UpdateResult = engines.UpdateResult
 
-// DanglingInstall is a target-side installation that has no usable source.
-// It is deliberately path-based: an orphan has no Entry to address it by.
-type DanglingInstall = engines.DanglingInstall
-
 // NewRepository returns a file-mechanics Repository over root.
 func NewRepository(root string) *engines.Repository { return engines.NewRepository(root) }
 

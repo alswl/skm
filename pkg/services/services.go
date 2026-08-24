@@ -17,7 +17,7 @@ type Services struct {
 	Repo                 *engines.Repository
 	Registry             *Registry
 	Installer            *Installer
-	TargetPlugins        map[string]TargetDriver
+	TargetPlugins        map[string]TargetPluginDriver
 	TargetPluginFailures []PluginLoadFailure
 }
 
@@ -39,7 +39,7 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	}
 
 	loadedTargetPlugins, targetPluginFailures := DiscoverTargetPlugins(cfg.PluginDirs, logger)
-	targetPlugins := make(map[string]TargetDriver, len(loadedTargetPlugins))
+	targetPlugins := make(map[string]TargetPluginDriver, len(loadedTargetPlugins))
 	for _, p := range loadedTargetPlugins {
 		targetPlugins[p.ID()] = externalTargetDriver{p}
 	}
@@ -54,7 +54,7 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 		Registry:             reg,
 		TargetPlugins:        targetPlugins,
 		TargetPluginFailures: targetPluginFailures,
-		Installer:            NewInstaller(cfg.Targets, targetPlugins),
+		Installer:            NewInstaller(cfg.Targets, installerDrivers(targetPlugins)),
 	}
 	svc.loadPlugins()
 	svc.logInvalidTargets()

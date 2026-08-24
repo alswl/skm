@@ -1,4 +1,4 @@
-package services
+package providers
 
 // Capability describes what a Provider handles, shown by `provider list`
 // without fetching anything (002-open-provider-target FR-002). A plugin that

@@ -1,4 +1,4 @@
-package services
+package installer
 
 import (
 	"github.com/alswl/skm/skm/pkg/common"

@@ -15,7 +15,15 @@ import (
 // unchanged — plugins are discovered once at startup, independent of
 // targets.json edits.
 func (s *Services) installerFor(targets []common.InstallTarget) *Installer {
-	return NewInstaller(targets, s.TargetPlugins)
+	return NewInstaller(targets, installerDrivers(s.TargetPlugins))
+}
+
+func installerDrivers(plugins map[string]TargetPluginDriver) map[string]TargetDriver {
+	drivers := make(map[string]TargetDriver, len(plugins))
+	for id, plugin := range plugins {
+		drivers[id] = plugin
+	}
+	return drivers
 }
 
 // TargetInfo is one row of `target list` (contracts/cli-json.md).

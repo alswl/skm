@@ -1,4 +1,4 @@
-package services
+package providers
 
 // BuiltinProviderDefinitions returns the stable declarations used by skm.
 func BuiltinProviderDefinitions() []BuiltinProviderDefinition {

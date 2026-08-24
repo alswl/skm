@@ -1,4 +1,4 @@
-package services
+package providers
 
 import (
 	"fmt"
