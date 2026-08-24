@@ -11,7 +11,8 @@ func BuiltinProviderDefinitions() []BuiltinProviderDefinition {
 	}
 }
 
-// BuiltinProviders materializes providers in the documented matching order.
+// BuiltinProviders centralizes materialization so Services.New and tests share
+// one matching order.
 func BuiltinProviders() ([]Provider, error) {
 	defs := BuiltinProviderDefinitions()
 	providers := make([]Provider, 0, len(defs))

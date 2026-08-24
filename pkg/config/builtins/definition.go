@@ -2,8 +2,8 @@ package builtins
 
 import "github.com/alswl/skm/skm/pkg/common"
 
-// Context contains the process values needed to resolve a built-in target.
-// Keeping it small makes definitions deterministic and easy to test.
+// Context keeps path resolution injectable so registry tests do not depend on
+// process-global environment values.
 type Context struct {
 	Home   string
 	Getenv func(string) string
