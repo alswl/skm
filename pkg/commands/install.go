@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// installTargets is shared by install/uninstall.
+// installTargets backs the --target flag on both install and uninstall.
 var installTargets []string
 
 var installCmd = &cobra.Command{
@@ -32,32 +32,9 @@ var installCmd = &cobra.Command{
 	},
 }
 
-var uninstallCmd = &cobra.Command{
-	Use:     "uninstall NAME",
-	Short:   "Remove managed installs of a skill or command (never user files)",
-	Example: "  skm uninstall review --target team-codex --json",
-	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		svc, err := servicesFor(cmd)
-		if err != nil {
-			return err
-		}
-		result, err := svc.Uninstall(cmd.Context(), args[0], services.InstallOptions{
-			Targets: installTargets,
-			DryRun:  flagDryRun,
-		})
-		if err != nil {
-			return err
-		}
-		return printInstallReport(cmd, result)
-	},
-}
-
 func init() {
-	rootCmd.AddCommand(installCmd, uninstallCmd)
-	for _, c := range []*cobra.Command{installCmd, uninstallCmd} {
-		c.Flags().StringSliceVar(&installTargets, "target", nil, "target name(s); default all kind-matching")
-	}
+	installCmd.Flags().StringSliceVar(&installTargets, "target", nil, "target name(s); default all kind-matching")
+	rootCmd.AddCommand(installCmd)
 }
 
 // printInstallReport emits the install/uninstall JSON contract or a compact
