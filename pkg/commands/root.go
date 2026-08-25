@@ -46,13 +46,29 @@ Run with no subcommand to open the interactive TUI; run a known subcommand
 }
 
 // RootCmd returns the root Cobra command, for tooling that walks the command
-// tree without executing it (e.g. cmd/gendoc's Markdown generation).
+// tree without executing it (e.g. cmd/gendoc's Markdown generation). Cobra
+// registers --help/--version inside Execute(), so they are registered here too
+// — otherwise generated docs list a flag set the binary does not have.
 func RootCmd() *cobra.Command {
+	initDefaultFlags()
 	return rootCmd
+}
+
+// initDefaultFlags registers the flags Cobra would otherwise only add inside
+// Execute(). --version is registered here first, without a shorthand, so
+// Cobra's own InitDefaultVersionFlag skips it: left to Cobra it would claim
+// -v, which is conventionally --verbose.
+func initDefaultFlags() {
+	rootCmd.InitDefaultHelpFlag()
+	if rootCmd.Flags().Lookup("version") == nil {
+		rootCmd.Flags().Bool("version", false, "print version information")
+	}
+	rootCmd.InitDefaultVersionFlag()
 }
 
 // Execute runs the CLI and returns the process exit code.
 func Execute() int {
+	initDefaultFlags()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	rootCmd.SetContext(ctx)
