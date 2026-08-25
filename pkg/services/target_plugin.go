@@ -2,13 +2,12 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/installer"
 	"github.com/alswl/skm/skm/pkg/plugins"
 )
 
@@ -19,11 +18,7 @@ import (
 // executable instead, referenced from targets.json as strategy
 // "plugin:<id>" (common.InstallStrategy.IsPlugin/PluginID).
 type TargetPlugin struct {
-	path            string
-	id              string
-	label           string
-	protocolVersion int // declared in the id response; 1 (baseline) when absent
-	mu              sync.Mutex
+	*plugins.Process
 }
 
 // targetPluginTimeout bounds every subprocess call so one slow/hung plugin
@@ -41,10 +36,10 @@ type TargetPluginError struct {
 func (e *TargetPluginError) Error() string { return e.Message }
 
 const (
-	CodeTargetProtocolError   = "protocol_error"
-	CodeTargetTimeout         = "timeout"
-	CodeTargetDuplicateID     = "duplicate_id"
-	CodeTargetEmptyID         = "empty_id"
+	CodeTargetProtocolError   = plugins.CodeProtocolError
+	CodeTargetTimeout         = plugins.CodeTimeout
+	CodeTargetDuplicateID     = plugins.CodeDuplicateID
+	CodeTargetEmptyID         = plugins.CodeEmptyID
 	CodeTargetInstallFailed   = "install_failed"
 	CodeTargetUninstallFailed = "uninstall_failed"
 	CodeTargetStateFailed     = "state_failed"
@@ -78,118 +73,50 @@ type targetPluginRequest struct {
 	Force      bool             `json:"force,omitempty"`
 }
 
-// targetPluginErrorField accepts either the new {code,message} object or a
-// legacy bare string (mapped to CodeTargetInstallFailed), same convention as
-// pluginError.
+// targetPluginErrorField tolerates the legacy bare-string error form, same
+// convention as pluginError.
 type targetPluginErrorField struct {
 	Code    string
 	Message string
 }
 
 func (e *targetPluginErrorField) UnmarshalJSON(data []byte) error {
-	var obj struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(data, &obj); err == nil && (obj.Code != "" || obj.Message != "") {
-		e.Code, e.Message = obj.Code, obj.Message
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	e.Code, e.Message = CodeTargetInstallFailed, s
-	return nil
+	return plugins.UnmarshalError(data, &e.Code, &e.Message, CodeTargetInstallFailed)
 }
 
 type targetPluginResponse struct {
-	ID              string                  `json:"id,omitempty"`
-	ProtocolVersion int                     `json:"protocol_version,omitempty"`
-	Label           string                  `json:"label,omitempty"`
-	Description     string                  `json:"description,omitempty"`
-	Kinds           []common.EntryKind      `json:"kinds,omitempty"`
-	Result          *bool                   `json:"result,omitempty"`
-	Path            string                  `json:"path,omitempty"`
-	State           string                  `json:"state,omitempty"`
-	Diff            string                  `json:"diff,omitempty"`
-	Dangling        []DanglingInstall       `json:"dangling,omitempty"`
-	Error           *targetPluginErrorField `json:"error,omitempty"`
+	ID              string                      `json:"id,omitempty"`
+	ProtocolVersion int                         `json:"protocol_version,omitempty"`
+	Label           string                      `json:"label,omitempty"`
+	Description     string                      `json:"description,omitempty"`
+	Kinds           []common.EntryKind          `json:"kinds,omitempty"`
+	Result          *bool                       `json:"result,omitempty"`
+	Path            string                      `json:"path,omitempty"`
+	State           string                      `json:"state,omitempty"`
+	Diff            string                      `json:"diff,omitempty"`
+	Dangling        []installer.DanglingInstall `json:"dangling,omitempty"`
+	Error           *targetPluginErrorField     `json:"error,omitempty"`
 }
 
 // NewTargetPlugin loads a plugin executable, probing its id and label.
 func NewTargetPlugin(path string) (*TargetPlugin, error) {
-	p := &TargetPlugin{path: path}
+	p := &TargetPlugin{plugins.NewProcess("target plugin", path)}
 	ctx, cancel := context.WithTimeout(context.Background(), targetPluginTimeout)
 	defer cancel()
-	idResp, err := p.call(ctx, targetPluginRequest{Action: "id"})
-	if err != nil {
+	err := p.Handshake(func(action string) (plugins.Identity, error) {
+		resp, err := p.call(ctx, targetPluginRequest{Action: action})
+		if err != nil {
+			return plugins.Identity{}, err
+		}
+		return plugins.Identity{ID: resp.ID, Label: resp.Label, ProtocolVersion: resp.ProtocolVersion}, nil
+	})
+	switch {
+	case errors.Is(err, plugins.ErrEmptyID):
+		return nil, &TargetPluginError{Code: CodeTargetEmptyID, Message: fmt.Sprintf("target plugin %s: returned an empty id", path)}
+	case err != nil:
 		return nil, fmt.Errorf("target plugin %s: %w", path, err)
 	}
-	if idResp.ID == "" {
-		return nil, &TargetPluginError{Code: CodeTargetEmptyID, Message: fmt.Sprintf("target plugin %s: returned an empty id", path)}
-	}
-	p.id = idResp.ID
-	// An undeclared protocol_version is the v1 baseline (plugin_host.go).
-	p.protocolVersion = idResp.ProtocolVersion
-	if p.protocolVersion == 0 {
-		p.protocolVersion = 1
-	}
-	if lbl, err := p.call(ctx, targetPluginRequest{Action: "label"}); err == nil {
-		p.label = lbl.Label
-	}
 	return p, nil
-}
-
-// ProtocolVersion returns the protocol version the plugin declares it
-// implements (1 when it predates the versioning field).
-func (p *TargetPlugin) ProtocolVersion() int { return p.protocolVersion }
-
-// ID returns the plugin's stable identifier (the "plugin:<id>" strategy
-// suffix that refers to it).
-func (p *TargetPlugin) ID() string { return p.id }
-
-// Descriptor exposes the same identity envelope as an in-process target
-// strategy. The legacy subprocess JSON protocol is translated at call time.
-func (p *TargetPlugin) Descriptor() PluginDescriptor {
-	cap := p.Capability()
-	return PluginDescriptor{Version: p.protocolVersion, Kind: PluginKindTarget, ID: p.ID(), Label: p.Label(), Description: cap.Description, Path: p.path}
-}
-
-func (p *TargetPlugin) Handle(ctx context.Context, req PluginRequest) (PluginResponse, error) {
-	if req.Action == "describe" {
-		return PluginResponse{Descriptor: p.Descriptor()}, nil
-	}
-	if req.Action == "capability" {
-		cap := p.Capability()
-		return PluginResponse{Capability: Capability{ID: cap.ID, Label: cap.Label, Description: cap.Description}}, nil
-	}
-	if req.Action == "inspect" {
-		if req.Target == nil {
-			return PluginResponse{}, fmt.Errorf("target plugin %q: target is required", p.ID())
-		}
-		items, err := p.Inspect(ctx, *req.Target)
-		return PluginResponse{Dangling: items}, err
-	}
-	if req.Entry == nil || req.Target == nil {
-		return PluginResponse{}, fmt.Errorf("target plugin %q: entry and target are required", p.ID())
-	}
-	resp, err := p.call(ctx, targetPluginRequest{Action: req.Action, Name: req.Entry.Name, Kind: req.Entry.Kind, SourcePath: req.Entry.Path, TargetPath: req.Target.Path, Force: req.Force})
-	if err != nil {
-		return PluginResponse{}, err
-	}
-	if resp.Error != nil {
-		return PluginResponse{}, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
-	}
-	return PluginResponse{Result: resp.Result, State: common.InstallState(resp.State), Diff: resp.Diff}, nil
-}
-
-// Label returns the human label (falling back to the id).
-func (p *TargetPlugin) Label() string {
-	if p.label == "" {
-		return p.id
-	}
-	return p.label
 }
 
 // Capability runs the plugin's optional `capability` action, falling back to
@@ -226,7 +153,7 @@ func (p *TargetPlugin) Install(entry *common.Entry, target common.InstallTarget,
 		return false, err
 	}
 	if resp.Error != nil {
-		return false, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return false, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	return resp.Result != nil && *resp.Result, nil
 }
@@ -243,7 +170,7 @@ func (p *TargetPlugin) Uninstall(entry *common.Entry, target common.InstallTarge
 		return false, err
 	}
 	if resp.Error != nil {
-		return false, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return false, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	return resp.Result != nil && *resp.Result, nil
 }
@@ -253,10 +180,10 @@ func (p *TargetPlugin) Uninstall(entry *common.Entry, target common.InstallTarge
 // foreign object, so the caller confirms first. Requires protocol v2; an older
 // plugin gets a clear error instead of an opaque protocol failure.
 func (p *TargetPlugin) RemoveForeign(entry *common.Entry, target common.InstallTarget) (bool, error) {
-	if p.protocolVersion < removeForeignProtocolVersion {
+	if p.ProtocolVersion() < removeForeignProtocolVersion {
 		return false, &TargetPluginError{Code: CodeTargetProtocolError, Message: fmt.Sprintf(
 			"target plugin %s is on protocol v%d; remove_foreign (conflict cleanup) needs v%d — update the plugin",
-			p.id, p.protocolVersion, removeForeignProtocolVersion)}
+			p.ID(), p.ProtocolVersion(), removeForeignProtocolVersion)}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), targetPluginTimeout)
 	defer cancel()
@@ -268,7 +195,7 @@ func (p *TargetPlugin) RemoveForeign(entry *common.Entry, target common.InstallT
 		return false, err
 	}
 	if resp.Error != nil {
-		return false, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return false, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	return resp.Result != nil && *resp.Result, nil
 }
@@ -285,7 +212,7 @@ func (p *TargetPlugin) State(entry *common.Entry, target common.InstallTarget) (
 		return common.InstallAbsent, err
 	}
 	if resp.Error != nil {
-		return common.InstallAbsent, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return common.InstallAbsent, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	switch common.InstallState(resp.State) {
 	case common.InstallInstalled, common.InstallConflict, common.InstallDangling, common.InstallAbsent:
@@ -304,7 +231,7 @@ func (p *TargetPlugin) Diff(ctx context.Context, entry *common.Entry, target com
 		return "", err
 	}
 	if resp.Error != nil {
-		return "", &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return "", &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	return resp.Diff, nil
 }
@@ -312,13 +239,13 @@ func (p *TargetPlugin) Diff(ctx context.Context, entry *common.Entry, target com
 // Inspect asks the optional v2 action to enumerate dangling objects that no
 // Entry can address. Older plugins can omit it; the built-in drivers always
 // provide this capability for their link-based strategies.
-func (p *TargetPlugin) Inspect(ctx context.Context, target common.InstallTarget) ([]DanglingInstall, error) {
+func (p *TargetPlugin) Inspect(ctx context.Context, target common.InstallTarget) ([]installer.DanglingInstall, error) {
 	resp, err := p.call(ctx, targetPluginRequest{Action: "inspect", TargetPath: target.Path})
 	if err != nil {
 		return nil, err
 	}
 	if resp.Error != nil {
-		return nil, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return nil, &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	for i := range resp.Dangling {
 		resp.Dangling[i].TargetName = target.Name
@@ -329,29 +256,23 @@ func (p *TargetPlugin) Inspect(ctx context.Context, target common.InstallTarget)
 
 // RepairDangling delegates cleanup of an orphan reported by Inspect to the
 // plugin that owns the target filesystem layout.
-func (p *TargetPlugin) RepairDangling(ctx context.Context, item DanglingInstall, target common.InstallTarget) error {
+func (p *TargetPlugin) RepairDangling(ctx context.Context, item installer.DanglingInstall, target common.InstallTarget) error {
 	resp, err := p.call(ctx, targetPluginRequest{Action: "repair", Name: item.Name, TargetPath: target.Path, Force: true})
 	if err != nil {
 		return err
 	}
 	if resp.Error != nil {
-		return &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.id, resp.Error.Message)}
+		return &TargetPluginError{Code: resp.Error.Code, Message: fmt.Sprintf("target plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	return nil
 }
 
 func (p *TargetPlugin) call(ctx context.Context, req targetPluginRequest) (*targetPluginResponse, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	var resp targetPluginResponse
-	if err := plugins.Call(ctx, "target plugin", p.path, req, &resp); err != nil {
+	if err := p.Call(ctx, req, &resp); err != nil {
 		var ce *plugins.CallError
 		if errors.As(err, &ce) {
-			code := CodeTargetProtocolError
-			if ce.Kind == plugins.KindTimeout {
-				code = CodeTargetTimeout
-			}
-			return nil, &TargetPluginError{Code: code, Message: ce.Message}
+			return nil, &TargetPluginError{Code: ce.Code(), Message: ce.Message}
 		}
 		return nil, err
 	}

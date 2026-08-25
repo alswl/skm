@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/installer"
 	"github.com/alswl/skm/skm/pkg/services"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
@@ -20,7 +21,7 @@ type fixPreview struct {
 	diff    string
 }
 
-type orphanDanglingPreview struct{ items []services.DanglingInstall }
+type orphanDanglingPreview struct{ items []installer.DanglingInstall }
 
 // fixableTargets returns entry's per-target conflicts (a non-managed object
 // already occupies the target) and dangling installs (a stray/broken link

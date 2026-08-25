@@ -7,6 +7,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/installer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +23,7 @@ func write(t *testing.T, p, content string) {
 }
 
 // newTestInstaller builds a temp repo entry + targets and an Installer.
-func newTestInstaller(t *testing.T, entryKind common.EntryKind) (*common.Entry, common.InstallTarget, *Installer) {
+func newTestInstaller(t *testing.T, entryKind common.EntryKind) (*common.Entry, common.InstallTarget, *installer.Installer) {
 	t.Helper()
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "skills", "local", "demo")
@@ -39,7 +40,7 @@ func newTestInstaller(t *testing.T, entryKind common.EntryKind) (*common.Entry, 
 	}
 	target := common.InstallTarget{Name: "t", Path: filepath.Join(root, "targets", "t"), Kind: entryKind}
 	mkdir(t, target.Path)
-	return entry, target, NewInstaller([]common.InstallTarget{target}, nil)
+	return entry, target, installer.NewInstaller([]common.InstallTarget{target}, nil)
 }
 
 func TestInstallSkillCreatesDirSymlinkAndIsIdempotent(t *testing.T) {
@@ -184,7 +185,7 @@ func TestInstallCommandAdapterForSingleFileCommand(t *testing.T) {
 	entry := &common.Entry{Name: "flatcmd", Kind: common.KindCommand, Path: markerPath}
 	target := common.InstallTarget{Name: "t", Path: filepath.Join(root, "targets", "t"), Kind: common.KindSkill}
 	mkdir(t, target.Path)
-	inst := NewInstaller([]common.InstallTarget{target}, nil)
+	inst := installer.NewInstaller([]common.InstallTarget{target}, nil)
 
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Install(tx, entry, target, false)
@@ -291,7 +292,7 @@ func TestUninstallRemovesLegacySelfBuildDanglingLink(t *testing.T) {
 	require.NoError(t, os.Symlink(legacyPath, link))
 
 	tx := &dal.FileTransaction{}
-	changed, err := NewInstaller([]common.InstallTarget{target}, nil).Uninstall(tx, entry, target)
+	changed, err := installer.NewInstaller([]common.InstallTarget{target}, nil).Uninstall(tx, entry, target)
 	require.NoError(t, err)
 	require.True(t, changed)
 	tx.Commit()
@@ -328,7 +329,7 @@ func TestUninstallRemovesDanglingUnknownSkillAtOriginalDirectorySlot(t *testing.
 	link := filepath.Join(target.Path, "atc-cli")
 	require.NoError(t, os.Symlink(entry.Path, link))
 
-	inst := NewInstaller([]common.InstallTarget{target}, nil)
+	inst := installer.NewInstaller([]common.InstallTarget{target}, nil)
 	require.Equal(t, common.InstallDangling, inst.State(entry, target))
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Uninstall(tx, entry, target)
@@ -352,7 +353,7 @@ func TestInstallRejectsNonKebabNameForNameRuleTarget(t *testing.T) {
 		NameRule:   "kebab-case",
 	}
 	mkdir(t, target.Path)
-	inst := NewInstaller([]common.InstallTarget{target}, nil)
+	inst := installer.NewInstaller([]common.InstallTarget{target}, nil)
 
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Install(tx, entry, target, false)
@@ -378,7 +379,7 @@ func TestInstallAcceptsKebabNameForNameRuleTarget(t *testing.T) {
 		NameRule:   "kebab-case",
 	}
 	mkdir(t, target.Path)
-	inst := NewInstaller([]common.InstallTarget{target}, nil)
+	inst := installer.NewInstaller([]common.InstallTarget{target}, nil)
 
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Install(tx, entry, target, false)
@@ -386,4 +387,27 @@ func TestInstallAcceptsKebabNameForNameRuleTarget(t *testing.T) {
 	require.True(t, changed)
 	tx.Commit()
 	require.True(t, dal.IsSymlink(filepath.Join(target.Path, "my-skill")))
+}
+
+// A name-rule target must not be auto-selected for an entry it can never
+// accept, or `skm install "My Skill"` fails outright and rolls back the
+// claude/codex/pi installs that had already succeeded in the same transaction.
+func TestTargetsSkipNameRuleTargetThatCannotAcceptTheEntry(t *testing.T) {
+	root := t.TempDir()
+	entry := &common.Entry{Name: "My Skill", Kind: common.KindSkill, Path: filepath.Join(root, "src")}
+	plain := common.InstallTarget{
+		Name: "claude-skills", Path: filepath.Join(root, "claude"),
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},
+	}
+	ruled := plain
+	ruled.Name, ruled.Path, ruled.NameRule = "dsh", filepath.Join(root, "dsh"), "kebab-case"
+	inst := installer.NewInstaller([]common.InstallTarget{plain, ruled}, nil)
+
+	selected := inst.Targets(entry)
+	require.Len(t, selected, 1)
+	require.Equal(t, "claude-skills", selected[0].Name, "the kebab-case target is skipped, not fatal")
+
+	kebab := &common.Entry{Name: "my-skill", Kind: common.KindSkill, Path: entry.Path}
+	require.Len(t, inst.Targets(kebab), 2, "a conforming name still reaches both targets")
 }

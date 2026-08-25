@@ -16,13 +16,22 @@ func IsKebabCase(name string) bool {
 	return kebabCaseRE.MatchString(name)
 }
 
+// NameRuleKebabCase is the only InstallTarget.NameRule value defined today.
+const NameRuleKebabCase = "kebab-case"
+
+// KnownNameRule reports whether rule is a name rule this build understands.
+// Targets are validated against this at config-load time, so an unsupported
+// rule is reported by `target validate` instead of silently failing every
+// install (NameSatisfies rejects everything under an unknown rule).
+func KnownNameRule(rule string) bool { return rule == NameRuleKebabCase }
+
 // NameSatisfies reports whether name conforms to a declared InstallTarget
-// name rule. Only "kebab-case" is defined today; an unknown rule returns
-// false so a target declaring an unsupported rule rejects loudly instead of
-// silently accepting names the rule was meant to bound.
+// name rule. An unknown rule returns false so a target declaring an
+// unsupported rule rejects loudly instead of silently accepting names the
+// rule was meant to bound.
 func NameSatisfies(rule, name string) bool {
 	switch rule {
-	case "kebab-case":
+	case NameRuleKebabCase:
 		return IsKebabCase(name)
 	}
 	return false

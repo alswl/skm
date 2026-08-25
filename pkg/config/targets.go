@@ -85,6 +85,9 @@ func ValidateTarget(t common.InstallTarget) string {
 	if len(t.Accepts) == 0 {
 		return "accepts must be non-empty"
 	}
+	if t.NameRule != "" && !common.KnownNameRule(t.NameRule) {
+		return fmt.Sprintf("unknown name_rule %q", t.NameRule)
+	}
 	for _, k := range t.Accepts {
 		if k != common.KindSkill && k != common.KindCommand {
 			return fmt.Sprintf("accepts contains unknown kind %q", k)
@@ -108,7 +111,7 @@ func AddTarget(configDir string, t common.InstallTarget) (common.InstallTarget, 
 	if reason := ValidateTarget(t); reason != "" {
 		return common.InstallTarget{}, fmt.Errorf("target add: %s", reason)
 	}
-	for _, d := range defaultTargets() {
+	for _, d := range DefaultTargets() {
 		if d.Name == t.Name {
 			return common.InstallTarget{}, fmt.Errorf("target add: %q already exists; use 'skm target update %q' to customize", t.Name, t.Name)
 		}
@@ -148,7 +151,7 @@ func UpdateTarget(configDir, name string, apply func(*common.InstallTarget)) (co
 		}
 		return t, nil
 	}
-	for _, d := range defaultTargets() {
+	for _, d := range DefaultTargets() {
 		if d.Name != name {
 			continue
 		}
@@ -185,7 +188,7 @@ func RemoveTarget(configDir, name string) error {
 		out = append(out, t)
 	}
 	if !found {
-		for _, d := range defaultTargets() {
+		for _, d := range DefaultTargets() {
 			if d.Name == name {
 				return fmt.Errorf("cannot remove built-in target %q; use 'skm target update' to customize", name)
 			}

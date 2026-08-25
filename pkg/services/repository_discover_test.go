@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +23,7 @@ func TestDiscoverReportsOnlyRealSkillDirectories(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Join(root, "skills/local/managed"), filepath.Join(target, "managed")))
 
 	targets := []common.InstallTarget{{Name: "t", Path: target, Kind: common.KindSkill}}
-	found := NewRepository(root).Discover(targets, "")
+	found := engines.NewRepository(root).Discover(targets, "")
 
 	require.Len(t, found, 1, "only the real skill directory is reported")
 	require.Equal(t, "ext-skill", found[0].Name)

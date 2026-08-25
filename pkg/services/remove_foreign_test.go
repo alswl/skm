@@ -7,6 +7,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/installer"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,7 +50,7 @@ else:
 		Name: "fake", Path: filepath.Join(dir, "target"), Accepts: []common.EntryKind{common.KindSkill},
 		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("fake")},
 	}
-	inst := NewInstaller([]common.InstallTarget{target}, map[string]TargetDriver{"fake": driver})
+	inst := installer.NewInstaller([]common.InstallTarget{target}, map[string]installer.TargetDriver{"fake": driver})
 
 	entry := &common.Entry{Name: "demo", Kind: common.KindSkill, Path: filepath.Join(dir, "src", "demo")}
 	conflict := filepath.Join(target.Path, "demo")

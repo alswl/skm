@@ -46,9 +46,9 @@ func (Local) Fetch(_ context.Context, address string) (string, error) {
 	return normalizeLocalSource(address), nil
 }
 
-// borrowsSource reports whether p.Fetch hands back a path the caller already
+// BorrowsSource reports whether p.Fetch hands back a path the caller already
 // owns instead of a fresh temp staging directory. Only Local does, and what it
 // returns is the user's own source: removing it as fetch cleanup would delete
 // their files. The id is a safe discriminator — the built-in is registered
 // first and Registry.Register rejects later duplicates of an id.
-func borrowsSource(p Provider) bool { return p.ID() == (Local{}).ID() }
+func BorrowsSource(p Provider) bool { return p.ID() == (Local{}).ID() }

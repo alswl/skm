@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/providers"
 	"github.com/stretchr/testify/require"
 )
 
@@ -102,15 +103,14 @@ func writeBrokenJSONPlugin(t *testing.T, dir, name string) string {
 }
 
 // TestPluginProviderProtocolVersion: a plugin's protocol_version (from the id
-// response) is read into ProtocolVersion() and the descriptor; an undeclared
-// version is the v1 baseline so pre-versioning plugins keep loading.
+// response) is read into ProtocolVersion(); an undeclared version is the v1
+// baseline so pre-versioning plugins keep loading.
 func TestPluginProviderProtocolVersion(t *testing.T) {
 	dir := t.TempDir()
 	plainPath := writeStubPlugin(t, dir, "plain.sh", "plain")
 	plain, err := NewPluginProvider(plainPath)
 	require.NoError(t, err)
 	require.Equal(t, 1, plain.ProtocolVersion(), "an undeclared protocol version is the v1 baseline")
-	require.Equal(t, 1, plain.Descriptor().Version, "the descriptor reflects the plugin's declared version")
 
 	path := filepath.Join(dir, "v2.sh")
 	script := `#!/bin/sh
@@ -124,7 +124,6 @@ esac
 	v2p, err := NewPluginProvider(path)
 	require.NoError(t, err)
 	require.Equal(t, 2, v2p.ProtocolVersion())
-	require.Equal(t, 2, v2p.Descriptor().Version)
 }
 
 func TestPluginProviderProtocol(t *testing.T) {
@@ -179,9 +178,9 @@ func TestPluginFetchErrorShapes(t *testing.T) {
 	require.NoError(t, err)
 	_, err = typed.Fetch(context.Background(), "addr")
 	require.Error(t, err)
-	var pe *ProviderError
+	var pe *providers.ProviderError
 	require.ErrorAs(t, err, &pe)
-	require.Equal(t, CodeFetchFailed, pe.Code)
+	require.Equal(t, providers.CodeFetchFailed, pe.Code)
 
 	legacyPath := writeLegacyErrorPlugin(t, dir, "legacy.sh", "legacy")
 	legacy, err := NewPluginProvider(legacyPath)
@@ -189,7 +188,7 @@ func TestPluginFetchErrorShapes(t *testing.T) {
 	_, err = legacy.Fetch(context.Background(), "addr")
 	require.Error(t, err)
 	require.ErrorAs(t, err, &pe)
-	require.Equal(t, CodeFetchFailed, pe.Code, "bare-string legacy error maps to fetch_failed")
+	require.Equal(t, providers.CodeFetchFailed, pe.Code, "bare-string legacy error maps to fetch_failed")
 }
 
 // T010: isolation — protocol errors and timeouts are recorded as typed
@@ -221,12 +220,12 @@ func TestDiscoverIsolatesProtocolErrorAndTimeout(t *testing.T) {
 	require.Equal(t, "ok", plugins[0].ID())
 	require.Len(t, failures, 2)
 
-	byPath := map[string]ProviderLoadFailure{}
+	byPath := map[string]providers.ProviderLoadFailure{}
 	for _, f := range failures {
 		byPath[f.Path] = f
 	}
-	require.Equal(t, CodeProtocolError, byPath[filepath.Join(providersDir, "broken-json.sh")].Reason.Code)
-	require.Equal(t, CodeTimeout, byPath[slow].Reason.Code)
+	require.Equal(t, providers.CodeProtocolError, byPath[filepath.Join(providersDir, "broken-json.sh")].Reason.Code)
+	require.Equal(t, providers.CodeTimeout, byPath[slow].Reason.Code)
 }
 
 func TestDiscoverRegistersPluginsInStableOrder(t *testing.T) {
@@ -270,9 +269,9 @@ func TestDiscoverRejectsDuplicateIDs(t *testing.T) {
 	logger := common.NewLogger(false)
 	plugins, failures := DiscoverPlugins([]string{dir}, logger)
 	require.Len(t, plugins, 1, "duplicate id rejected in favor of the first")
-	require.Equal(t, "first.sh", filepath.Base(plugins[0].(*PluginProvider).path))
+	require.Equal(t, "first.sh", filepath.Base(plugins[0].(*PluginProvider).Path()))
 	require.Len(t, failures, 1)
-	require.Equal(t, CodeDuplicateID, failures[0].Reason.Code)
+	require.Equal(t, providers.CodeDuplicateID, failures[0].Reason.Code)
 }
 
 func TestRegistryRegistrationOrder(t *testing.T) {
@@ -280,9 +279,9 @@ func TestRegistryRegistrationOrder(t *testing.T) {
 	providersDir := filepath.Join(dir, "providers")
 	require.NoError(t, os.MkdirAll(providersDir, 0o755))
 	writeStubPlugin(t, providersDir, "p.sh", "plug")
-	reg := NewRegistry()
-	require.NoError(t, reg.Register(NewLocal()))
-	require.NoError(t, reg.Register(NewGitHub()))
+	reg := providers.NewRegistry()
+	require.NoError(t, reg.Register(providers.NewLocal()))
+	require.NoError(t, reg.Register(providers.NewGitHub()))
 	loaded, _ := DiscoverPlugins([]string{dir}, common.NewLogger(false))
 	for _, p := range loaded {
 		require.NoError(t, reg.Register(p))

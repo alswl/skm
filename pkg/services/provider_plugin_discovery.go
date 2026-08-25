@@ -7,6 +7,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/plugins"
+	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // DiscoverPlugins scans each base dir's "providers" subdirectory for
@@ -25,10 +26,10 @@ import (
 // same id wins — is still decided from plugins.ListExecutables' stable order,
 // exactly as it was sequentially (TestDiscoverRegistersPluginsInStableOrder,
 // TestDiscoverRejectsDuplicateIDs).
-func DiscoverPlugins(baseDirs []string, logger *common.Logger) ([]Provider, []ProviderLoadFailure) {
+func DiscoverPlugins(baseDirs []string, logger *common.Logger) ([]providers.Provider, []providers.ProviderLoadFailure) {
 	paths := plugins.ListExecutables(baseDirs, "providers")
 	loaded := make([]struct {
-		p   Provider
+		p   providers.Provider
 		err error
 	}, len(paths))
 	var wg sync.WaitGroup
@@ -41,21 +42,21 @@ func DiscoverPlugins(baseDirs []string, logger *common.Logger) ([]Provider, []Pr
 	}
 	wg.Wait()
 
-	var out []Provider
-	var failures []ProviderLoadFailure
+	var out []providers.Provider
+	var failures []providers.ProviderLoadFailure
 	seen := map[string]bool{}
 	for i, path := range paths {
 		p, err := loaded[i].p, loaded[i].err
 		if err != nil {
 			reason := toProviderError(err)
 			logger.Warn("plugin load failed (isolated)", "path", path, "err", reason.Message)
-			failures = append(failures, ProviderLoadFailure{Path: path, Reason: reason})
+			failures = append(failures, providers.ProviderLoadFailure{Path: path, Reason: reason})
 			continue
 		}
 		if seen[p.ID()] {
-			reason := ProviderError{Code: CodeDuplicateID, Message: fmt.Sprintf("duplicate id %q rejected in favor of the first", p.ID())}
+			reason := providers.ProviderError{Code: providers.CodeDuplicateID, Message: fmt.Sprintf("duplicate id %q rejected in favor of the first", p.ID())}
 			logger.Warn("duplicate plugin id rejected in favor of the first", "id", p.ID(), "path", path)
-			failures = append(failures, ProviderLoadFailure{Path: path, ID: p.ID(), Reason: reason})
+			failures = append(failures, providers.ProviderLoadFailure{Path: path, ID: p.ID(), Reason: reason})
 			continue
 		}
 		seen[p.ID()] = true
@@ -70,10 +71,10 @@ func DiscoverPlugins(baseDirs []string, logger *common.Logger) ([]Provider, []Pr
 
 // toProviderError unwraps a *ProviderError, or wraps any other error as a
 // generic protocol_error so callers always get a typed, diagnosable reason.
-func toProviderError(err error) ProviderError {
-	var pe *ProviderError
+func toProviderError(err error) providers.ProviderError {
+	var pe *providers.ProviderError
 	if errors.As(err, &pe) {
 		return *pe
 	}
-	return ProviderError{Code: CodeProtocolError, Message: err.Error()}
+	return providers.ProviderError{Code: providers.CodeProtocolError, Message: err.Error()}
 }

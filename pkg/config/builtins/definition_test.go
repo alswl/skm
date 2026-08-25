@@ -28,7 +28,10 @@ func TestDshAndAgentsResolveOverrides(t *testing.T) {
 		}
 		return ""
 	}}
-	defs := All()
-	require.Equal(t, "/tmp/dsh/skills", defs[4].Materialize(ctx).Path)
-	require.Equal(t, "/tmp/agents/skills", defs[5].Materialize(ctx).Path)
+	byName := map[string]string{}
+	for _, d := range All() {
+		byName[d.Name] = d.Materialize(ctx).Path
+	}
+	require.Equal(t, "/tmp/dsh/skills", byName["dsh"])
+	require.Equal(t, "/tmp/agents/skills", byName["agents"])
 }

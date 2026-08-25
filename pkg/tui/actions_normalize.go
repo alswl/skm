@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/engines"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
@@ -61,7 +61,7 @@ func (m *model) openNormalizeProviderPicker(name, ref string) {
 // confirmNormalize previews the destination for provider and, once the user
 // confirms, runs the move as a background job.
 func (m *model) confirmNormalize(name, ref, provider string) {
-	preview, err := m.svc.Normalize(m.ctx, ref, provider, services.LifecycleOptions{DryRun: true})
+	preview, err := m.svc.Normalize(m.ctx, ref, provider, engines.LifecycleOptions{DryRun: true})
 	if err != nil {
 		m.setStatus("normalize: " + err.Error())
 		return
@@ -70,7 +70,7 @@ func (m *model) confirmNormalize(name, ref, provider string) {
 		Prompt: fmt.Sprintf("Move %q to %s?", name, preview.Path),
 		OnYes: func() {
 			m.submitJob("normalize "+name, func(ctx context.Context) (any, error) {
-				res, err := m.svc.Normalize(ctx, ref, provider, services.LifecycleOptions{})
+				res, err := m.svc.Normalize(ctx, ref, provider, engines.LifecycleOptions{})
 				if err != nil {
 					return nil, err
 				}

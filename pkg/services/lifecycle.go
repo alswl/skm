@@ -6,6 +6,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 )
 
 // LifecycleResult is the CLI JSON report for lifecycle commands.
@@ -20,7 +21,7 @@ type LifecycleResult struct {
 
 // Archive moves an active entry into the archived tree. CLI archive only
 // changes the repository; the TUI uninstalls first (FR-013).
-func (s *Services) Archive(ctx context.Context, name string, opts LifecycleOptions) (*LifecycleResult, error) {
+func (s *Services) Archive(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, notFound("archive", name)
@@ -33,7 +34,7 @@ func (s *Services) Archive(ctx context.Context, name string, opts LifecycleOptio
 }
 
 // Unarchive moves an archived entry back to its kind's tree.
-func (s *Services) Unarchive(ctx context.Context, name string, opts LifecycleOptions) (*LifecycleResult, error) {
+func (s *Services) Unarchive(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, notFound("unarchive", name)
@@ -46,7 +47,7 @@ func (s *Services) Unarchive(ctx context.Context, name string, opts LifecycleOpt
 }
 
 // Delete permanently removes an entry (requires --force).
-func (s *Services) Delete(ctx context.Context, name string, opts LifecycleOptions) (*LifecycleResult, error) {
+func (s *Services) Delete(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, notFound("delete", name)
@@ -63,7 +64,7 @@ func (s *Services) Delete(ctx context.Context, name string, opts LifecycleOption
 // "local" when empty). An active entry's installs point at the old path, so
 // moving it relinks them to the new location (uninstall -> move -> reinstall),
 // like Convert. DryRun previews the destination without writing.
-func (s *Services) Normalize(ctx context.Context, name, provider string, opts LifecycleOptions) (*LifecycleResult, error) {
+func (s *Services) Normalize(ctx context.Context, name, provider string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, notFound("normalize", name)
@@ -72,7 +73,7 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts Li
 	if relink {
 		// Validate the destination before touching any links, so a move to an
 		// occupied location fails without leaving the entry uninstalled.
-		if _, err := s.Repo.Normalize(ctx, entry, provider, LifecycleOptions{DryRun: true}); err != nil {
+		if _, err := s.Repo.Normalize(ctx, entry, provider, engines.LifecycleOptions{DryRun: true}); err != nil {
 			return nil, err
 		}
 		s.uninstallLinks(entry)
@@ -98,7 +99,7 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts Li
 
 // Convert flips a directory entry's kind, cleaning old-kind links and
 // reinstalling under the new kind (FR-026).
-func (s *Services) Convert(ctx context.Context, name string, targetKind common.EntryKind, opts LifecycleOptions) (*LifecycleResult, error) {
+func (s *Services) Convert(ctx context.Context, name string, targetKind common.EntryKind, opts engines.LifecycleOptions) (*LifecycleResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, notFound("convert", name)

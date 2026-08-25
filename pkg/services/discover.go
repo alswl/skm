@@ -2,12 +2,13 @@ package services
 
 import (
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 )
 
 // DiscoverResult is the CLI JSON report for discover (contract/cli-json.md).
 type DiscoverResult struct {
-	Source string            `json:"source"`
-	Found  []DiscoveredSkill `json:"found"`
+	Source string                    `json:"source"`
+	Found  []engines.DiscoveredSkill `json:"found"`
 }
 
 // Discover lists external unmanaged skills. sourceDir restricts the scan to

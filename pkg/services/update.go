@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 )
 
 // UpdateResult is the CLI JSON report for update (contract/cli-json.md).
@@ -16,7 +17,7 @@ type UpdateOptions struct {
 
 // Update refreshes a single entry from its origin. It fails (exit 1) when the
 // entry is missing, not active, or has no origin (FR-023).
-func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) (*UpdateResult, error) {
+func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
 	entry := s.FindEntry(name)
 	if entry == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q not found", name), common.ExitObject)
@@ -39,7 +40,7 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 		if err != nil {
 			return nil, err
 		}
-		return &UpdateResult{Before: before, After: after, Changed: changed}, nil
+		return &engines.UpdateResult{Before: before, After: after, Changed: changed}, nil
 	}
 	return s.Repo.UpdateEntry(ctx, entry, staged)
 }
@@ -107,7 +108,7 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 			res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: err.Error()})
 			continue
 		}
-		var u *UpdateResult
+		var u *engines.UpdateResult
 		if dryRun {
 			_, _, changed, cErr := s.Repo.CompareUpdate(e, staged)
 			cleanup()
@@ -115,7 +116,7 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 				res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: cErr.Error()})
 				continue
 			}
-			u = &UpdateResult{Changed: changed}
+			u = &engines.UpdateResult{Changed: changed}
 		} else {
 			u, err = s.Repo.UpdateEntry(ctx, e, staged)
 			cleanup()

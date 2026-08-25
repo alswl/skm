@@ -14,8 +14,9 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
-	"github.com/alswl/skm/skm/pkg/services"
-	"github.com/alswl/skm/skm/pkg/utils/timing"
+	"github.com/alswl/skm/skm/pkg/engines"
+	"github.com/alswl/skm/skm/pkg/installer"
+	"github.com/alswl/skm/skm/pkg/timing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,8 +35,8 @@ const scanBudget = 500 * time.Millisecond
 // suite measures the key operations against a repository: scan, origin
 // lookup, content hash, install-state derivation, and the read report data.
 func suite(root string, targets []common.InstallTarget) []timing.Measurement {
-	repo := services.NewRepository(root)
-	inst := services.NewInstaller(targets, nil)
+	repo := engines.NewRepository(root)
+	inst := installer.NewInstaller(targets, nil)
 	entries := repo.Scan() // warm cache for repeatable timing
 
 	var out []timing.Measurement

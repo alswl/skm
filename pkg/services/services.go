@@ -7,6 +7,8 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/engines"
+	"github.com/alswl/skm/skm/pkg/installer"
+	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // Services is the single orchestration entry shared by the CLI and TUI. All
@@ -15,8 +17,8 @@ type Services struct {
 	Cfg                  *config.Config
 	Logger               *common.Logger
 	Repo                 *engines.Repository
-	Registry             *Registry
-	Installer            *Installer
+	Registry             *providers.Registry
+	Installer            *installer.Installer
 	TargetPlugins        map[string]TargetPluginDriver
 	TargetPluginFailures []PluginLoadFailure
 }
@@ -27,8 +29,8 @@ type Services struct {
 // plugin dirs (US8). Target plugins are discovered the same way, so a target
 // declaring a "plugin:<id>" strategy resolves against an already-loaded set.
 func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
-	reg := NewRegistry()
-	builtins, err := BuiltinProviders()
+	reg := providers.NewRegistry()
+	builtins, err := providers.BuiltinProviders()
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +56,7 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 		Registry:             reg,
 		TargetPlugins:        targetPlugins,
 		TargetPluginFailures: targetPluginFailures,
-		Installer:            NewInstaller(cfg.Targets, installerDrivers(targetPlugins)),
+		Installer:            installer.NewInstaller(cfg.Targets, installerDrivers(targetPlugins)),
 	}
 	svc.loadPlugins()
 	svc.logInvalidTargets()

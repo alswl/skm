@@ -8,6 +8,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
@@ -72,7 +73,7 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 	// Archive: the TUI uninstalls first (actions_lifecycle.go), then archives.
 	_, err = svc.Uninstall(ctx, "flatcmd", InstallOptions{})
 	require.NoError(t, err)
-	_, err = svc.Archive(ctx, "flatcmd", LifecycleOptions{})
+	_, err = svc.Archive(ctx, "flatcmd", engines.LifecycleOptions{})
 	require.NoError(t, err, "archiving a single-file command must not crash")
 	require.NoDirExists(t, adapterDir, "archive uninstalled the adapter first")
 
@@ -82,7 +83,7 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 	require.FileExists(t, archived.Path, "the flat .md file survives the move to archived/ as a file, not a directory")
 
 	// Unarchive back to active.
-	_, err = svc.Unarchive(ctx, "flatcmd", LifecycleOptions{})
+	_, err = svc.Unarchive(ctx, "flatcmd", engines.LifecycleOptions{})
 	require.NoError(t, err, "unarchiving a single-file command must not crash")
 	restored := svc.FindEntry("flatcmd")
 	require.NotNil(t, restored)
@@ -91,7 +92,7 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 
 	// Delete (requires Force, matching the TUI's confirm-then-Force:true
 	// pattern in actions_lifecycle.go's deleteSelected).
-	_, err = svc.Delete(ctx, "flatcmd", LifecycleOptions{Force: true})
+	_, err = svc.Delete(ctx, "flatcmd", engines.LifecycleOptions{Force: true})
 	require.NoError(t, err, "deleting a single-file command must not crash")
 	require.Nil(t, svc.FindEntry("flatcmd"))
 	require.NoFileExists(t, markerPath)

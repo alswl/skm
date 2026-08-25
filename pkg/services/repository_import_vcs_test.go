@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,7 @@ func TestImportLeavesVCSMetadataBehind(t *testing.T) {
 	writeFile(t, staged, ".git/objects/ab/cdef", "binary junk")
 	writeFile(t, staged, ".gitignore", "node_modules\n")
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), staged, "github", "o/r", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), staged, "github", "o/r", false, nil)
 	require.NoError(t, err)
 
 	require.FileExists(t, filepath.Join(res.Path, "SKILL.md"))
@@ -41,7 +42,7 @@ func TestImportLeavesVCSPointerFileBehind(t *testing.T) {
 	writeFile(t, staged, "SKILL.md", frontmatter("wt-skill", "checked out as a worktree"))
 	writeFile(t, staged, ".git", "gitdir: /elsewhere/.git/worktrees/wt\n")
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), staged, "github", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), staged, "github", "", false, nil)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(res.Path, "SKILL.md"))
 	require.NoFileExists(t, filepath.Join(res.Path, ".git"), "the gitdir pointer must not be imported")
@@ -56,7 +57,7 @@ func TestUpdateComparisonIgnoresVCSMetadata(t *testing.T) {
 	writeFile(t, staged, "SKILL.md", frontmatter("repo-skill", "the repo is the skill"))
 	writeFile(t, staged, ".git/HEAD", "ref: refs/heads/main\n")
 
-	repo := NewRepository(root)
+	repo := engines.NewRepository(root)
 	res, err := repo.ImportStaged(context.Background(), staged, "github", "", false, nil)
 	require.NoError(t, err)
 
@@ -84,7 +85,7 @@ func TestImportLeavesNestedVCSMetadataBehind(t *testing.T) {
 	writeFile(t, staged, "vendor/dep/.git/config", "[core]\n")
 	writeFile(t, staged, "vendor/dep/README.md", "kept")
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), staged, "github", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), staged, "github", "", false, nil)
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(res.Path, "vendor", "dep", "README.md"))
 	require.NoDirExists(t, filepath.Join(res.Path, "vendor", "dep", ".git"))

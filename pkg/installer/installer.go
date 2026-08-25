@@ -129,15 +129,26 @@ func (i *Installer) driverFor(strategy common.InstallStrategy, target common.Ins
 	return nil, fmt.Errorf("target %q: unknown strategy %q", target.Name, strategy)
 }
 
-// Targets returns the kind-matching targets for an entry.
+// Targets returns the targets that can receive an entry. A target whose name
+// rule the entry fails is skipped silently: auto-selection installs into every
+// matching target under one transaction, so reporting it here would abort and
+// roll back the targets that could have taken it. Naming that target
+// explicitly still errors in Install.
 func (i *Installer) Targets(entry *common.Entry) []common.InstallTarget {
 	var out []common.InstallTarget
 	for _, t := range i.targets {
-		if i.matches(entry, t) {
+		if i.Matches(entry, t) && !nameRuleRejects(entry, t) {
 			out = append(out, t)
 		}
 	}
 	return out
+}
+
+// nameRuleRejects guards against installing under a name the consuming tool
+// never discovers (006-deepseek-harness-target FR-006). The rule lives on the
+// target — no tool name drives it.
+func nameRuleRejects(entry *common.Entry, target common.InstallTarget) bool {
+	return target.NameRule != "" && !common.NameSatisfies(target.NameRule, entry.Name)
 }
 
 // TargetByName returns the target with the given name.
@@ -156,25 +167,15 @@ func (i *Installer) Matches(entry *common.Entry, t common.InstallTarget) bool {
 	return t.AcceptsKind(entry.Kind)
 }
 
-// matches is kept as an unexported alias for internal callers.
-func (i *Installer) matches(entry *common.Entry, t common.InstallTarget) bool {
-	return i.Matches(entry, t)
-}
-
 // Install installs entry into target idempotently, returning whether anything
 // changed. Conflicts/dangling links are refused unless force is set
 // (FR-014..FR-018). Dispatch is entirely by the target's declared strategy
 // for entry.Kind — no tool name is consulted.
 func (i *Installer) Install(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
-	// A declared name rule (e.g. the deepseek-harness targets' "kebab-case")
-	// rejects non-conforming skill names before any filesystem write: such a
-	// skill would silently never be discovered by the consuming tool
-	// (006-deepseek-harness-target FR-006). The rule lives on the target, not
-	// in this switch — no tool name drives it.
-	if entry.Kind == common.KindSkill && target.NameRule != "" && !common.NameSatisfies(target.NameRule, entry.Name) {
+	if nameRuleRejects(entry, target) {
 		return false, common.WithExitCode(
-			fmt.Errorf("skill %q rejected by target %q name rule %q: expected a %s name like %q",
-				entry.Name, target.Name, target.NameRule, target.NameRule, "my-skill"), common.ExitError)
+			fmt.Errorf("%s %q rejected by target %q: name must be %s (e.g. %q)",
+				entry.Kind, entry.Name, target.Name, target.NameRule, "my-skill"), common.ExitError)
 	}
 	strategy, ok := target.EffectiveStrategy(entry.Kind)
 	if !ok {

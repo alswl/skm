@@ -18,6 +18,15 @@ const (
 	KindProtocol CallErrorKind = "protocol_error"
 )
 
+// Wire error codes every plugin protocol shares. They live here, not in a
+// domain package, because the transport is what produces them.
+const (
+	CodeProtocolError = "protocol_error"
+	CodeTimeout       = "timeout"
+	CodeDuplicateID   = "duplicate_id"
+	CodeEmptyID       = "empty_id"
+)
+
 // CallError is a classified failure from Call.
 type CallError struct {
 	Kind    CallErrorKind
@@ -25,6 +34,14 @@ type CallError struct {
 }
 
 func (e *CallError) Error() string { return e.Message }
+
+// Code maps the failure onto the wire error code its protocol reports.
+func (e *CallError) Code() string {
+	if e.Kind == KindTimeout {
+		return CodeTimeout
+	}
+	return CodeProtocolError
+}
 
 // Call executes path as a subprocess implementing the JSON-over-stdin/stdout
 // plugin protocol: req is marshaled to JSON and written to stdin, and the

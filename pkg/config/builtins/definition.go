@@ -1,6 +1,10 @@
 package builtins
 
-import "github.com/alswl/skm/skm/pkg/common"
+import (
+	"path/filepath"
+
+	"github.com/alswl/skm/skm/pkg/common"
+)
 
 // Context keeps path resolution injectable so registry tests do not depend on
 // process-global environment values.
@@ -45,18 +49,11 @@ func skillTarget(name, platform string, resolve func(Context) string, nameRule s
 }
 
 func homePath(ctx Context, envName, fallback string, suffix ...string) string {
-	home := ctx.Home
+	home := filepath.Join(ctx.Home, fallback)
 	if ctx.Getenv != nil {
 		if value := ctx.Getenv(envName); value != "" {
 			home = value
-		} else {
-			home = joinPath(home, fallback)
 		}
-	} else {
-		home = joinPath(home, fallback)
 	}
-	for _, part := range suffix {
-		home = joinPath(home, part)
-	}
-	return home
+	return filepath.Join(append([]string{home}, suffix...)...)
 }

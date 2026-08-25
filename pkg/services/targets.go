@@ -7,6 +7,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
+	"github.com/alswl/skm/skm/pkg/installer"
 )
 
 // installerFor rebuilds the Installer over targets, so an add/update/remove
@@ -14,12 +15,12 @@ import (
 // same Services instance. The loaded target plugin set carries over
 // unchanged — plugins are discovered once at startup, independent of
 // targets.json edits.
-func (s *Services) installerFor(targets []common.InstallTarget) *Installer {
-	return NewInstaller(targets, installerDrivers(s.TargetPlugins))
+func (s *Services) installerFor(targets []common.InstallTarget) *installer.Installer {
+	return installer.NewInstaller(targets, installerDrivers(s.TargetPlugins))
 }
 
-func installerDrivers(plugins map[string]TargetPluginDriver) map[string]TargetDriver {
-	drivers := make(map[string]TargetDriver, len(plugins))
+func installerDrivers(plugins map[string]TargetPluginDriver) map[string]installer.TargetDriver {
+	drivers := make(map[string]installer.TargetDriver, len(plugins))
 	for id, plugin := range plugins {
 		drivers[id] = plugin
 	}
@@ -45,20 +46,29 @@ type TargetInfo struct {
 	PathDiverged bool   `json:"path_diverged,omitempty"`
 }
 
-// builtinDefault returns the current env-resolved default path for a built-in
-// target (matched by name against config.DefaultTargets) and whether the
-// stored path diverges from it. Non-built-in targets return ("", false):
-// divergence is meaningful only where a default exists.
-func builtinDefault(t common.InstallTarget) (defaultPath string, diverged bool) {
+// builtinDefaultPaths resolves the current env-resolved default path of every
+// built-in target once, so a listing of N targets does not re-resolve $HOME
+// and the DSH_* overrides N times.
+func builtinDefaultPaths() map[string]string {
+	defaults := config.DefaultTargets()
+	byName := make(map[string]string, len(defaults))
+	for _, d := range defaults {
+		byName[d.Name] = d.Path
+	}
+	return byName
+}
+
+// builtinDefault matches t against defaults by name. A non-built-in target
+// returns ("", false): divergence is meaningful only where a default exists.
+func builtinDefault(defaults map[string]string, t common.InstallTarget) (defaultPath string, diverged bool) {
 	if !t.Builtin {
 		return "", false
 	}
-	for _, d := range config.DefaultTargets() {
-		if d.Name == t.Name {
-			return d.Path, d.Path != t.Path
-		}
+	path, ok := defaults[t.Name]
+	if !ok {
+		return "", false
 	}
-	return "", false
+	return path, path != t.Path
 }
 
 // TargetListResult is the CLI JSON report for `target list`.
@@ -72,8 +82,9 @@ type TargetListResult struct {
 // targets.json entry, each with its own reason (FR-016).
 func (s *Services) TargetList() *TargetListResult {
 	res := &TargetListResult{ConfigDir: s.Cfg.ConfigDir, Targets: []TargetInfo{}, Invalid: s.Cfg.InvalidTargets}
+	defaults := builtinDefaultPaths()
 	for _, t := range s.Cfg.Targets {
-		defPath, diverged := builtinDefault(t)
+		defPath, diverged := builtinDefault(defaults, t)
 		res.Targets = append(res.Targets, TargetInfo{
 			Name: t.Name, Platform: t.Platform, Path: t.Path,
 			Accepts: t.EffectiveAccepts(), Strategies: t.Strategies, Builtin: t.Builtin,
@@ -155,11 +166,12 @@ type TargetValidateResult struct {
 // usability without performing an install (FR-014).
 func (s *Services) TargetValidate(name string) *TargetValidateResult {
 	res := &TargetValidateResult{Success: true}
+	defaults := builtinDefaultPaths()
 	for _, t := range s.Cfg.Targets {
 		if name != "" && t.Name != name {
 			continue
 		}
-		defPath, diverged := builtinDefault(t)
+		defPath, diverged := builtinDefault(defaults, t)
 		entry := TargetValidateEntry{Name: t.Name, PathState: config.PathState(t.Path), OK: true,
 			NameRule: t.NameRule, DefaultPath: defPath, PathDiverged: diverged}
 		if reason := config.ValidateTarget(t); reason != "" {

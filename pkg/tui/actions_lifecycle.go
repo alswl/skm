@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/alswl/skm/skm/pkg/services"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
@@ -20,7 +21,7 @@ func (m *model) archiveSelected() {
 	name, ref := entry.Name, m.svc.Repo.RelPath(entry.Path)
 	if entry.Status == common.StatusArchived {
 		m.submitJob("unarchive "+name, func(ctx context.Context) (any, error) {
-			if _, err := m.svc.Unarchive(ctx, ref, services.LifecycleOptions{}); err != nil {
+			if _, err := m.svc.Unarchive(ctx, ref, engines.LifecycleOptions{}); err != nil {
 				return nil, err
 			}
 			return "unarchived " + name, nil
@@ -35,7 +36,7 @@ func (m *model) archiveSelected() {
 				if _, err := m.svc.Uninstall(ctx, ref, services.InstallOptions{}); err != nil {
 					return nil, err
 				}
-				if _, err := m.svc.Archive(ctx, ref, services.LifecycleOptions{}); err != nil {
+				if _, err := m.svc.Archive(ctx, ref, engines.LifecycleOptions{}); err != nil {
 					return nil, err
 				}
 				return "archived " + name, nil
@@ -57,7 +58,7 @@ func (m *model) deleteSelected() {
 		Prompt: fmt.Sprintf("Delete %q from the repository permanently?", name),
 		OnYes: func() {
 			m.submitJob("delete "+name, func(ctx context.Context) (any, error) {
-				if _, err := m.svc.Delete(ctx, ref, services.LifecycleOptions{Force: true}); err != nil {
+				if _, err := m.svc.Delete(ctx, ref, engines.LifecycleOptions{Force: true}); err != nil {
 					return nil, err
 				}
 				return "deleted " + name, nil

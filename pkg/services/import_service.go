@@ -9,6 +9,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // ImportOptions controls an import action.
@@ -206,7 +207,7 @@ type grouper interface {
 	Group(address string) string
 }
 
-func (s *Services) fetchProvider(ctx context.Context, p Provider, source string) (staged, id, group string, origin *common.Origin, cleanup func(), err error) {
+func (s *Services) fetchProvider(ctx context.Context, p providers.Provider, source string) (staged, id, group string, origin *common.Origin, cleanup func(), err error) {
 	normalized, nerr := p.Normalize(source)
 	if nerr != nil {
 		return "", "", "", nil, func() {}, common.WithExitCode(nerr, common.ExitError)
@@ -226,8 +227,8 @@ func (s *Services) fetchProvider(ctx context.Context, p Provider, source string)
 // the caller's own path, so there is nothing to free — removing it would
 // delete the user's files, including on the error paths that run cleanup after
 // a failed probe.
-func fetchCleanup(p Provider, staged string) func() {
-	if borrowsSource(p) {
+func fetchCleanup(p providers.Provider, staged string) func() {
+	if providers.BorrowsSource(p) {
 		return func() {}
 	}
 	return func() { _ = os.RemoveAll(staged) }

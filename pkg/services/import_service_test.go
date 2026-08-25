@@ -9,6 +9,7 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/providers"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,8 +24,8 @@ type fakeGroupingProvider struct {
 
 func (f fakeGroupingProvider) ID() string    { return f.id }
 func (f fakeGroupingProvider) Label() string { return "fake" }
-func (f fakeGroupingProvider) Capability() Capability {
-	return Capability{ID: f.id, Label: "fake"}
+func (f fakeGroupingProvider) Capability() providers.Capability {
+	return providers.Capability{ID: f.id, Label: "fake"}
 }
 func (f fakeGroupingProvider) Normalize(address string) (string, error) {
 	if f.normalized != "" {

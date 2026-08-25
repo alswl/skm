@@ -8,10 +8,6 @@ import (
 	"github.com/alswl/skm/skm/pkg/installer"
 )
 
-// TargetDriver is re-exported for callers that still construct Services
-// dependencies directly; implementation ownership lives in pkg/installer.
-type TargetDriver = installer.TargetDriver
-
 type TargetPluginDriver interface {
 	installer.TargetDriver
 	ID() string
@@ -38,9 +34,9 @@ func (d externalTargetDriver) State(e *common.Entry, t common.InstallTarget) (co
 func (d externalTargetDriver) Diff(ctx context.Context, e *common.Entry, t common.InstallTarget) (string, error) {
 	return d.TargetPlugin.Diff(ctx, e, t)
 }
-func (d externalTargetDriver) Inspect(ctx context.Context, t common.InstallTarget) ([]DanglingInstall, error) {
+func (d externalTargetDriver) Inspect(ctx context.Context, t common.InstallTarget) ([]installer.DanglingInstall, error) {
 	return d.TargetPlugin.Inspect(ctx, t)
 }
-func (d externalTargetDriver) RepairDangling(ctx context.Context, item DanglingInstall, t common.InstallTarget) error {
+func (d externalTargetDriver) RepairDangling(ctx context.Context, item installer.DanglingInstall, t common.InstallTarget) error {
 	return d.TargetPlugin.RepairDangling(ctx, item, t)
 }

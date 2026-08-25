@@ -96,7 +96,10 @@ func DefaultPluginDirs() []string {
 // (006-deepseek-harness-target). skm ships built-ins only for these
 // widely-used public tools: any other tool (private or public) is added via
 // `skm target add`, not a hardcoded default.
-func defaultTargets() []common.InstallTarget {
+// DefaultTargets is also exposed so the services layer can report built-in
+// default paths and path divergence in `target list` and `target validate`
+// (006-deepseek-harness-target FR-004).
+func DefaultTargets() []common.InstallTarget {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "~"
@@ -108,13 +111,6 @@ func defaultTargets() []common.InstallTarget {
 		targets = append(targets, definition.Materialize(ctx))
 	}
 	return targets
-}
-
-// DefaultTargets returns the built-in targets, exposed so the services layer
-// can report built-in default paths and path divergence in `target list` and
-// `target validate` (006-deepseek-harness-target FR-004).
-func DefaultTargets() []common.InstallTarget {
-	return defaultTargets()
 }
 
 // Load builds a Config. configDir defaults to ~/.config/skm when
@@ -192,16 +188,16 @@ func loadTargetsWithLegacyFallback(configDir string, explicit bool) (resolvedDir
 func loadTargets(configDir string) (valid []common.InstallTarget, invalid []InvalidTarget) {
 	data, err := os.ReadFile(filepath.Join(configDir, targetsFileName))
 	if err != nil {
-		return defaultTargets(), nil
+		return DefaultTargets(), nil
 	}
 	valid, invalid, err = ParseTargets(data)
 	if err != nil {
 		// The document itself isn't a JSON array: nothing to report
 		// per-entry: restore defaults.
-		return defaultTargets(), nil
+		return DefaultTargets(), nil
 	}
 	if len(valid) == 0 {
-		return defaultTargets(), invalid
+		return DefaultTargets(), invalid
 	}
 	return mergeWithBuiltins(valid), invalid
 }
@@ -218,7 +214,7 @@ func mergeWithBuiltins(userEntries []common.InstallTarget) []common.InstallTarge
 	for _, u := range userEntries {
 		overrides[u.Name] = u
 	}
-	defaults := defaultTargets()
+	defaults := DefaultTargets()
 	merged := make([]common.InstallTarget, 0, len(defaults)+len(userEntries))
 	seen := make(map[string]bool, len(defaults))
 	for _, d := range defaults {

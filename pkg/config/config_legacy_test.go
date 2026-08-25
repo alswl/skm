@@ -43,7 +43,7 @@ func TestLoadMigratesLegacyToolPathV1Entry(t *testing.T) {
 
 func TestDefaultDshAndAgentsBuiltins(t *testing.T) {
 	byName := map[string]common.InstallTarget{}
-	for _, target := range defaultTargets() {
+	for _, target := range DefaultTargets() {
 		byName[target.Name] = target
 	}
 	for _, name := range []string{"dsh", "agents"} {
@@ -57,8 +57,8 @@ func TestDefaultDshAndAgentsBuiltins(t *testing.T) {
 }
 
 func TestDefaultTargetsPreserveFullFieldOrderAndFreshCollections(t *testing.T) {
-	first := defaultTargets()
-	second := defaultTargets()
+	first := DefaultTargets()
+	second := DefaultTargets()
 	require.Equal(t, []string{"claude-skills", "claude-commands", "codex", "pi", "dsh", "agents"},
 		[]string{first[0].Name, first[1].Name, first[2].Name, first[3].Name, first[4].Name, first[5].Name})
 	require.Equal(t, first, second)
@@ -70,7 +70,7 @@ func TestDefaultTargetsPreserveFullFieldOrderAndFreshCollections(t *testing.T) {
 
 func TestDefaultCodexUsesSkillCompatibleStrategies(t *testing.T) {
 	var codex common.InstallTarget
-	for _, target := range defaultTargets() {
+	for _, target := range DefaultTargets() {
 		if target.Name == "codex" {
 			codex = target
 			break
