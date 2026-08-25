@@ -102,7 +102,10 @@ func servicesFor(cmd *cobra.Command) (*services.Services, error) {
 // deployServicesFor builds Services for the deploy command without requiring a
 // local repository root (the deploy source is on the target machine).
 func deployServicesFor(cmd *cobra.Command) (*services.Services, error) {
-	cfg := config.LoadForDeploy(flagConfig)
+	cfg, err := config.LoadForDeploy(flagConfig)
+	if err != nil {
+		return nil, common.WithExitCode(err, common.ExitError)
+	}
 	return services.New(cfg, common.NewLogger(flagTiming))
 }
 

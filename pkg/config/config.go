@@ -101,13 +101,16 @@ func Load(rootFlag, configDir string) (*Config, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir()
 	}
-	settings := newSettings(configDir)
-	root, err := DiscoverRoot(rootFrom(settings, rootFlag))
+	set, err := loadSettings(configDir)
+	if err != nil {
+		return nil, err
+	}
+	root, err := DiscoverRoot(rootFrom(set, rootFlag))
 	if err != nil {
 		return nil, err
 	}
 	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
-	plugins := pluginDirsFrom(settings)
+	plugins := pluginDirsFrom(set)
 	return &Config{
 		Root:           root,
 		ConfigDir:      resolvedDir,
@@ -120,18 +123,22 @@ func Load(rootFlag, configDir string) (*Config, error) {
 // LoadForDeploy builds a Config without requiring a repository root. The
 // deploy command operates on its --repo source (which may not exist yet on the
 // target machine), so no local repository is needed.
-func LoadForDeploy(configDir string) *Config {
+func LoadForDeploy(configDir string) (*Config, error) {
 	explicit := configDir != ""
 	if configDir == "" {
 		configDir = DefaultConfigDir()
+	}
+	set, err := loadSettings(configDir)
+	if err != nil {
+		return nil, err
 	}
 	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
 	return &Config{
 		ConfigDir:      resolvedDir,
 		Targets:        targets,
 		InvalidTargets: invalid,
-		PluginDirs:     pluginDirsFrom(newSettings(configDir)),
-	}
+		PluginDirs:     pluginDirsFrom(set),
+	}, nil
 }
 
 // loadTargetsWithLegacyFallback loads configDir/targets.json; when the
