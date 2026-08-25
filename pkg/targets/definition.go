@@ -1,4 +1,4 @@
-package builtins
+package targets
 
 import (
 	"path/filepath"
@@ -13,8 +13,8 @@ type Context struct {
 	Getenv func(string) string
 }
 
-// BuiltinTargetDefinition is the declaration form of an install target.
-type BuiltinTargetDefinition struct {
+// BuiltinDefinition is the declaration form of an install target.
+type BuiltinDefinition struct {
 	Name        string
 	Platform    string
 	ResolvePath func(Context) string
@@ -24,7 +24,7 @@ type BuiltinTargetDefinition struct {
 }
 
 // Materialize resolves a definition into an independent runtime record.
-func (d BuiltinTargetDefinition) Materialize(ctx Context) common.InstallTarget {
+func (d BuiltinDefinition) Materialize(ctx Context) common.InstallTarget {
 	accepts := append([]common.EntryKind(nil), d.Accepts...)
 	strategies := make(map[common.EntryKind]common.InstallStrategy, len(d.Strategies))
 	for kind, strategy := range d.Strategies {
@@ -40,8 +40,8 @@ func (d BuiltinTargetDefinition) Materialize(ctx Context) common.InstallTarget {
 	}
 }
 
-func skillTarget(name, platform string, resolve func(Context) string, nameRule string) BuiltinTargetDefinition {
-	return BuiltinTargetDefinition{
+func skillTarget(name, platform string, resolve func(Context) string, nameRule string) BuiltinDefinition {
+	return BuiltinDefinition{
 		Name: name, Platform: platform, ResolvePath: resolve, NameRule: nameRule,
 		Accepts:    []common.EntryKind{common.KindSkill},
 		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink},

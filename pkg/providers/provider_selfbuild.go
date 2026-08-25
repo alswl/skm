@@ -13,7 +13,7 @@ import (
 // `skm create`, never acquired through `skm import`.
 type SelfBuild struct{}
 
-var selfBuildBuiltinDefinition = BuiltinProviderDefinition{ID: "self-build", New: func() Provider { return NewSelfBuild() }}
+var selfBuildBuiltinDefinition = BuiltinDefinition{ID: "self-build", New: func() Provider { return NewSelfBuild() }}
 
 // NewSelfBuild returns the built-in SelfBuild provider.
 func NewSelfBuild() *SelfBuild { return &SelfBuild{} }

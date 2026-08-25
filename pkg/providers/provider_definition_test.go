@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuiltinProviderDefinitionValidation(t *testing.T) {
-	require.Error(t, (BuiltinProviderDefinition{}).Validate())
-	require.Error(t, (BuiltinProviderDefinition{ID: "local"}).Validate())
-	_, err := (BuiltinProviderDefinition{ID: "local", New: func() Provider { return nil }}).Materialize()
+func TestBuiltinDefinitionValidation(t *testing.T) {
+	require.Error(t, (BuiltinDefinition{}).Validate())
+	require.Error(t, (BuiltinDefinition{ID: "local"}).Validate())
+	_, err := (BuiltinDefinition{ID: "local", New: func() Provider { return nil }}).Materialize()
 	require.Error(t, err)
-	require.NoError(t, (BuiltinProviderDefinition{ID: "local", New: func() Provider { return NewLocal() }}).Validate())
+	require.NoError(t, (BuiltinDefinition{ID: "local", New: func() Provider { return NewLocal() }}).Validate())
 }

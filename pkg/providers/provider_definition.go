@@ -2,14 +2,14 @@ package providers
 
 import "fmt"
 
-// BuiltinProviderDefinition declares one in-process provider without adding a
+// BuiltinDefinition declares one in-process provider without adding a
 // second provider interface or a persisted configuration type.
-type BuiltinProviderDefinition struct {
+type BuiltinDefinition struct {
 	ID  string
 	New func() Provider
 }
 
-func (d BuiltinProviderDefinition) Validate() error {
+func (d BuiltinDefinition) Validate() error {
 	if d.ID == "" {
 		return fmt.Errorf("provider definition: id must be non-empty")
 	}
@@ -19,7 +19,7 @@ func (d BuiltinProviderDefinition) Validate() error {
 	return nil
 }
 
-func (d BuiltinProviderDefinition) Materialize() (Provider, error) {
+func (d BuiltinDefinition) Materialize() (Provider, error) {
 	if err := d.Validate(); err != nil {
 		return nil, err
 	}

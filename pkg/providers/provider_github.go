@@ -23,8 +23,8 @@ type gitHostProvider struct {
 	allowSubpathShorthand bool
 }
 
-var githubBuiltinDefinition = BuiltinProviderDefinition{ID: "github", New: NewGitHub}
-var gitlabBuiltinDefinition = BuiltinProviderDefinition{ID: "gitlab", New: NewGitLab}
+var githubBuiltinDefinition = BuiltinDefinition{ID: "github", New: NewGitHub}
+var gitlabBuiltinDefinition = BuiltinDefinition{ID: "gitlab", New: NewGitLab}
 
 // NewGitHub returns the built-in GitHub provider.
 func NewGitHub() Provider {

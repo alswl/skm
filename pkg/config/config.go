@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	targetbuiltins "github.com/alswl/skm/skm/pkg/config/builtins"
+	"github.com/alswl/skm/skm/pkg/targets"
 )
 
 // Config holds resolved runtime configuration shared by CLI and TUI.
@@ -82,35 +82,16 @@ func DefaultPluginDirs() []string {
 	return []string{filepath.Join(DefaultConfigDir(), "plugins")}
 }
 
-// defaultTargets returns the built-in targets restored when targets.json is
-// missing or has zero interpretable entries (FR-003). Each declares its own
-// accepts/strategies (FR-012/FR-013, data-model.md). Codex receives skills as
-// directory links and commands through command-adapter, whose wrapper
-// directory contains a regular SKILL.md file. pi has no
-// separate commands concept (a
-// skill can be auto-registered as a /skill:name command by pi itself), so it
-// only accepts skill, via skill-symlink into its ~/.pi/agent/skills
-// convention. The deepseek-harness built-ins (dsh, agents) cover dsh's
-// user-level skill roots — dsh's own directory and the shared cross-agent
-// directory — skills-only via skill-symlink, with a kebab-case name rule
-// (006-deepseek-harness-target). skm ships built-ins only for these
-// widely-used public tools: any other tool (private or public) is added via
-// `skm target add`, not a hardcoded default.
-// DefaultTargets is also exposed so the services layer can report built-in
-// default paths and path divergence in `target list` and `target validate`
-// (006-deepseek-harness-target FR-004).
+// DefaultTargets returns the built-in targets restored when targets.json is
+// missing or has zero interpretable entries (FR-003). It is also what the
+// services layer diffs stored paths against to report divergence in
+// `target list` and `target validate` (006-deepseek-harness-target FR-004).
 func DefaultTargets() []common.InstallTarget {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "~"
 	}
-	ctx := targetbuiltins.Context{Home: home, Getenv: os.Getenv}
-	defs := targetbuiltins.All()
-	targets := make([]common.InstallTarget, 0, len(defs))
-	for _, definition := range defs {
-		targets = append(targets, definition.Materialize(ctx))
-	}
-	return targets
+	return targets.Builtins(targets.Context{Home: home, Getenv: os.Getenv})
 }
 
 // Load builds a Config. configDir defaults to ~/.config/skm when

@@ -30,7 +30,7 @@ type Services struct {
 // declaring a "plugin:<id>" strategy resolves against an already-loaded set.
 func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	reg := providers.NewRegistry()
-	builtins, err := providers.BuiltinProviders()
+	builtins, err := providers.Builtins()
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-package builtins
+package targets
 
 import (
 	"testing"
@@ -29,7 +29,7 @@ func TestDshAndAgentsResolveOverrides(t *testing.T) {
 		return ""
 	}}
 	byName := map[string]string{}
-	for _, d := range All() {
+	for _, d := range BuiltinDefinitions() {
 		byName[d.Name] = d.Materialize(ctx).Path
 	}
 	require.Equal(t, "/tmp/dsh/skills", byName["dsh"])

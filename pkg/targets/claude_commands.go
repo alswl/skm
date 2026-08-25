@@ -1,4 +1,4 @@
-package builtins
+package targets
 
 import (
 	"path/filepath"
@@ -6,8 +6,8 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 )
 
-func claudeCommands() BuiltinTargetDefinition {
-	return BuiltinTargetDefinition{
+func claudeCommands() BuiltinDefinition {
+	return BuiltinDefinition{
 		Name: "claude-commands", Platform: "claude",
 		ResolvePath: func(ctx Context) string { return filepath.Join(ctx.Home, ".claude", "commands") },
 		Accepts:     []common.EntryKind{common.KindCommand},

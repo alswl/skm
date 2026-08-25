@@ -1,4 +1,4 @@
-package builtins
+package targets
 
 import (
 	"path/filepath"
@@ -6,8 +6,8 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 )
 
-func codex() BuiltinTargetDefinition {
-	return BuiltinTargetDefinition{
+func codex() BuiltinDefinition {
+	return BuiltinDefinition{
 		Name: "codex", Platform: "codex",
 		ResolvePath: func(ctx Context) string { return filepath.Join(ctx.Home, ".codex", "skills") },
 		Accepts:     []common.EntryKind{common.KindSkill, common.KindCommand},

@@ -1,8 +1,9 @@
 package providers
 
-// BuiltinProviderDefinitions returns the stable declarations used by skm.
-func BuiltinProviderDefinitions() []BuiltinProviderDefinition {
-	return []BuiltinProviderDefinition{
+// BuiltinDefinitions returns the five built-in provider declarations in their
+// public order.
+func BuiltinDefinitions() []BuiltinDefinition {
+	return []BuiltinDefinition{
 		localBuiltinDefinition,
 		selfBuildBuiltinDefinition,
 		githubBuiltinDefinition,
@@ -11,10 +12,10 @@ func BuiltinProviderDefinitions() []BuiltinProviderDefinition {
 	}
 }
 
-// BuiltinProviders centralizes materialization so Services.New and tests share
-// one matching order.
-func BuiltinProviders() ([]Provider, error) {
-	defs := BuiltinProviderDefinitions()
+// Builtins materializes every built-in provider so Services.New and tests
+// share one matching order.
+func Builtins() ([]Provider, error) {
+	defs := BuiltinDefinitions()
 	providers := make([]Provider, 0, len(defs))
 	for _, definition := range defs {
 		provider, err := definition.Materialize()

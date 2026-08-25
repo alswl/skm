@@ -11,7 +11,7 @@ import (
 // provider still participates in registration order for completeness.
 type Local struct{}
 
-var localBuiltinDefinition = BuiltinProviderDefinition{ID: "local", New: func() Provider { return NewLocal() }}
+var localBuiltinDefinition = BuiltinDefinition{ID: "local", New: func() Provider { return NewLocal() }}
 
 // NewLocal returns the built-in Local provider.
 func NewLocal() *Local { return &Local{} }

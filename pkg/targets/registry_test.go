@@ -1,4 +1,4 @@
-package builtins
+package targets
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestAllStableOrder(t *testing.T) {
-	defs := All()
+	defs := BuiltinDefinitions()
 	require.Equal(t, []string{"claude-skills", "claude-commands", "codex", "pi", "dsh", "agents"}, []string{
 		defs[0].Name, defs[1].Name, defs[2].Name, defs[3].Name, defs[4].Name, defs[5].Name,
 	})

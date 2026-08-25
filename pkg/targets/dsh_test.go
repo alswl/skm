@@ -1,4 +1,4 @@
-package builtins
+package targets
 
 import (
 	"testing"

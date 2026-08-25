@@ -7,7 +7,7 @@ import (
 )
 
 func TestBuiltinProviderRegistryOrder(t *testing.T) {
-	providers, err := BuiltinProviders()
+	providers, err := Builtins()
 	require.NoError(t, err)
 	ids := make([]string, 0, len(providers))
 	for _, provider := range providers {
