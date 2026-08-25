@@ -101,12 +101,13 @@ func Load(rootFlag, configDir string) (*Config, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir()
 	}
-	root, err := DiscoverRoot(rootFlag)
+	settings := newSettings(configDir)
+	root, err := DiscoverRoot(rootFrom(settings, rootFlag))
 	if err != nil {
 		return nil, err
 	}
 	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
-	plugins := loadPluginDirs()
+	plugins := pluginDirsFrom(settings)
 	return &Config{
 		Root:           root,
 		ConfigDir:      resolvedDir,
@@ -129,7 +130,7 @@ func LoadForDeploy(configDir string) *Config {
 		ConfigDir:      resolvedDir,
 		Targets:        targets,
 		InvalidTargets: invalid,
-		PluginDirs:     loadPluginDirs(),
+		PluginDirs:     pluginDirsFrom(newSettings(configDir)),
 	}
 }
 
@@ -215,27 +216,19 @@ func mergeWithBuiltins(userEntries []common.InstallTarget) []common.InstallTarge
 }
 
 func expandTarget(t common.InstallTarget) common.InstallTarget {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return t
-	}
-	if strings.HasPrefix(t.Path, "~/") {
-		t.Path = filepath.Join(home, strings.TrimPrefix(t.Path, "~/"))
-	}
+	t.Path = expandHome(t.Path)
 	return t
 }
 
-// loadPluginDirs returns the plugin scan directories: the default dir is
-// always scanned first, then any SKM_PLUGINS_DIR entries split on the OS
-// path separator (FR-035 / research R8).
-func loadPluginDirs() []string {
-	dirs := DefaultPluginDirs()
-	if env := os.Getenv(EnvPluginsDir); env != "" {
-		for _, d := range filepath.SplitList(env) {
-			if d != "" {
-				dirs = append(dirs, d)
-			}
-		}
+// expandHome resolves a leading "~/" against the user's home directory. A path
+// without the prefix, or an unresolvable home, is returned unchanged.
+func expandHome(p string) string {
+	if !strings.HasPrefix(p, "~/") {
+		return p
 	}
-	return dirs
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~/"))
 }
