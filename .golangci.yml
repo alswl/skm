@@ -21,9 +21,8 @@ linters:
         - fmt.Fprintln
         - fmt.Println
         - fmt.Print
-    # Architecture check: this deliberately small application has one business
-    # layer, pkg/services. Commands and the TUI may call it directly; only that
-    # layer may reach persistence and the plugin protocol.
+    # Presentation may import domain types only for pass-through signatures,
+    # never persistence or the plugin protocol; see specs/003-engineering-optimization/contracts/layering-rules.md.
     depguard:
       rules:
         presentation-boundary:
