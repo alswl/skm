@@ -10,7 +10,8 @@
       "builtin": true,
       "valid": true,
       "path_state": "not_writable",
-      "error": null
+      "error": null,
+      "default_path": "$HOME/.claude/skills"
     },
     {
       "name": "claude-commands",
@@ -21,7 +22,8 @@
       "builtin": true,
       "valid": true,
       "path_state": "not_writable",
-      "error": null
+      "error": null,
+      "default_path": "$HOME/.claude/commands"
     },
     {
       "name": "codex",
@@ -32,7 +34,8 @@
       "builtin": true,
       "valid": true,
       "path_state": "not_writable",
-      "error": null
+      "error": null,
+      "default_path": "$HOME/.codex/skills"
     },
     {
       "name": "pi",
@@ -43,7 +46,34 @@
       "builtin": true,
       "valid": true,
       "path_state": "not_writable",
-      "error": null
+      "error": null,
+      "default_path": "$HOME/.pi/agent/skills"
+    },
+    {
+      "name": "dsh",
+      "platform": "dsh",
+      "path": "$HOME/.dsh/skills",
+      "accepts": ["skill"],
+      "strategies": { "skill": "skill-symlink" },
+      "builtin": true,
+      "valid": true,
+      "path_state": "not_writable",
+      "error": null,
+      "name_rule": "kebab-case",
+      "default_path": "$HOME/.dsh/skills"
+    },
+    {
+      "name": "agents",
+      "platform": "agents",
+      "path": "$HOME/.agents/skills",
+      "accepts": ["skill"],
+      "strategies": { "skill": "skill-symlink" },
+      "builtin": true,
+      "valid": true,
+      "path_state": "not_writable",
+      "error": null,
+      "name_rule": "kebab-case",
+      "default_path": "$HOME/.agents/skills"
     }
   ],
   "invalid": []

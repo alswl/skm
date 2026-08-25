@@ -138,7 +138,10 @@ func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
 // InstallTarget is a destination directory for installs, from targets.json or
 // built-in defaults. Accepts/Strategies declare which kinds it receives and
 // how (002-open-provider-target FR-012); Kind is the legacy single-kind field,
-// kept for v1 targets.json backward compatibility during migration.
+// kept for v1 targets.json backward compatibility during migration. NameRule is
+// an optional per-target name-compatibility rule (e.g. "kebab-case"); when set,
+// the installer rejects entries whose names fail the rule before writing
+// (006-deepseek-harness-target FR-006). Empty means no restriction.
 type InstallTarget struct {
 	Name       string                        `json:"name"`
 	Platform   string                        `json:"platform,omitempty"`
@@ -147,6 +150,7 @@ type InstallTarget struct {
 	Kind       EntryKind                     `json:"kind,omitempty"`
 	Accepts    []EntryKind                   `json:"accepts,omitempty"`
 	Strategies map[EntryKind]InstallStrategy `json:"strategies,omitempty"`
+	NameRule   string                        `json:"name_rule,omitempty"`
 }
 
 // AcceptsKind reports whether the target receives installs of kind, per

@@ -6,7 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/utils/pagination"
+	"github.com/alswl/skm/skm/pkg/pagination"
 )
 
 // applyEntries installs a freshly scanned catalog and recomputes the in-memory

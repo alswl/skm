@@ -57,3 +57,60 @@ func TestTargetRemoveLeavesInstalledAssetsCoherent(t *testing.T) {
 	require.False(t, ok, "a removed target is not addressable through the installer anymore")
 	require.Empty(t, svc.Cfg.Targets, "the removed target is gone from the loaded config")
 }
+
+func TestTargetListReportsDshNameRuleAndBuiltinDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_HOME", "")
+	t.Setenv("DSH_AGENTS_HOME", "")
+	defaults := config.DefaultTargets()
+
+	cfg := &config.Config{Root: t.TempDir(), ConfigDir: t.TempDir(), Targets: defaults}
+	svc, err := New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+
+	byName := map[string]TargetInfo{}
+	for _, ti := range svc.TargetList().Targets {
+		byName[ti.Name] = ti
+	}
+	require.Equal(t, "kebab-case", byName["dsh"].NameRule)
+	require.Equal(t, "kebab-case", byName["agents"].NameRule)
+	require.Equal(t, byName["dsh"].Path, byName["dsh"].DefaultPath, "a fresh built-in matches its current default")
+	require.False(t, byName["dsh"].PathDiverged)
+	require.Equal(t, byName["codex"].Path, byName["codex"].DefaultPath, "existing built-ins also report their default path")
+	require.Empty(t, byName["claude-skills"].NameRule, "existing built-ins declare no name rule")
+
+	vres := svc.TargetValidate("dsh")
+	require.Len(t, vres.Results, 1)
+	require.Equal(t, "kebab-case", vres.Results[0].NameRule)
+	require.Equal(t, byName["dsh"].Path, vres.Results[0].DefaultPath)
+	require.False(t, vres.Results[0].PathDiverged)
+}
+
+func TestTargetListFlagsDivergedBuiltinPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DSH_HOME", "")
+	t.Setenv("DSH_AGENTS_HOME", "")
+	defaults := config.DefaultTargets()
+
+	// Simulate a persisted dsh target whose path no longer matches the
+	// current default (e.g. DSH_HOME changed after the file was written).
+	var targets []common.InstallTarget
+	for _, d := range defaults {
+		if d.Name == "dsh" {
+			d.Path = filepath.Join(t.TempDir(), "dsh", "skills")
+		}
+		targets = append(targets, d)
+	}
+	cfg := &config.Config{Root: t.TempDir(), ConfigDir: t.TempDir(), Targets: targets}
+	svc, err := New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+
+	byName := map[string]TargetInfo{}
+	for _, ti := range svc.TargetList().Targets {
+		byName[ti.Name] = ti
+	}
+	require.True(t, byName["dsh"].PathDiverged, "a built-in path that diverges from the current default is flagged")
+	require.NotEqual(t, byName["dsh"].DefaultPath, byName["dsh"].Path)
+}

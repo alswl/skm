@@ -14,9 +14,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/pagination"
 	"github.com/alswl/skm/skm/pkg/tui/components"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
-	"github.com/alswl/skm/skm/pkg/utils/pagination"
 )
 
 // handleDetailKey drives the detail page: scroll, back, and the actions also

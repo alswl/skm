@@ -9,6 +9,7 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +19,7 @@ func TestImportStagedLocalDirPlacesUnderLocalLayer(t *testing.T) {
 	writeFile(t, src, "SKILL.md", frontmatter("review", "a review skill"))
 	writeFile(t, src, "prompt.txt", "content")
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.NoError(t, err)
 	require.Equal(t, "review", res.Name)
 	require.Equal(t, common.KindSkill, res.Kind)
@@ -39,7 +40,7 @@ func TestImportStagedAsRejectsPathTraversalEntryID(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "skill")
 	writeFile(t, src, "SKILL.md", frontmatter("skill", "a skill"))
 
-	_, err := NewRepository(root).ImportStagedAs(context.Background(), src, "unknown", "target", "..", true, nil)
+	_, err := engines.NewRepository(root).ImportStagedAs(context.Background(), src, "unknown", "target", "..", true, nil)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid entry id")
@@ -69,7 +70,7 @@ func TestImportSingleFileMarkdownBecomesDirCommand(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "hello.md")
 	require.NoError(t, os.WriteFile(src, []byte("---\nname: hello\ndescription: greets\n---\nhi\n"), 0o644))
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.NoError(t, err)
 	require.Equal(t, common.KindCommand, res.Kind)
 	require.Equal(t, filepath.Join(root, "commands", "local", "hello"), res.Path)
@@ -83,7 +84,7 @@ func TestImportProviderRecordsOrigin(t *testing.T) {
 	mode := "github"
 	origin := &common.Origin{Address: "https://github.com/x/y", ProviderID: &mode}
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), staged, "github", "", false, origin)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), staged, "github", "", false, origin)
 	require.NoError(t, err)
 	require.Equal(t, "remote-skill", res.Name)
 	require.Equal(t, filepath.Join(root, "skills", "github", "remote-skill"), res.Path)
@@ -114,11 +115,11 @@ func TestImportWithGroupNestsUnderOwnerRepoAndScanReportsIt(t *testing.T) {
 	mode := "github"
 	origin := &common.Origin{Address: "https://github.com/octocat/hello-world", ProviderID: &mode}
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), staged, "github", "octocat/hello-world", false, origin)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), staged, "github", "octocat/hello-world", false, origin)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills", "github", "octocat", "hello-world", "remote-skill"), res.Path)
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	require.Len(t, entries, 1)
 	require.Equal(t, "remote-skill", entries[0].Name)
 	require.Equal(t, "octocat/hello-world", entries[0].GroupValue(), "the scan recovers the owner/repo group from the nested directory layout")
@@ -131,7 +132,7 @@ func TestImportCollisionRejectedWithoutForce(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "dup")
 	writeFile(t, src, "SKILL.md", frontmatter("dup", "second"))
 
-	_, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	_, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.Error(t, err, "same destination collision must be rejected without force")
 	// Original intact.
 	require.FileExists(t, filepath.Join(root, "skills/local/dup/SKILL.md"))
@@ -150,7 +151,7 @@ func TestImportForceOverwritePreservesExternalSource(t *testing.T) {
 	sourceBefore, err := os.ReadFile(sourceMarker)
 	require.NoError(t, err)
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", true, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", true, nil)
 	require.NoError(t, err)
 	require.Equal(t, "dup", res.Name)
 	require.Equal(t, filepath.Join(root, "skills/local/dup"), res.Path)
@@ -169,11 +170,11 @@ func TestImportAllowsSameNameAtDifferentPaths(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "dup")
 	writeFile(t, src, "SKILL.md", frontmatter("dup", "regrouped"))
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "github", "octocat/hello-world", true, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "github", "octocat/hello-world", true, nil)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/github/octocat/hello-world/dup"), res.Path)
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	require.Len(t, entries, 2)
 	require.FileExists(t, filepath.Join(root, "skills/github/dup/SKILL.md"))
 	require.FileExists(t, res.Path+"/SKILL.md")
@@ -186,7 +187,7 @@ func TestImportForceRejectsAnAlreadyManagedSourceWithoutMovingIt(t *testing.T) {
 	before, err := os.ReadFile(filepath.Join(src, "SKILL.md"))
 	require.NoError(t, err)
 
-	_, err = NewRepository(root).ImportStaged(context.Background(), src, "local", "", true, nil)
+	_, err = engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", true, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "already managed")
 
@@ -200,7 +201,7 @@ func TestImportRejectsUnidentifiableSource(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(t.TempDir(), "plain-dir")
 	writeFile(t, src, "notes.txt", "no marker here")
-	_, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	_, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot identify")
 }
@@ -210,7 +211,7 @@ func TestImportRepairsMalformedSkillMetadata(t *testing.T) {
 	src := filepath.Join(root, "skills", "legacy-review")
 	writeFile(t, root, "skills/legacy-review/SKILL.md", "---\ndescription: legacy review instructions\n---\nReview the change.\n")
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.NoError(t, err)
 	require.Equal(t, "legacy-review", res.Name)
 	require.FileExists(t, filepath.Join(root, "skills", "local", "legacy-review", "SKILL.md"))
@@ -232,7 +233,7 @@ func TestImportRepairsUnparseableSkillMetadataWithoutChangingSource(t *testing.T
 	require.NoError(t, os.MkdirAll(src, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte(original), 0o644))
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.NoError(t, err)
 	data, err := os.ReadFile(filepath.Join(res.Path, "SKILL.md"))
 	require.NoError(t, err)
@@ -251,7 +252,7 @@ func TestImportRepairsInvalidManagedSkillInPlace(t *testing.T) {
 	src := filepath.Join(root, "skills", "local", "broken")
 	writeFile(t, root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
 
-	res, err := NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
+	res, err := engines.NewRepository(root).ImportStaged(context.Background(), src, "local", "", false, nil)
 	require.NoError(t, err)
 	require.Equal(t, src, res.Path)
 	data, err := os.ReadFile(filepath.Join(src, "SKILL.md"))

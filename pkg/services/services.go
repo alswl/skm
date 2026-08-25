@@ -7,6 +7,8 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/engines"
+	"github.com/alswl/skm/skm/pkg/installer"
+	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // Services is the single orchestration entry shared by the CLI and TUI. All
@@ -15,9 +17,9 @@ type Services struct {
 	Cfg                  *config.Config
 	Logger               *common.Logger
 	Repo                 *engines.Repository
-	Registry             *Registry
-	Installer            *Installer
-	TargetPlugins        map[string]TargetDriver
+	Registry             *providers.Registry
+	Installer            *installer.Installer
+	TargetPlugins        map[string]TargetPluginDriver
 	TargetPluginFailures []PluginLoadFailure
 }
 
@@ -27,10 +29,10 @@ type Services struct {
 // plugin dirs (US8). Target plugins are discovered the same way, so a target
 // declaring a "plugin:<id>" strategy resolves against an already-loaded set.
 func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
-	reg := NewRegistry()
-	builtins := []Provider{
-		NewLocal(), NewSelfBuild(), NewGitHub(),
-		NewGitLab(), NewSkillsSh(),
+	reg := providers.NewRegistry()
+	builtins, err := providers.Builtins()
+	if err != nil {
+		return nil, err
 	}
 	for _, p := range builtins {
 		if err := reg.Register(p); err != nil {
@@ -39,7 +41,7 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	}
 
 	loadedTargetPlugins, targetPluginFailures := DiscoverTargetPlugins(cfg.PluginDirs, logger)
-	targetPlugins := make(map[string]TargetDriver, len(loadedTargetPlugins))
+	targetPlugins := make(map[string]TargetPluginDriver, len(loadedTargetPlugins))
 	for _, p := range loadedTargetPlugins {
 		targetPlugins[p.ID()] = externalTargetDriver{p}
 	}
@@ -54,7 +56,7 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 		Registry:             reg,
 		TargetPlugins:        targetPlugins,
 		TargetPluginFailures: targetPluginFailures,
-		Installer:            NewInstaller(cfg.Targets, targetPlugins),
+		Installer:            installer.NewInstaller(cfg.Targets, installerDrivers(targetPlugins)),
 	}
 	svc.loadPlugins()
 	svc.logInvalidTargets()

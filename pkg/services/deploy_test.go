@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +42,7 @@ func TestDeployPlainDirDirectUse(t *testing.T) {
 // findEntryIn scans a repository root and returns the named entry.
 func findEntryIn(t *testing.T, root, name string) *common.Entry {
 	t.Helper()
-	for _, e := range NewRepository(root).Scan() {
+	for _, e := range engines.NewRepository(root).Scan() {
 		if e.Name == name {
 			return e
 		}

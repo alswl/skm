@@ -56,6 +56,8 @@ built-ins, and both are pluggable with plain executables — no Go, no rebuildin
 | Claude commands | `~/.claude/commands` |
 | Codex | `~/.codex/skills` |
 | pi | `~/.pi/agent/skills` |
+| dsh (deepseek-harness) | `~/.dsh/skills` (or `$DSH_HOME`/skills) |
+| shared agents | `~/.agents/skills` (or `$DSH_AGENTS_HOME`/skills) |
 | *your own* | Any path, via `skm target add` |
 
 ## 🏁 Quick start
@@ -109,6 +111,27 @@ skm status code-review
 
 Then `git init && git commit` the repository and you're done — your skills are now versioned,
 portable, and installed in every tool at once.
+
+## ⚙️ Configuration
+
+Settings resolve **flag > environment variable > settings file > default**, so anything you can put
+in a file you can still override for one invocation.
+
+```yaml
+# ~/.config/skm/config.yaml — optional; without it nothing changes
+root: ~/skills           # same as --root; omit to discover upward from cwd
+plugin_dirs:             # scanned after the default ~/.config/skm/plugins
+  - ~/work/skm-plugins
+```
+
+| Setting | Flag | Environment | Notes |
+| --- | --- | --- | --- |
+| Repository root | `--root` | `SKM_ROOT` | Discovered upward from cwd when unset |
+| Extra plugin dirs | — | `SKM_PLUGINS_DIR` | OS path list (`:`-separated); replaces the file's list |
+| Config directory | `--config` | `XDG_CONFIG_HOME` | Holds `targets.json` and `config.yaml`; defaults to `~/.config/skm` |
+
+`--config` is flag-only by design: the settings file lives *in* the config directory, so it cannot
+also choose it.
 
 ## 🔌 Plugins
 

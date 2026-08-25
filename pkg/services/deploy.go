@@ -10,6 +10,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 )
 
 // DeployOptions controls a deploy action.
@@ -65,7 +66,7 @@ func (s *Services) Deploy(ctx context.Context, opts DeployOptions) (*DeployResul
 		result.Clone = "direct"
 	}
 
-	entries := NewRepository(src).Scan()
+	entries := engines.NewRepository(src).Scan()
 	selected := filterActiveAndOnly(entries, opts.Only)
 	targets, err := s.resolveDeployTargets(selected, opts.Targets)
 	if err != nil {

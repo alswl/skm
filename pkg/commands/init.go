@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +21,7 @@ var initCmd = &cobra.Command{
 		if len(args) == 1 {
 			path = args[0]
 		}
-		root, err := services.InitializeRepository(path)
+		root, err := engines.InitializeRepository(path)
 		if err != nil {
 			return err
 		}

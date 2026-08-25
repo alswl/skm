@@ -2,15 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [master]
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       # pkg/managers/deploy_test.go exercises `git commit` against a real repo
@@ -25,11 +24,11 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
         with:
           # v6 of this action doesn't support golangci-lint v2 at all; v7 is
           # required. .golangci.yml uses the v2 config schema and go.mod

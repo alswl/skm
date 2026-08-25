@@ -18,11 +18,12 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/alswl/skm/skm/pkg/jobs"
+	"github.com/alswl/skm/skm/pkg/pagination"
 	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/alswl/skm/skm/pkg/tui/components"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
-	"github.com/alswl/skm/skm/pkg/utils/pagination"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1227,7 +1228,7 @@ func TestTargetsEditRemoveDisabledKeyGivesReason(t *testing.T) {
 // not a new behavior).
 func TestInstallReasonPrecedenceWhenTwoUnavailableConditionsApply(t *testing.T) {
 	m := newTestModel(t)
-	_, err := m.svc.Archive(m.ctx, "skill-a", services.LifecycleOptions{})
+	_, err := m.svc.Archive(m.ctx, "skill-a", engines.LifecycleOptions{})
 	require.NoError(t, err)
 	m.showArchived = true // archived entries are hidden by default; make skill-a visible
 	m.applyScan(m.svc.Scan())

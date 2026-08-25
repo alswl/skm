@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
 func findEntryByName(t *testing.T, root, name string) *common.Entry {
 	t.Helper()
-	for _, e := range NewRepository(root).Scan() {
+	for _, e := range engines.NewRepository(root).Scan() {
 		if e.Name == name {
 			return e
 		}
@@ -30,7 +31,7 @@ func TestUpdateEntryReplacesAndPreservesOrigin(t *testing.T) {
 	staged := t.TempDir()
 	writeFile(t, staged, "SKILL.md", frontmatter("demo", "version two"))
 
-	res, err := NewRepository(root).UpdateEntry(context.Background(), entry, staged)
+	res, err := engines.NewRepository(root).UpdateEntry(context.Background(), entry, staged)
 	require.NoError(t, err)
 	require.True(t, res.Changed)
 
@@ -50,7 +51,7 @@ func TestUpdateEntryCurrentWhenByteIdentical(t *testing.T) {
 	staged := t.TempDir()
 	writeFile(t, staged, "SKILL.md", frontmatter("demo", "same"))
 
-	res, err := NewRepository(root).UpdateEntry(context.Background(), entry, staged)
+	res, err := engines.NewRepository(root).UpdateEntry(context.Background(), entry, staged)
 	require.NoError(t, err)
 	require.False(t, res.Changed, "byte-identical content excluding meta.json is current")
 }
@@ -64,7 +65,7 @@ func TestUpdateEntryFailurePreservesOldContent(t *testing.T) {
 	staged := t.TempDir()
 	writeFile(t, staged, "SKILL.md", frontmatter("other-name", "different"))
 
-	_, err := NewRepository(root).UpdateEntry(context.Background(), entry, staged)
+	_, err := engines.NewRepository(root).UpdateEntry(context.Background(), entry, staged)
 	require.Error(t, err)
 	data, _ := os.ReadFile(filepath.Join(root, "skills/local/demo/SKILL.md"))
 	require.Contains(t, string(data), "precious", "old content preserved on failure")

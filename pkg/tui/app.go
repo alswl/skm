@@ -147,7 +147,7 @@ func initialModel(ctx context.Context, svc *services.Services) *model {
 
 // unknownProviderIcon marks an entry whose ProviderID (including "", i.e. none
 // recorded) has no registered/loaded provider declaring an icon — e.g. the
-// "self-build" bucket (services.NewSelfBuild) covers ProviderID
+// "self-build" bucket (providers.NewSelfBuild) covers ProviderID
 // "self-build"; a truly empty or unrecognized ProviderID falls back here.
 const unknownProviderIcon = "❓"
 

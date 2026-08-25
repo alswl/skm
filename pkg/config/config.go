@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/targets"
 )
 
 // Config holds resolved runtime configuration shared by CLI and TUI.
@@ -81,36 +82,16 @@ func DefaultPluginDirs() []string {
 	return []string{filepath.Join(DefaultConfigDir(), "plugins")}
 }
 
-// defaultTargets returns the built-in targets restored when targets.json is
-// missing or has zero interpretable entries (FR-003). Each declares its own
-// accepts/strategies (FR-012/FR-013, data-model.md). Codex receives skills as
-// directory links and commands through command-adapter, whose wrapper
-// directory contains a regular SKILL.md file. pi has no
-// separate commands concept (a
-// skill can be auto-registered as a /skill:name command by pi itself), so it
-// only accepts skill, via skill-symlink into its ~/.pi/agent/skills
-// convention. skm ships built-ins only for these widely-used public tools:
-// any other tool (private or public) is added via `skm target add`, not a
-// hardcoded default.
-func defaultTargets() []common.InstallTarget {
+// DefaultTargets returns the built-in targets restored when targets.json is
+// missing or has zero interpretable entries (FR-003). It is also what the
+// services layer diffs stored paths against to report divergence in
+// `target list` and `target validate` (006-deepseek-harness-target FR-004).
+func DefaultTargets() []common.InstallTarget {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "~"
 	}
-	return []common.InstallTarget{
-		{Name: "claude-skills", Platform: "claude", Path: filepath.Join(home, ".claude", "skills"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindSkill},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
-		{Name: "claude-commands", Platform: "claude", Path: filepath.Join(home, ".claude", "commands"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindCommand},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindCommand: common.StrategyCommandMarker}},
-		{Name: "codex", Platform: "codex", Path: filepath.Join(home, ".codex", "skills"), Builtin: true,
-			Accepts: []common.EntryKind{common.KindSkill, common.KindCommand}, Strategies: map[common.EntryKind]common.InstallStrategy{
-				common.KindSkill: common.StrategySkillSymlink, common.KindCommand: common.StrategyCommandAdapter}},
-		{Name: "pi", Platform: "pi", Path: filepath.Join(home, ".pi", "agent", "skills"), Builtin: true,
-			Accepts:    []common.EntryKind{common.KindSkill},
-			Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}},
-	}
+	return targets.Builtins(targets.Context{Home: home, Getenv: os.Getenv})
 }
 
 // Load builds a Config. configDir defaults to ~/.config/skm when
@@ -120,12 +101,16 @@ func Load(rootFlag, configDir string) (*Config, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir()
 	}
-	root, err := DiscoverRoot(rootFlag)
+	set, err := loadSettings(configDir)
+	if err != nil {
+		return nil, err
+	}
+	root, err := DiscoverRoot(rootFrom(set, rootFlag))
 	if err != nil {
 		return nil, err
 	}
 	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
-	plugins := loadPluginDirs()
+	plugins := pluginDirsFrom(set)
 	return &Config{
 		Root:           root,
 		ConfigDir:      resolvedDir,
@@ -138,18 +123,22 @@ func Load(rootFlag, configDir string) (*Config, error) {
 // LoadForDeploy builds a Config without requiring a repository root. The
 // deploy command operates on its --repo source (which may not exist yet on the
 // target machine), so no local repository is needed.
-func LoadForDeploy(configDir string) *Config {
+func LoadForDeploy(configDir string) (*Config, error) {
 	explicit := configDir != ""
 	if configDir == "" {
 		configDir = DefaultConfigDir()
+	}
+	set, err := loadSettings(configDir)
+	if err != nil {
+		return nil, err
 	}
 	resolvedDir, targets, invalid := loadTargetsWithLegacyFallback(configDir, explicit)
 	return &Config{
 		ConfigDir:      resolvedDir,
 		Targets:        targets,
 		InvalidTargets: invalid,
-		PluginDirs:     loadPluginDirs(),
-	}
+		PluginDirs:     pluginDirsFrom(set),
+	}, nil
 }
 
 // loadTargetsWithLegacyFallback loads configDir/targets.json; when the
@@ -188,16 +177,16 @@ func loadTargetsWithLegacyFallback(configDir string, explicit bool) (resolvedDir
 func loadTargets(configDir string) (valid []common.InstallTarget, invalid []InvalidTarget) {
 	data, err := os.ReadFile(filepath.Join(configDir, targetsFileName))
 	if err != nil {
-		return defaultTargets(), nil
+		return DefaultTargets(), nil
 	}
 	valid, invalid, err = ParseTargets(data)
 	if err != nil {
 		// The document itself isn't a JSON array: nothing to report
 		// per-entry: restore defaults.
-		return defaultTargets(), nil
+		return DefaultTargets(), nil
 	}
 	if len(valid) == 0 {
-		return defaultTargets(), invalid
+		return DefaultTargets(), invalid
 	}
 	return mergeWithBuiltins(valid), invalid
 }
@@ -214,7 +203,7 @@ func mergeWithBuiltins(userEntries []common.InstallTarget) []common.InstallTarge
 	for _, u := range userEntries {
 		overrides[u.Name] = u
 	}
-	defaults := defaultTargets()
+	defaults := DefaultTargets()
 	merged := make([]common.InstallTarget, 0, len(defaults)+len(userEntries))
 	seen := make(map[string]bool, len(defaults))
 	for _, d := range defaults {
@@ -234,27 +223,19 @@ func mergeWithBuiltins(userEntries []common.InstallTarget) []common.InstallTarge
 }
 
 func expandTarget(t common.InstallTarget) common.InstallTarget {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return t
-	}
-	if strings.HasPrefix(t.Path, "~/") {
-		t.Path = filepath.Join(home, strings.TrimPrefix(t.Path, "~/"))
-	}
+	t.Path = expandHome(t.Path)
 	return t
 }
 
-// loadPluginDirs returns the plugin scan directories: the default dir is
-// always scanned first, then any SKM_PLUGINS_DIR entries split on the OS
-// path separator (FR-035 / research R8).
-func loadPluginDirs() []string {
-	dirs := DefaultPluginDirs()
-	if env := os.Getenv(EnvPluginsDir); env != "" {
-		for _, d := range filepath.SplitList(env) {
-			if d != "" {
-				dirs = append(dirs, d)
-			}
-		}
+// expandHome resolves a leading "~/" against the user's home directory. A path
+// without the prefix, or an unresolvable home, is returned unchanged.
+func expandHome(p string) string {
+	if !strings.HasPrefix(p, "~/") {
+		return p
 	}
-	return dirs
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(home, strings.TrimPrefix(p, "~/"))
 }

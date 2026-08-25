@@ -2,13 +2,12 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/alswl/skm/skm/pkg/plugins"
+	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // PluginProvider adapts an executable implementing the subprocess JSON
@@ -16,11 +15,7 @@ import (
 // for 002-open-provider-target). Each request is a single JSON line on
 // stdin; the response is a single JSON line on stdout.
 type PluginProvider struct {
-	path            string
-	id              string
-	label           string
-	protocolVersion int // declared in the id response; 1 (baseline) when absent
-	mu              sync.Mutex
+	*plugins.Process
 }
 
 // pluginTimeout bounds every subprocess call so one slow/hung plugin cannot
@@ -33,29 +28,15 @@ type pluginRequest struct {
 	Address string `json:"address,omitempty"`
 }
 
-// pluginError accepts either the new {code,message} object or a legacy bare
-// string (mapped to CodeFetchFailed) for backward compatibility with
-// already-built plugins (contracts/provider-protocol.md).
+// pluginError tolerates the legacy bare-string error form already-built
+// plugins emit (contracts/provider-protocol.md).
 type pluginError struct {
 	Code    string
 	Message string
 }
 
 func (e *pluginError) UnmarshalJSON(data []byte) error {
-	var obj struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(data, &obj); err == nil && (obj.Code != "" || obj.Message != "") {
-		e.Code, e.Message = obj.Code, obj.Message
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	e.Code, e.Message = CodeFetchFailed, s
-	return nil
+	return plugins.UnmarshalError(data, &e.Code, &e.Message, providers.CodeFetchFailed)
 }
 
 type pluginResponse struct {
@@ -73,88 +54,36 @@ type pluginResponse struct {
 
 // NewPluginProvider loads a plugin executable, probing its id and label.
 func NewPluginProvider(path string) (*PluginProvider, error) {
-	p := &PluginProvider{path: path}
+	p := &PluginProvider{plugins.NewProcess("plugin", path)}
 	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
 	defer cancel()
-	idResp, err := p.call(ctx, "id", "")
-	if err != nil {
+	err := p.Handshake(func(action string) (plugins.Identity, error) {
+		resp, err := p.call(ctx, action, "")
+		if err != nil {
+			return plugins.Identity{}, err
+		}
+		return plugins.Identity{ID: resp.ID, Label: resp.Label, ProtocolVersion: resp.ProtocolVersion}, nil
+	})
+	switch {
+	case errors.Is(err, plugins.ErrEmptyID):
+		return nil, &providers.ProviderError{Code: providers.CodeEmptyID, Message: fmt.Sprintf("plugin %s: returned an empty id", path)}
+	case err != nil:
 		return nil, fmt.Errorf("plugin %s: %w", path, err)
 	}
-	if idResp.ID == "" {
-		return nil, &ProviderError{Code: CodeEmptyID, Message: fmt.Sprintf("plugin %s: returned an empty id", path)}
-	}
-	p.id = idResp.ID
-	// An undeclared protocol_version is the v1 baseline (plugin_host.go).
-	p.protocolVersion = idResp.ProtocolVersion
-	if p.protocolVersion == 0 {
-		p.protocolVersion = 1
-	}
-	if lbl, err := p.call(ctx, "label", ""); err == nil {
-		p.label = lbl.Label
-	}
 	return p, nil
-}
-
-// ProtocolVersion returns the protocol version the plugin declares it
-// implements (1 when it predates the versioning field).
-func (p *PluginProvider) ProtocolVersion() int { return p.protocolVersion }
-
-// ID returns the plugin's provider id.
-func (p *PluginProvider) ID() string { return p.id }
-
-// Descriptor exposes the same protocol identity as in-process providers.
-func (p *PluginProvider) Descriptor() PluginDescriptor {
-	cap := p.Capability()
-	return PluginDescriptor{Version: p.protocolVersion, Kind: PluginKindProvider, ID: p.ID(), Label: p.Label(), Description: cap.Description, Path: p.path}
-}
-
-// Handle is the common plugin-host entry point. The subprocess wire format is
-// still the established v1 provider protocol; call translates it into the v2
-// in-process envelope so callers never branch on plugin origin.
-func (p *PluginProvider) Handle(ctx context.Context, req PluginRequest) (PluginResponse, error) {
-	action := req.Action
-	if action == "describe" {
-		return PluginResponse{Descriptor: p.Descriptor()}, nil
-	}
-	resp, err := p.call(ctx, action, req.Address)
-	if err != nil {
-		return PluginResponse{}, err
-	}
-	if resp.Error != nil {
-		return PluginResponse{}, &ProviderError{Code: resp.Error.Code, Message: fmt.Sprintf("plugin %s: %s", p.id, resp.Error.Message)}
-	}
-	out := PluginResponse{Address: resp.Address, Path: resp.Path, Result: resp.Result}
-	if action == "capability" {
-		out.Capability = Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes, Icon: resp.Icon}
-		if resp.ID != "" {
-			out.Capability.ID = resp.ID
-		}
-		if resp.Label != "" {
-			out.Capability.Label = resp.Label
-		}
-	}
-	return out, nil
-}
-
-// Label returns the human label (falling back to the id).
-func (p *PluginProvider) Label() string {
-	if p.label == "" {
-		return p.id
-	}
-	return p.label
 }
 
 // Capability runs the plugin's optional `capability` action. A plugin that
 // doesn't implement it (error or empty response) falls back to
 // {id,label,"",nil} (contracts/provider-protocol.md).
-func (p *PluginProvider) Capability() Capability {
+func (p *PluginProvider) Capability() providers.Capability {
 	ctx, cancel := context.WithTimeout(context.Background(), pluginTimeout)
 	defer cancel()
 	resp, err := p.call(ctx, "capability", "")
 	if err != nil || resp.Error != nil {
-		return Capability{ID: p.ID(), Label: p.Label()}
+		return providers.Capability{ID: p.ID(), Label: p.Label()}
 	}
-	cap := Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes, Icon: resp.Icon}
+	cap := providers.Capability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Schemes: resp.Schemes, Icon: resp.Icon}
 	if resp.ID != "" {
 		cap.ID = resp.ID
 	}
@@ -193,27 +122,20 @@ func (p *PluginProvider) Fetch(ctx context.Context, address string) (string, err
 		return "", err
 	}
 	if resp.Error != nil {
-		return "", &ProviderError{Code: resp.Error.Code, Message: fmt.Sprintf("plugin %s: %s", p.id, resp.Error.Message)}
+		return "", &providers.ProviderError{Code: resp.Error.Code, Message: fmt.Sprintf("plugin %s: %s", p.ID(), resp.Error.Message)}
 	}
 	if resp.Path == "" {
-		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("plugin %s: fetch returned no path", p.id)}
+		return "", &providers.ProviderError{Code: providers.CodeFetchFailed, Message: fmt.Sprintf("plugin %s: fetch returned no path", p.ID())}
 	}
 	return resp.Path, nil
 }
 
 func (p *PluginProvider) call(ctx context.Context, action, address string) (*pluginResponse, error) {
-	req := pluginRequest{Action: action, Address: address}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	var resp pluginResponse
-	if err := plugins.Call(ctx, "plugin", p.path, req, &resp); err != nil {
+	if err := p.Call(ctx, pluginRequest{Action: action, Address: address}, &resp); err != nil {
 		var ce *plugins.CallError
 		if errors.As(err, &ce) {
-			code := CodeProtocolError
-			if ce.Kind == plugins.KindTimeout {
-				code = CodeTimeout
-			}
-			return nil, &ProviderError{Code: code, Message: ce.Message}
+			return nil, &providers.ProviderError{Code: ce.Code(), Message: ce.Message}
 		}
 		return nil, err
 	}

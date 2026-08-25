@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
 func TestScanMixedRepository(t *testing.T) {
 	root := buildFixtureRepo(t)
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 
 	byName := map[string]*common.Entry{}
 	for _, e := range entries {
@@ -67,7 +68,7 @@ func TestScanFindsArchivedSingleFileCommand(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "archived/local/flatcmd.md", frontmatter("flatcmd", "archived single-file command"))
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	var found *common.Entry
 	for _, e := range entries {
 		if e.Name == "flatcmd" {
@@ -84,7 +85,7 @@ func TestScanProviderIDMismatchIsError(t *testing.T) {
 	writeFile(t, root, "skills/github/weird/SKILL.md", frontmatter("weird", "origin says local"))
 	writeFile(t, root, "skills/github/weird/meta.json", `{"address":"https://x","mode_id":"local"}`)
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	require.Len(t, entries, 1)
 	e := entries[0]
 	require.Equal(t, common.StatusError, e.Status, "mode_id mismatch must be an error entry")
@@ -95,7 +96,7 @@ func TestScanMissingMarkerIsError(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/local/empty/SKILL.md", "no frontmatter at all\n")
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	require.Len(t, entries, 1)
 	e := entries[0]
 	require.Equal(t, common.StatusError, e.Status)
@@ -104,7 +105,7 @@ func TestScanMissingMarkerIsError(t *testing.T) {
 func TestScanInvalidSkillKeepsDirectoryNameForRepair(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	require.Len(t, entries, 1)
 	require.Equal(t, "broken", entries[0].Name)
 	require.Equal(t, common.StatusError, entries[0].Status)
@@ -112,7 +113,7 @@ func TestScanInvalidSkillKeepsDirectoryNameForRepair(t *testing.T) {
 
 func TestScanEmptyRepository(t *testing.T) {
 	root := t.TempDir()
-	require.Empty(t, NewRepository(root).Scan())
+	require.Empty(t, engines.NewRepository(root).Scan())
 }
 
 // TestScanFlagsMarkerOutsideManagedTrees: a SKILL.md/command.md placed
@@ -124,7 +125,7 @@ func TestScanFlagsMarkerOutsideManagedTrees(t *testing.T) {
 	writeFile(t, root, "stray-skill/SKILL.md", frontmatter("stray", "misplaced skill"))
 	writeFile(t, root, "nested/deeper/stray-cmd/command.md", frontmatter("stray-cmd", "misplaced command"))
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	byName := map[string]*common.Entry{}
 	for _, e := range entries {
 		byName[e.Name] = e
@@ -154,7 +155,7 @@ func TestScanNonStandardFallsBackToDirNameWhenFrontmatterBroken(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "loose-dir/SKILL.md", "no frontmatter at all\n")
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	require.Len(t, entries, 1)
 	e := entries[0]
 	require.Equal(t, common.StatusNonStandard, e.Status)
@@ -169,7 +170,7 @@ func TestScanNonStandardIgnoresHiddenAndLooseMarkdown(t *testing.T) {
 	writeFile(t, root, ".git/SKILL.md", frontmatter("should-not-appear", "inside a dot dir"))
 	writeFile(t, root, "README.md", "# Not a command\n")
 
-	require.Empty(t, NewRepository(root).Scan())
+	require.Empty(t, engines.NewRepository(root).Scan())
 }
 
 // TestScanFlagsMissingProviderLevel: skills/<name>/SKILL.md (missing the
@@ -183,7 +184,7 @@ func TestScanFlagsMissingProviderLevel(t *testing.T) {
 	writeFile(t, root, "skills/flat-skill/SKILL.md", frontmatter("flat-skill", "missing provider level"))
 	writeFile(t, root, "archived/flat-archived/SKILL.md", frontmatter("flat-archived", "missing provider level, archived"))
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	byName := map[string]*common.Entry{}
 	for _, e := range entries {
 		byName[e.Name] = e
@@ -221,7 +222,7 @@ func TestScanFlagsLooseCommandFileMissingProviderLevel(t *testing.T) {
 	writeFile(t, root, "commands/local/proper-cmd/command.md", frontmatter("proper-cmd", "correctly nested"))
 	writeFile(t, root, "commands/loose.md", frontmatter("loose", "missing provider level"))
 
-	entries := NewRepository(root).Scan()
+	entries := engines.NewRepository(root).Scan()
 	byName := map[string]*common.Entry{}
 	for _, e := range entries {
 		byName[e.Name] = e

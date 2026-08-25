@@ -8,16 +8,17 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
 func TestArchiveUnarchivePreservesLayout(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/local/team/demo/SKILL.md", frontmatter("demo", "a skill"))
-	repo := NewRepository(root)
+	repo := engines.NewRepository(root)
 	entry := findEntryByName(t, root, "demo")
 
-	newPath, err := repo.Archive(context.Background(), entry, LifecycleOptions{})
+	newPath, err := repo.Archive(context.Background(), entry, engines.LifecycleOptions{})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "archived/local/team/demo"), newPath)
 	require.FileExists(t, filepath.Join(root, "archived/local/team/demo/SKILL.md"))
@@ -26,7 +27,7 @@ func TestArchiveUnarchivePreservesLayout(t *testing.T) {
 	archived := findEntryByName(t, root, "demo")
 	require.Equal(t, common.StatusArchived, archived.Status)
 
-	restored, err := repo.Unarchive(context.Background(), archived, LifecycleOptions{})
+	restored, err := repo.Unarchive(context.Background(), archived, engines.LifecycleOptions{})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/local/team/demo"), restored)
 	require.FileExists(t, filepath.Join(root, "skills/local/team/demo/SKILL.md"))
@@ -37,7 +38,7 @@ func TestArchiveDryRunWritesNothing(t *testing.T) {
 	writeFile(t, root, "skills/local/demo/SKILL.md", frontmatter("demo", "a skill"))
 	entry := findEntryByName(t, root, "demo")
 
-	_, err := NewRepository(root).Archive(context.Background(), entry, LifecycleOptions{DryRun: true})
+	_, err := engines.NewRepository(root).Archive(context.Background(), entry, engines.LifecycleOptions{DryRun: true})
 	require.NoError(t, err)
 	require.FileExists(t, filepath.Join(root, "skills/local/demo/SKILL.md"))
 	require.NoDirExists(t, filepath.Join(root, "archived"))
@@ -48,11 +49,11 @@ func TestDeleteRequiresForce(t *testing.T) {
 	writeFile(t, root, "skills/local/demo/SKILL.md", frontmatter("demo", "a skill"))
 	entry := findEntryByName(t, root, "demo")
 
-	err := NewRepository(root).Delete(context.Background(), entry, LifecycleOptions{})
+	err := engines.NewRepository(root).Delete(context.Background(), entry, engines.LifecycleOptions{})
 	require.Error(t, err, "delete without --force must be refused")
 	require.FileExists(t, filepath.Join(root, "skills/local/demo/SKILL.md"))
 
-	require.NoError(t, NewRepository(root).Delete(context.Background(), entry, LifecycleOptions{Force: true}))
+	require.NoError(t, engines.NewRepository(root).Delete(context.Background(), entry, engines.LifecycleOptions{Force: true}))
 	require.NoDirExists(t, filepath.Join(root, "skills/local/demo"))
 }
 
@@ -62,7 +63,7 @@ func TestConvertFlipsKindAndDropsOrigin(t *testing.T) {
 	writeFile(t, root, "skills/local/demo/meta.json", `{"address":"https://x","mode_id":"local"}`)
 	entry := findEntryByName(t, root, "demo")
 
-	newEntry, err := NewRepository(root).ConvertContent(context.Background(), entry, common.KindCommand)
+	newEntry, err := engines.NewRepository(root).ConvertContent(context.Background(), entry, common.KindCommand)
 	require.NoError(t, err)
 	require.Equal(t, common.KindCommand, newEntry.Kind)
 	require.Equal(t, filepath.Join(root, "commands/local/demo"), newEntry.Path)
@@ -78,14 +79,14 @@ func TestConvertRejectsNonConvertible(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "commands/local/single.md", "---\nname: single\ndescription: s\n---\nbody\n")
 	single := findEntryByName(t, root, "single")
-	_, err := NewRepository(root).ConvertContent(context.Background(), single, common.KindSkill)
+	_, err := engines.NewRepository(root).ConvertContent(context.Background(), single, common.KindSkill)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "single-file")
 
 	// Archived entry cannot be converted.
 	writeFile(t, root, "archived/local/old/SKILL.md", frontmatter("old", "archived"))
 	old := findEntryByName(t, root, "old")
-	_, err = NewRepository(root).ConvertContent(context.Background(), old, common.KindCommand)
+	_, err = engines.NewRepository(root).ConvertContent(context.Background(), old, common.KindCommand)
 	require.Error(t, err)
 	require.FileExists(t, filepath.Join(root, "archived/local/old/SKILL.md"), "no half-state")
 }
@@ -98,7 +99,7 @@ func TestNormalizeMovesSkillMissingProviderLevel(t *testing.T) {
 	entry := findEntryByName(t, root, "flat-skill")
 	require.Equal(t, common.StatusNonStandard, entry.Status)
 
-	dest, err := NewRepository(root).Normalize(context.Background(), entry, "", LifecycleOptions{})
+	dest, err := engines.NewRepository(root).Normalize(context.Background(), entry, "", engines.LifecycleOptions{})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/local/flat-skill"), dest)
 	require.FileExists(t, filepath.Join(root, "skills/local/flat-skill/SKILL.md"))
@@ -119,7 +120,7 @@ func TestNormalizeMovesLooseCommandFileMissingProviderLevel(t *testing.T) {
 	require.Equal(t, common.StatusNonStandard, entry.Status)
 	require.False(t, entry.IsDirectory())
 
-	dest, err := NewRepository(root).Normalize(context.Background(), entry, "", LifecycleOptions{})
+	dest, err := engines.NewRepository(root).Normalize(context.Background(), entry, "", engines.LifecycleOptions{})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "commands/local/loose.md"), dest)
 	require.FileExists(t, dest)
@@ -132,7 +133,7 @@ func TestNormalizeDryRunWritesNothing(t *testing.T) {
 	writeFile(t, root, "skills/flat-skill/SKILL.md", frontmatter("flat-skill", "x"))
 	entry := findEntryByName(t, root, "flat-skill")
 
-	dest, err := NewRepository(root).Normalize(context.Background(), entry, "", LifecycleOptions{DryRun: true})
+	dest, err := engines.NewRepository(root).Normalize(context.Background(), entry, "", engines.LifecycleOptions{DryRun: true})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/local/flat-skill"), dest)
 	require.FileExists(t, filepath.Join(root, "skills/flat-skill/SKILL.md"), "dry-run writes nothing")
@@ -148,14 +149,14 @@ func TestNormalizeRefusesDestinationConflict(t *testing.T) {
 	// Two entries now share the name (a pre-existing name conflict, reported
 	// separately by verify); find the non-standard one specifically.
 	var nonStandard *common.Entry
-	for _, e := range NewRepository(root).Scan() {
+	for _, e := range engines.NewRepository(root).Scan() {
 		if e.Status == common.StatusNonStandard {
 			nonStandard = e
 		}
 	}
 	require.NotNil(t, nonStandard)
 
-	_, err := NewRepository(root).Normalize(context.Background(), nonStandard, "", LifecycleOptions{})
+	_, err := engines.NewRepository(root).Normalize(context.Background(), nonStandard, "", engines.LifecycleOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "already exists")
 	require.FileExists(t, filepath.Join(root, "skills/flat-skill/SKILL.md"), "no half-state: source untouched on refusal")
@@ -169,7 +170,7 @@ func TestNormalizeRejectsNonNonStandardEntry(t *testing.T) {
 	entry := findEntryByName(t, root, "proper")
 	require.Equal(t, common.StatusActive, entry.Status)
 
-	_, err := NewRepository(root).Normalize(context.Background(), entry, "", LifecycleOptions{})
+	_, err := engines.NewRepository(root).Normalize(context.Background(), entry, "", engines.LifecycleOptions{})
 	require.Error(t, err)
 }
 
@@ -180,7 +181,7 @@ func TestNormalizeMovesToExplicitProvider(t *testing.T) {
 	writeFile(t, root, "skills/flat-skill/SKILL.md", frontmatter("flat-skill", "belongs to github, really"))
 	entry := findEntryByName(t, root, "flat-skill")
 
-	dest, err := NewRepository(root).Normalize(context.Background(), entry, "github", LifecycleOptions{})
+	dest, err := engines.NewRepository(root).Normalize(context.Background(), entry, "github", engines.LifecycleOptions{})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/github/flat-skill"), dest)
 	require.FileExists(t, filepath.Join(root, "skills/github/flat-skill/SKILL.md"))
@@ -217,7 +218,7 @@ func TestNormalizeActiveEntryRelinksInstalls(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/github/demo"), resolved)
 
-	res, err := svc.Normalize(context.Background(), "demo", "local", LifecycleOptions{})
+	res, err := svc.Normalize(context.Background(), "demo", "local", engines.LifecycleOptions{})
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(root, "skills/local/demo"), res.Path)
 
@@ -257,7 +258,7 @@ func TestNormalizeActiveEntryRestoresLinksWhenMoveFails(t *testing.T) {
 	// passes (dest itself does not exist) but the move cannot create it.
 	require.NoError(t, os.WriteFile(filepath.Join(root, "skills/local"), []byte("not a dir"), 0o644))
 
-	_, err = svc.Normalize(context.Background(), "demo", "local", LifecycleOptions{})
+	_, err = svc.Normalize(context.Background(), "demo", "local", engines.LifecycleOptions{})
 	require.Error(t, err, "the move fails when the destination parent cannot be created")
 
 	require.FileExists(t, filepath.Join(root, "skills/github/demo/SKILL.md"), "the entry did not move")

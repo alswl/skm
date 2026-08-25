@@ -1,15 +1,17 @@
 package services
 
+import "github.com/alswl/skm/skm/pkg/providers"
+
 // ProviderInfo is one row of `provider list`/`validate` (contracts/cli-json.md).
 type ProviderInfo struct {
-	ID          string         `json:"id"`
-	Label       string         `json:"label,omitempty"`
-	Kind        string         `json:"kind"` // builtin | plugin
-	Description string         `json:"description,omitempty"`
-	Schemes     []string       `json:"schemes,omitempty"`
-	Path        string         `json:"path,omitempty"`
-	Loaded      bool           `json:"loaded"`
-	Error       *ProviderError `json:"error"`
+	ID          string                   `json:"id"`
+	Label       string                   `json:"label,omitempty"`
+	Kind        string                   `json:"kind"` // builtin | plugin
+	Description string                   `json:"description,omitempty"`
+	Schemes     []string                 `json:"schemes,omitempty"`
+	Path        string                   `json:"path,omitempty"`
+	Loaded      bool                     `json:"loaded"`
+	Error       *providers.ProviderError `json:"error"`
 }
 
 // ProviderListResult is the CLI JSON report for `provider list`.
@@ -19,9 +21,9 @@ type ProviderListResult struct {
 
 // ProviderValidateEntry is one result of `provider validate`.
 type ProviderValidateEntry struct {
-	ID    string         `json:"id"`
-	OK    bool           `json:"ok"`
-	Error *ProviderError `json:"error"`
+	ID    string                   `json:"id"`
+	OK    bool                     `json:"ok"`
+	Error *providers.ProviderError `json:"error"`
 }
 
 // ProviderValidateResult is the CLI JSON report for `provider validate`.
@@ -83,7 +85,7 @@ func (s *Services) ProviderIcons() map[string]string {
 
 // providerKind reports "plugin" for subprocess providers and "builtin" for
 // everything else.
-func providerKind(p Provider) string {
+func providerKind(p providers.Provider) string {
 	if _, ok := p.(*PluginProvider); ok {
 		return "plugin"
 	}
