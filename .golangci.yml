@@ -21,9 +21,11 @@ linters:
         - fmt.Fprintln
         - fmt.Println
         - fmt.Print
-    # Architecture check: this deliberately small application has one business
-    # layer, pkg/services. Commands and the TUI may call it directly; only that
-    # layer may reach persistence and the plugin protocol.
+    # Architecture check: presentation (cmd/skm, pkg/commands, pkg/tui) may
+    # call pkg/services directly, and may import a domain package (engines,
+    # installer, providers, targets) only to name a type it passes through —
+    # never pkg/dal or pkg/plugins. See CLAUDE.md's Architecture section and
+    # specs/003-engineering-optimization/contracts/layering-rules.md.
     depguard:
       rules:
         presentation-boundary:
