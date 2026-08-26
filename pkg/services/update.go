@@ -28,7 +28,7 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 	if entry.Origin == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q has no origin; nothing to fetch", name), common.ExitObject)
 	}
-	staged, cleanup, err := s.fetchFromOrigin(ctx, entry.Origin.Address)
+	staged, cleanup, err := s.fetchFromOrigin(ctx, entry)
 	if err != nil {
 		return nil, err
 	}
@@ -46,18 +46,36 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 }
 
 // Updatable reports whether an entry can be refreshed from its origin (active
-// and carries an origin). It is the eligibility rule shared by the CLI
-// batch-update and the TUI's per-entry batch jobs, so "what can be updated"
-// lives with the update domain instead of being re-derived in the
-// presentation layer. (Update keeps its own two checks because it must report
-// which half of the rule failed.)
+// and carries an origin). Local origins must point outside this repository:
+// older skm versions could persist an origin pointing at another managed
+// entry, which makes the entry self-referential once that source is moved or
+// claimed. Those records have no external source to refresh from and must not
+// be offered to the TUI batch-update action. The eligibility rule is shared
+// by the CLI batch-update and the TUI's per-entry batch jobs, so "what can be
+// updated" lives with the update domain instead of being re-derived in the
+// presentation layer. (Update keeps its own checks to report which one
+// failed.)
 func (s *Services) Updatable(e *common.Entry) bool {
-	return e.Status == common.StatusActive && e.Origin != nil && e.ProviderIDValue() != "unknown"
+	if e.Status != common.StatusActive || e.Origin == nil || e.ProviderIDValue() == "unknown" || e.ProviderIDValue() == "self-build" {
+		return false
+	}
+	return e.ProviderIDValue() != "local" || !isManagedRepositoryEntry(e.Origin.Address, s.Cfg.Root)
 }
 
-// fetchFromOrigin fetches an address through the first matching provider.
-func (s *Services) fetchFromOrigin(ctx context.Context, address string) (string, func(), error) {
-	p := s.Registry.Match(address)
+// fetchFromOrigin refreshes an entry through its recorded provider. Choosing
+// by address would let a later provider with overlapping capabilities replace
+// content from a different origin. Entries without a provider id are legacy
+// metadata and retain the former address-matching fallback.
+func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry) (string, func(), error) {
+	address := entry.Origin.Address
+	p := s.Registry.Get(entry.ProviderIDValue())
+	if entry.ProviderIDValue() != "" && p == nil {
+		return "", func() {}, common.WithExitCode(
+			fmt.Errorf("origin provider %q is unavailable for %q", entry.ProviderIDValue(), address), common.ExitError)
+	}
+	if p == nil {
+		p = s.Registry.Match(address)
+	}
 	if p == nil {
 		return "", func() {}, common.WithExitCode(fmt.Errorf("no provider can handle %q", address), common.ExitError)
 	}
@@ -103,7 +121,7 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 			res.Skipped = append(res.Skipped, e.Name)
 			continue
 		}
-		staged, cleanup, err := s.fetchFromOrigin(ctx, e.Origin.Address)
+		staged, cleanup, err := s.fetchFromOrigin(ctx, e)
 		if err != nil {
 			res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: err.Error()})
 			continue

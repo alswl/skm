@@ -46,6 +46,10 @@ func TestBatchUpdateClassifiesResults(t *testing.T) {
 
 	// active without origin -> skipped
 	writeSvcFile(t, root, "skills/local/c/SKILL.md", "---\nname: c\ndescription: c\n---\nbody\n")
+	// Legacy local origins occasionally point to a managed repository entry.
+	// That is an internal copy, not an external source P can refresh from.
+	writeSvcFile(t, root, "skills/local/internal/SKILL.md", "---\nname: internal\ndescription: internal\n---\nbody\n")
+	writeSvcFile(t, root, "skills/local/internal/meta.json", `{"address":"`+filepath.Join(root, "skills", "self-build", "vim")+`","mode_id":"local"}`)
 
 	// archived entry with origin -> not processed (active-only)
 	writeSvcFile(t, root, "archived/local/d/SKILL.md", "---\nname: d\ndescription: d\n---\nbody\n")
@@ -61,19 +65,23 @@ func TestBatchUpdateClassifiesResults(t *testing.T) {
 	require.Contains(t, res.Updated, "a")
 	require.Contains(t, res.Current, "b")
 	require.Contains(t, res.Skipped, "c")
+	require.Contains(t, res.Skipped, "internal")
 	require.Len(t, res.Failed, 1)
 	require.Equal(t, "e", res.Failed[0].Name)
 	require.NotEmpty(t, res.Failed[0].Reason, "the failure reason must survive, not just the entry name")
 	require.NotContains(t, res.Updated, "d", "archived entries are not processed")
-	require.Equal(t, 4, res.Total)
+	require.Equal(t, 5, res.Total)
 }
 
 // TestUpdatable locks the refresh-eligibility rule shared by the CLI
 // batch-update and the TUI batch jobs: only active entries with an origin can
 // be updated.
 func TestUpdatable(t *testing.T) {
-	svc := newUpdateSvc(t, t.TempDir())
+	root := t.TempDir()
+	svc := newUpdateSvc(t, root)
 	unknown := "unknown"
+	local := "local"
+	selfBuild := "self-build"
 	cases := []struct {
 		name  string
 		entry *common.Entry
@@ -81,6 +89,8 @@ func TestUpdatable(t *testing.T) {
 	}{
 		{"active with origin", &common.Entry{Status: common.StatusActive, Origin: &common.Origin{Address: "/x"}}, true},
 		{"adopted unknown origin", &common.Entry{Status: common.StatusActive, ProviderID: &unknown, Origin: &common.Origin{Address: "/x"}}, false},
+		{"local origin inside repository", &common.Entry{Status: common.StatusActive, ProviderID: &local, Origin: &common.Origin{Address: filepath.Join(root, "skills", "self-build", "vim")}}, false},
+		{"self-built entry with legacy origin", &common.Entry{Status: common.StatusActive, ProviderID: &selfBuild, Origin: &common.Origin{Address: "/x"}}, false},
 		{"active without origin", &common.Entry{Status: common.StatusActive}, false},
 		{"archived with origin", &common.Entry{Status: common.StatusArchived, Origin: &common.Origin{Address: "/x"}}, false},
 	}
@@ -89,4 +99,26 @@ func TestUpdatable(t *testing.T) {
 			require.Equal(t, c.want, svc.Updatable(c.entry))
 		})
 	}
+}
+
+func TestUpdateUsesTheRecordedOriginProvider(t *testing.T) {
+	root := t.TempDir()
+	staged := t.TempDir()
+	writeSvcFile(t, root, "skills/recorded/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\nold\n")
+	writeSvcFile(t, root, "skills/recorded/demo/meta.json", `{"address":"shared-source","mode_id":"recorded"}`)
+	writeSvcFile(t, staged, "SKILL.md", "---\nname: demo\ndescription: demo\n---\nnew\n")
+
+	svc := newUpdateSvc(t, root)
+	// Both providers claim the address, but only the origin's provider must be
+	// used. The competing provider is registered first to expose an accidental
+	// address-based selection.
+	require.NoError(t, svc.Registry.Register(fakeGroupingProvider{id: "competing", staged: t.TempDir()}))
+	require.NoError(t, svc.Registry.Register(fakeGroupingProvider{id: "recorded", staged: staged}))
+
+	res, err := svc.Update(context.Background(), "demo", UpdateOptions{})
+	require.NoError(t, err)
+	require.True(t, res.Changed)
+	data, err := os.ReadFile(filepath.Join(root, "skills/recorded/demo/SKILL.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "new")
 }
