@@ -24,8 +24,8 @@ func TestTargetRemoveLeavesInstalledAssetsCoherent(t *testing.T) {
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
 	cfgDir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "targets.json"),
-		[]byte(`[{"name":"t","platform":"p","path":"`+targetDir+`","accepts":["skill"],"strategies":{"skill":"skill-symlink"},"builtin":false}]`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, config.SettingsFileName),
+		[]byte("targets:\n  - name: t\n    platform: p\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: skill-symlink\n"), 0o644))
 
 	cfg := &config.Config{Root: root, ConfigDir: cfgDir, Targets: []common.InstallTarget{{
 		Name: "t", Platform: "p", Path: targetDir,

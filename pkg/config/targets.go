@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"gopkg.in/yaml.v3"
 )
 
 // InvalidTarget is a targets.json entry that could not be interpreted,
@@ -105,7 +106,7 @@ func ValidateTarget(t common.InstallTarget) string {
 
 // AddTarget validates t, rejects a duplicate name (including a built-in's
 // name — customize a built-in via UpdateTarget instead), and appends it to
-// configDir's targets.json.
+// configDir's config.yaml.
 func AddTarget(configDir string, t common.InstallTarget) (common.InstallTarget, error) {
 	t = expandTarget(t)
 	if reason := ValidateTarget(t); reason != "" {
@@ -132,7 +133,7 @@ func AddTarget(configDir string, t common.InstallTarget) (common.InstallTarget, 
 // UpdateTarget replaces the named target's fields and re-validates it. When
 // name matches a built-in that has no user entry yet, a new user-owned
 // override entry is seeded from the built-in and inserted into
-// targets.json, so future loads merge it in place of the built-in
+// config.yaml, so future loads merge it in place of the built-in
 // (mergeWithBuiltins).
 func UpdateTarget(configDir, name string, apply func(*common.InstallTarget)) (common.InstallTarget, error) {
 	targets, _ := loadTargetsRaw(configDir)
@@ -198,32 +199,33 @@ func RemoveTarget(configDir, name string) error {
 	return writeTargets(configDir, out)
 }
 
-// loadTargetsRaw reads targets.json without falling back to defaults, for
-// the add/update/remove write path (an empty/missing file is an empty list).
+// loadTargetsRaw reads config.yaml's targets without falling back to defaults,
+// for the add/update/remove write path (an empty/missing field is an empty
+// list).
 func loadTargetsRaw(configDir string) ([]common.InstallTarget, []InvalidTarget) {
-	data, err := os.ReadFile(filepath.Join(configDir, targetsFileName))
+	set, err := loadSettings(configDir)
 	if err != nil {
 		return nil, nil
 	}
-	valid, invalid, err := ParseTargets(data)
-	if err != nil {
-		return nil, nil
-	}
-	return valid, invalid
+	return normalizeTargets(set.Targets)
 }
 
-// writeTargets persists targets as the v2 shape (a v1 file is upgraded on
-// its next write).
+// writeTargets persists target additions and overrides in config.yaml.
 func writeTargets(configDir string, targets []common.InstallTarget) error {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return fmt.Errorf("write targets.json: %w", err)
+		return fmt.Errorf("write config.yaml: %w", err)
 	}
-	data, err := json.MarshalIndent(targets, "", "  ")
+	set, err := loadSettings(configDir)
 	if err != nil {
-		return fmt.Errorf("write targets.json: %w", err)
+		return err
 	}
-	if err := os.WriteFile(filepath.Join(configDir, targetsFileName), data, 0o644); err != nil {
-		return fmt.Errorf("write targets.json: %w", err)
+	set.Targets = targets
+	data, err := yaml.Marshal(set)
+	if err != nil {
+		return fmt.Errorf("write config.yaml: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, SettingsFileName), data, 0o644); err != nil {
+		return fmt.Errorf("write config.yaml: %w", err)
 	}
 	return nil
 }

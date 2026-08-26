@@ -63,12 +63,12 @@ func New(cfg *config.Config, logger *common.Logger) (*Services, error) {
 	return svc, nil
 }
 
-// logInvalidTargets warns (stderr) about each targets.json entry that could
+// logInvalidTargets warns (stderr) about each config.yaml target entry that could
 // not be interpreted, without blocking startup — the readable entries in
 // Cfg.Targets still load (FR-016).
 func (s *Services) logInvalidTargets() {
 	for _, inv := range s.Cfg.InvalidTargets {
-		s.Logger.Warn("invalid targets.json entry (isolated)", "reason", inv.Reason, "raw", string(inv.Raw))
+		s.Logger.Warn("invalid config target entry (isolated)", "reason", inv.Reason, "raw", string(inv.Raw))
 	}
 }
 

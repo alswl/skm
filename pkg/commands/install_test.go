@@ -9,6 +9,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // cmdFixture builds a repository + config dir + a single target for CLI
@@ -28,6 +29,13 @@ func cmdFixture(t *testing.T, kind string) (root, cfgDir string) {
 
 func writeTestFile(t *testing.T, base, rel, content string) {
 	t.Helper()
+	if rel == "targets.json" {
+		var targets any
+		require.NoError(t, json.Unmarshal([]byte(content), &targets))
+		data, err := yaml.Marshal(map[string]any{"targets": targets})
+		require.NoError(t, err)
+		rel, content = "config.yaml", string(data)
+	}
 	p := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
@@ -66,15 +74,15 @@ func assertGoldenJSON(t *testing.T, got []byte, goldenPath string) {
 	require.Equal(t, want, g)
 }
 
-// fixtureTargetDir extracts the target path from a fixture targets.json.
+// fixtureTargetDir extracts the target path from a fixture config.yaml.
 func fixtureTargetDir(t *testing.T, cfgDir string) string {
 	t.Helper()
-	var targets []struct{ Path string }
-	data, err := os.ReadFile(filepath.Join(cfgDir, "targets.json"))
+	var cfg struct{ Targets []struct{ Path string } }
+	data, err := os.ReadFile(filepath.Join(cfgDir, "config.yaml"))
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &targets))
-	require.NotEmpty(t, targets)
-	return targets[0].Path
+	require.NoError(t, yaml.Unmarshal(data, &cfg))
+	require.NotEmpty(t, cfg.Targets)
+	return cfg.Targets[0].Path
 }
 
 func TestInstallCommandJSONGolden(t *testing.T) {

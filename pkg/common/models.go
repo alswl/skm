@@ -143,14 +143,14 @@ func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
 // the installer rejects entries whose names fail the rule before writing
 // (006-deepseek-harness-target FR-006). Empty means no restriction.
 type InstallTarget struct {
-	Name       string                        `json:"name"`
-	Platform   string                        `json:"platform,omitempty"`
-	Path       string                        `json:"path"`
-	Builtin    bool                          `json:"builtin"`
-	Kind       EntryKind                     `json:"kind,omitempty"`
-	Accepts    []EntryKind                   `json:"accepts,omitempty"`
-	Strategies map[EntryKind]InstallStrategy `json:"strategies,omitempty"`
-	NameRule   string                        `json:"name_rule,omitempty"`
+	Name       string                        `json:"name" yaml:"name"`
+	Platform   string                        `json:"platform,omitempty" yaml:"platform,omitempty"`
+	Path       string                        `json:"path" yaml:"path"`
+	Builtin    bool                          `json:"builtin" yaml:"builtin"`
+	Kind       EntryKind                     `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Accepts    []EntryKind                   `json:"accepts,omitempty" yaml:"accepts,omitempty"`
+	Strategies map[EntryKind]InstallStrategy `json:"strategies,omitempty" yaml:"strategies,omitempty"`
+	NameRule   string                        `json:"name_rule,omitempty" yaml:"name_rule,omitempty"`
 }
 
 // AcceptsKind reports whether the target receives installs of kind, per

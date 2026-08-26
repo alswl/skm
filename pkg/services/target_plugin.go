@@ -15,7 +15,7 @@ import (
 // protocol, symmetric to PluginProvider: a Target that can't be
 // expressed with the three built-in strategies (skill-symlink,
 // command-marker, command-adapter) is installed into via an out-of-process
-// executable instead, referenced from targets.json as strategy
+// executable instead, referenced from config.yaml as strategy
 // "plugin:<id>" (common.InstallStrategy.IsPlugin/PluginID).
 type TargetPlugin struct {
 	*plugins.Process

@@ -133,28 +133,24 @@ func TestRemoveTargetDeletesByName(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, RemoveTarget(dir, "gone"))
-	valid, _, err := ParseTargets(readFile(t, filepath.Join(dir, targetsFileName)))
-	require.NoError(t, err)
+	valid, _ := loadTargetsRaw(dir)
 	require.Empty(t, valid)
 
 	require.Error(t, RemoveTarget(dir, "gone"), "removing an already-gone target must fail")
-}
-
-func readFile(t *testing.T, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	return data
 }
 
 func TestLoadMergesBuiltinsWithASingleCustomEntry(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills"), 0o755))
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, targetsFileName), []byte(`[{
-		"name": "acme", "platform": "acme", "path": "/opt/acme/skills",
-		"accepts": ["skill"], "strategies": {"skill": "plugin:acme"}
-	}]`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, SettingsFileName), []byte(`targets:
+  - name: acme
+    platform: acme
+    path: /opt/acme/skills
+    accepts: [skill]
+    strategies:
+      skill: plugin:acme
+`), 0o644))
 
 	cfg, err := Load(root, dir)
 	require.NoError(t, err)

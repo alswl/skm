@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -25,10 +26,18 @@ import (
 	"github.com/alswl/skm/skm/pkg/tui/components"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func writeFileT(t *testing.T, base, rel, content string) {
 	t.Helper()
+	if rel == "targets.json" {
+		var targets any
+		require.NoError(t, json.Unmarshal([]byte(content), &targets))
+		data, err := yaml.Marshal(map[string]any{"targets": targets})
+		require.NoError(t, err)
+		rel, content = "config.yaml", string(data)
+	}
 	p := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))

@@ -14,7 +14,7 @@ import (
 // is immediately reflected in subsequent install/uninstall calls within the
 // same Services instance. The loaded target plugin set carries over
 // unchanged — plugins are discovered once at startup, independent of
-// targets.json edits.
+// config.yaml target edits.
 func (s *Services) installerFor(targets []common.InstallTarget) *installer.Installer {
 	return installer.NewInstaller(targets, installerDrivers(s.TargetPlugins))
 }
@@ -79,7 +79,7 @@ type TargetListResult struct {
 }
 
 // TargetList reports every loaded target plus any uninterpretable
-// targets.json entry, each with its own reason (FR-016).
+// config.yaml target entry, each with its own reason (FR-016).
 func (s *Services) TargetList() *TargetListResult {
 	res := &TargetListResult{ConfigDir: s.Cfg.ConfigDir, Targets: []TargetInfo{}, Invalid: s.Cfg.InvalidTargets}
 	defaults := builtinDefaultPaths()

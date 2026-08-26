@@ -82,7 +82,7 @@ func Execute() int {
 func init() {
 	pf := rootCmd.PersistentFlags()
 	pf.StringVar(&flagRoot, "root", "", "repository root (or a skills/ directory); auto-discovered when omitted")
-	pf.StringVar(&flagConfig, "config", "", "config directory holding targets.json (default ~/.config/skm)")
+	pf.StringVar(&flagConfig, "config", "", "config directory holding config.yaml (default ~/.config/skm)")
 	pf.BoolVar(&flagJSON, "json", false, "emit a JSON report on stdout")
 	pf.BoolVar(&flagTiming, "timing", false, "write timing info to stderr only")
 	pf.BoolVar(&flagDryRun, "dry-run", false, "perform no writes; report intended actions")

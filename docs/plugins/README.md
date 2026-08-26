@@ -192,7 +192,7 @@ A **Target** is where skm installs assets to. Three built-in install strategies 
 skm — `skill-symlink`, `command-marker`, `command-adapter` — but a tool with a different
 on-disk convention (including a private/internal tool that has no place in skm's own
 built-ins) is supported by dropping an executable into a `targets/` plugin directory and
-referencing it from `targets.json` as strategy `plugin:<id>`.
+referencing it from `config.yaml` under `targets:` as strategy `plugin:<id>`.
 
 ```bash
 skm target add --name my-tool --path ~/.my-tool/skills \

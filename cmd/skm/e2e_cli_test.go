@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // E2E CLI suite: builds the real `skm` binary once and runs it as a
@@ -60,6 +61,13 @@ func e2eFixture(t *testing.T) (root, cfgDir string) {
 // writeTestFile writes content to base/rel, creating parent directories.
 func writeTestFile(t *testing.T, base, rel, content string) {
 	t.Helper()
+	if rel == "targets.json" {
+		var targets any
+		require.NoError(t, json.Unmarshal([]byte(content), &targets))
+		data, err := yaml.Marshal(map[string]any{"targets": targets})
+		require.NoError(t, err)
+		rel, content = "config.yaml", string(data)
+	}
 	p := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))

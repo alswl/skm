@@ -6,6 +6,6 @@
 // installation code anywhere.
 //
 // pkg/config consumes Builtins for the defaults a user gets with no
-// targets.json, for merging, and for the path-divergence report in
+// config.yaml, for merging, and for the path-divergence report in
 // `target list`.
 package targets

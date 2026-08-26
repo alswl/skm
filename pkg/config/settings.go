@@ -31,6 +31,9 @@ type settings struct {
 	// which is always scanned first. The environment form is
 	// SKM_PLUGINS_DIR, an OS-path-list string.
 	PluginDirs []string `yaml:"plugin_dirs"`
+	// Targets are the user-owned target definitions. Built-ins are merged at
+	// load time, so this list contains only additions and overrides.
+	Targets []common.InstallTarget `yaml:"targets,omitempty"`
 }
 
 // loadSettings reads <configDir>/config.yaml. A missing file is the normal
