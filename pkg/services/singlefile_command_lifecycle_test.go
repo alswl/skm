@@ -32,8 +32,8 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 	require.NoError(t, os.MkdirAll(markerTarget, 0o755))
 	require.NoError(t, os.MkdirAll(adapterTarget, 0o755))
 	targets := []common.InstallTarget{
-		{Name: "marker", Path: markerTarget, Kind: common.KindCommand}, // command-marker strategy
-		{Name: "adapter", Path: adapterTarget, Kind: common.KindSkill}, // command-adapter strategy
+		commandTarget("marker", markerTarget), // command-marker strategy
+		skillTarget("adapter", adapterTarget), // command-adapter strategy
 	}
 	svc, err := New(newCfg(root, targets), common.NewLogger(false))
 	require.NoError(t, err)

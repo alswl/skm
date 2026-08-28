@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,66 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// InvalidTarget is a targets.json entry that could not be interpreted,
+// InvalidTarget is a config.yaml target entry that could not be interpreted,
 // reported individually rather than discarding the whole config
 // (002-open-provider-target FR-016, research R6).
 type InvalidTarget struct {
-	Raw    json.RawMessage `json:"raw"`
-	Reason string          `json:"reason"`
-}
-
-// ParseTargets validates/migrates each entry in a targets.json document
-// independently: a v2 entry (Accepts set) is validated as-is; a v1 entry
-// (legacy Kind only) is migrated per common.InstallTarget's
-// EffectiveAccepts/EffectiveStrategy mapping so it round-trips as full v2
-// shape; anything else is collected as invalid without blocking the rest
-// (target-config.md).
-func ParseTargets(data []byte) (valid []common.InstallTarget, invalid []InvalidTarget, err error) {
-	var raws []json.RawMessage
-	if err := json.Unmarshal(data, &raws); err != nil {
-		return nil, nil, err
-	}
-	for _, raw := range raws {
-		var t common.InstallTarget
-		if err := json.Unmarshal(raw, &t); err != nil {
-			invalid = append(invalid, InvalidTarget{Raw: raw, Reason: err.Error()})
-			continue
-		}
-		t = expandTarget(t)
-		if len(t.Accepts) == 0 {
-			// No v2 shape given: migrate from the legacy Kind field.
-			accepts, strategies := legacyDefaultsFor(t.Kind)
-			if accepts == nil {
-				invalid = append(invalid, InvalidTarget{Raw: raw, Reason: fmt.Sprintf("no accepts/strategies and unrecognized legacy kind %q", t.Kind)})
-				continue
-			}
-			t.Accepts, t.Strategies = accepts, strategies
-		}
-		if reason := ValidateTarget(t); reason != "" {
-			invalid = append(invalid, InvalidTarget{Raw: raw, Reason: reason})
-			continue
-		}
-		valid = append(valid, t)
-	}
-	return valid, invalid, nil
-}
-
-// legacyDefaultsFor exposes common.InstallTarget's legacy-kind mapping for
-// direct use during migration (the same table EffectiveAccepts/
-// EffectiveStrategy derive from, so a migrated entry and a legacy-Kind-only
-// entry always resolve identically).
-func legacyDefaultsFor(kind common.EntryKind) ([]common.EntryKind, map[common.EntryKind]common.InstallStrategy) {
-	t := common.InstallTarget{Kind: kind}
-	accepts := t.EffectiveAccepts()
-	if accepts == nil {
-		return nil, nil
-	}
-	strategies := make(map[common.EntryKind]common.InstallStrategy, len(accepts))
-	for _, k := range accepts {
-		s, _ := t.EffectiveStrategy(k)
-		strategies[k] = s
-	}
-	return accepts, strategies
+	Reason string `json:"reason"`
 }
 
 // ValidateTarget reports why t is invalid (target-config.md), or "" when

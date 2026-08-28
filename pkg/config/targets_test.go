@@ -9,17 +9,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// T020: v2 targets.json load/validate; add rejects duplicate name; update
+// T020: v2 target load/validate; add rejects duplicate name; update
 // re-validates; remove deletes; kind-incompatible strategy is rejected.
 
-func TestParseTargetsV2Shape(t *testing.T) {
-	data := []byte(`[{
-		"name": "my-tool", "platform": "mytool", "path": "/opt/mytool/skills",
-		"accepts": ["skill", "command"],
-		"strategies": {"skill": "skill-symlink", "command": "command-adapter"}
-	}]`)
-	valid, invalid, err := ParseTargets(data)
-	require.NoError(t, err)
+func TestNormalizeTargetsKeepsV2Shape(t *testing.T) {
+	valid, invalid := normalizeTargets([]common.InstallTarget{{
+		Name: "my-tool", Platform: "mytool", Path: "/opt/mytool/skills",
+		Accepts: []common.EntryKind{common.KindSkill, common.KindCommand},
+		Strategies: map[common.EntryKind]common.InstallStrategy{
+			common.KindSkill:   common.StrategySkillSymlink,
+			common.KindCommand: common.StrategyCommandAdapter,
+		},
+	}})
 	require.Empty(t, invalid)
 	require.Len(t, valid, 1)
 	require.Equal(t, "my-tool", valid[0].Name)
@@ -27,51 +28,24 @@ func TestParseTargetsV2Shape(t *testing.T) {
 	require.Equal(t, common.StrategyCommandAdapter, valid[0].Strategies[common.KindCommand])
 }
 
-func TestParseTargetsMigratesLegacyV1Shape(t *testing.T) {
-	data := []byte(`[
-		{"name": "t-skill", "path": "/p1", "builtin": false, "kind": "skill"},
-		{"name": "t-command", "path": "/p2", "builtin": false, "kind": "command"}
-	]`)
-	valid, invalid, err := ParseTargets(data)
-	require.NoError(t, err)
-	require.Empty(t, invalid)
-	require.Len(t, valid, 2)
-
-	byName := map[string]common.InstallTarget{}
-	for _, v := range valid {
-		byName[v.Name] = v
-	}
-	skillT := byName["t-skill"]
-	require.ElementsMatch(t, []common.EntryKind{common.KindSkill, common.KindCommand}, skillT.Accepts)
-	require.Equal(t, common.StrategySkillSymlink, skillT.Strategies[common.KindSkill])
-	require.Equal(t, common.StrategyCommandAdapter, skillT.Strategies[common.KindCommand])
-
-	commandT := byName["t-command"]
-	require.Equal(t, []common.EntryKind{common.KindCommand}, commandT.Accepts)
-	require.Equal(t, common.StrategyCommandMarker, commandT.Strategies[common.KindCommand])
-}
-
-func TestParseTargetsReportsInvalidEntriesIndividuallyAndKeepsTheRest(t *testing.T) {
-	data := []byte(`[
-		{"name": "good", "path": "/p1", "kind": "skill"},
-		{"path": "/p2", "kind": "skill"},
-		{"name": "bad-kind", "path": "/p3", "kind": "widget"}
-	]`)
-	valid, invalid, err := ParseTargets(data)
-	require.NoError(t, err)
+func TestNormalizeTargetsReportsInvalidEntriesIndividuallyAndKeepsTheRest(t *testing.T) {
+	skillOnly := map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}
+	valid, invalid := normalizeTargets([]common.InstallTarget{
+		{Name: "good", Path: "/p1", Accepts: []common.EntryKind{common.KindSkill}, Strategies: skillOnly},
+		{Path: "/p2", Accepts: []common.EntryKind{common.KindSkill}, Strategies: skillOnly}, // no name
+		{Name: "no-accepts", Path: "/p3"},
+	})
 	require.Len(t, valid, 1, "the one interpretable entry still loads")
 	require.Equal(t, "good", valid[0].Name)
 	require.Len(t, invalid, 2, "each uninterpretable entry is reported individually")
 }
 
-func TestParseTargetsRejectsKindIncompatibleStrategy(t *testing.T) {
-	data := []byte(`[{
-		"name": "bad", "platform": "x", "path": "/p",
-		"accepts": ["skill"],
-		"strategies": {"skill": "command-marker"}
-	}]`)
-	valid, invalid, err := ParseTargets(data)
-	require.NoError(t, err)
+func TestNormalizeTargetsRejectsKindIncompatibleStrategy(t *testing.T) {
+	valid, invalid := normalizeTargets([]common.InstallTarget{{
+		Name: "bad", Platform: "x", Path: "/p",
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategyCommandMarker},
+	}})
 	require.Empty(t, valid)
 	require.Len(t, invalid, 1)
 	require.Contains(t, invalid[0].Reason, "not compatible")

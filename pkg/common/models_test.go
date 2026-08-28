@@ -28,43 +28,34 @@ func TestPluginSkillTargetAdaptsCommandsAsSkills(t *testing.T) {
 	}
 }
 
-func TestInstallTargetEffectiveAcceptsLegacyMapping(t *testing.T) {
-	cases := []struct {
-		kind    EntryKind
-		accepts []EntryKind
-	}{
-		{KindSkill, []EntryKind{KindSkill, KindCommand}},
-		{KindCommand, []EntryKind{KindCommand}},
+// A plugin-backed skill target reaches commands through the command-adapter
+// without declaring command in Accepts — the one derivation EffectiveAccepts/
+// EffectiveStrategy still make.
+func TestInstallTargetPluginSkillTargetAlsoAcceptsCommands(t *testing.T) {
+	target := InstallTarget{
+		Accepts:    []EntryKind{KindSkill},
+		Strategies: map[EntryKind]InstallStrategy{KindSkill: PluginStrategy("acme")},
 	}
-	for _, c := range cases {
-		target := InstallTarget{Kind: c.kind}
-		got := target.EffectiveAccepts()
-		if len(got) != len(c.accepts) {
-			t.Fatalf("legacy Kind=%q: got %v, want %v", c.kind, got, c.accepts)
-		}
-		for i, k := range c.accepts {
-			if got[i] != k {
-				t.Errorf("legacy Kind=%q: got %v, want %v", c.kind, got, c.accepts)
-			}
-		}
+	accepts := target.EffectiveAccepts()
+	if len(accepts) != 2 || accepts[0] != KindSkill || accepts[1] != KindCommand {
+		t.Fatalf("plugin skill target accepts: got %v, want [skill command]", accepts)
+	}
+	if s, ok := target.EffectiveStrategy(KindCommand); !ok || s != StrategyCommandAdapter {
+		t.Errorf("plugin skill target's command strategy: got %q,%v, want %q,true", s, ok, StrategyCommandAdapter)
 	}
 }
 
-func TestInstallTargetEffectiveStrategyLegacyMapping(t *testing.T) {
-	skillTarget := InstallTarget{Kind: KindSkill}
-	if s, ok := skillTarget.EffectiveStrategy(KindSkill); !ok || s != StrategySkillSymlink {
-		t.Errorf("skill-kind target's own kind: got %q,%v, want %q,true", s, ok, StrategySkillSymlink)
+// A non-plugin target gets no such derivation: undeclared kinds are refused.
+func TestInstallTargetUndeclaredKindIsRefused(t *testing.T) {
+	target := InstallTarget{
+		Accepts:    []EntryKind{KindSkill},
+		Strategies: map[EntryKind]InstallStrategy{KindSkill: StrategySkillSymlink},
 	}
-	if s, ok := skillTarget.EffectiveStrategy(KindCommand); !ok || s != StrategyCommandAdapter {
-		t.Errorf("skill-kind target accepting a command: got %q,%v, want %q,true", s, ok, StrategyCommandAdapter)
+	if got := target.EffectiveAccepts(); len(got) != 1 || got[0] != KindSkill {
+		t.Fatalf("accepts: got %v, want [skill]", got)
 	}
-
-	cmdTarget := InstallTarget{Kind: KindCommand}
-	if s, ok := cmdTarget.EffectiveStrategy(KindCommand); !ok || s != StrategyCommandMarker {
-		t.Errorf("command-kind target: got %q,%v, want %q,true", s, ok, StrategyCommandMarker)
-	}
-	if _, ok := cmdTarget.EffectiveStrategy(KindSkill); ok {
-		t.Errorf("command-kind target must not accept skill")
+	if _, ok := target.EffectiveStrategy(KindCommand); ok {
+		t.Errorf("undeclared command kind must not resolve to a strategy")
 	}
 }
 

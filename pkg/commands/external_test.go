@@ -15,7 +15,8 @@ func externalFixture(t *testing.T) (root, cfgDir, externalPath string) {
 	externalPath = filepath.Join(targetDir, "external")
 	writeTestFile(t, externalPath, "SKILL.md", "---\nname: external\ndescription: external skill\n---\nbody\n")
 	cfgDir = t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", `[{"name":"t","path":"`+targetDir+`","kind":"skill"}]`)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill, command]\n    strategies:\n      skill: skill-symlink\n      command: command-adapter\n")
 	return root, cfgDir, externalPath
 }
 
@@ -89,7 +90,7 @@ func TestNormalizeCommandMovesNonStandardEntry(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "misplaced/SKILL.md", "---\nname: misplaced\ndescription: misplaced skill\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	out, err := runCmd(t, "normalize", "misplaced", "--root", root, "--config", cfgDir, "--provider", "local", "--json")
 	require.NoError(t, err)
@@ -101,7 +102,7 @@ func TestNormalizeCommandDryRunOnlyPreviewsDestination(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "misplaced/SKILL.md", "---\nname: misplaced\ndescription: misplaced skill\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	out, err := runCmd(t, "normalize", "misplaced", "--root", root, "--config", cfgDir, "--dry-run", "--json")
 	require.NoError(t, err)

@@ -72,7 +72,7 @@ func (b *timedBuffer) maxGapBefore(start, end time.Time) time.Duration {
 }
 
 // slowStatePluginTarget writes a target plugin whose `state` action sleeps,
-// and returns a targets.json entry bound to it via strategy "plugin:<id>".
+// and returns a config.yaml target entry bound to it via strategy "plugin:<id>".
 // Real plugin-backed targets pay a subprocess spawn per state probe; the sleep
 // just makes that cost large enough to measure deterministically.
 func slowStatePluginTarget(t *testing.T, pluginBase, id, delay string) {
@@ -110,8 +110,8 @@ func slowInstallStateModel(t *testing.T, count int) *model {
 	slowStatePluginTarget(t, pluginBase, "slowtgt", "0.05")
 
 	cfgDir := t.TempDir()
-	writeFileT(t, cfgDir, "targets.json",
-		`[{"name":"slow","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"plugin:slowtgt"}}]`)
+	writeFileT(t, cfgDir, "config.yaml",
+		"targets:\n  - name: slow\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: plugin:slowtgt\n")
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
 	require.NotEmpty(t, cfg.PluginDirs, "plugin dir must be discoverable for the slow target to load")

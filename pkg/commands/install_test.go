@@ -14,7 +14,7 @@ import (
 
 // cmdFixture builds a repository + config dir + a single target for CLI
 // integration tests.
-func cmdFixture(t *testing.T, kind string) (root, cfgDir string) {
+func cmdFixture(t *testing.T) (root, cfgDir string) {
 	t.Helper()
 	root = t.TempDir()
 	writeTestFile(t, root, "skills/local/skill-a/SKILL.md", "---\nname: skill-a\ndescription: A skill\n---\nbody\n")
@@ -22,20 +22,13 @@ func cmdFixture(t *testing.T, kind string) (root, cfgDir string) {
 	cfgDir = filepath.Join(t.TempDir(), "cfg")
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	cfg := `[{"name":"t","path":"` + targetDir + `","builtin":false,"kind":"` + kind + `"}]`
-	writeTestFile(t, cfgDir, "targets.json", cfg)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill, command]\n    strategies:\n      skill: skill-symlink\n      command: command-adapter\n")
 	return root, cfgDir
 }
 
 func writeTestFile(t *testing.T, base, rel, content string) {
 	t.Helper()
-	if rel == "targets.json" {
-		var targets any
-		require.NoError(t, json.Unmarshal([]byte(content), &targets))
-		data, err := yaml.Marshal(map[string]any{"targets": targets})
-		require.NoError(t, err)
-		rel, content = "config.yaml", string(data)
-	}
 	p := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
@@ -86,14 +79,14 @@ func fixtureTargetDir(t *testing.T, cfgDir string) string {
 }
 
 func TestInstallCommandJSONGolden(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	out, err := runCmd(t, "install", "skill-a", "--root", root, "--config", cfgDir, "--json", "--target", "t")
 	require.NoError(t, err)
 	assertGoldenJSON(t, []byte(out), "../../testdata/golden/install.json")
 }
 
 func TestInstallCommandDryRunJSONGolden(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	targetDir := fixtureTargetDir(t, cfgDir)
 	out, err := runCmd(t, "install", "skill-a", "--root", root, "--config", cfgDir, "--json", "--dry-run", "--target", "t")
 	require.NoError(t, err)
@@ -104,7 +97,7 @@ func TestInstallCommandDryRunJSONGolden(t *testing.T) {
 }
 
 func TestUninstallCommandJSONGolden(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	// Install first so uninstall has something managed to remove.
 	_, err := runCmd(t, "install", "skill-a", "--root", root, "--config", cfgDir, "--target", "t")
 	require.NoError(t, err)
@@ -114,7 +107,7 @@ func TestUninstallCommandJSONGolden(t *testing.T) {
 }
 
 func TestInstallRefusesConflictExitCode(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	// A user file at the target blocks the install (conflict).
 	targetDir := fixtureTargetDir(t, cfgDir)
 	writeTestFile(t, targetDir, "skill-a", "user data")

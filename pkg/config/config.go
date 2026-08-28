@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,14 +133,6 @@ func loadConfiguredTargets(raw []common.InstallTarget) (valid []common.InstallTa
 func normalizeTargets(raw []common.InstallTarget) (valid []common.InstallTarget, invalid []InvalidTarget) {
 	for _, t := range raw {
 		t = expandTarget(t)
-		if len(t.Accepts) == 0 {
-			accepts, strategies := legacyDefaultsFor(t.Kind)
-			if accepts == nil {
-				invalid = append(invalid, InvalidTarget{Reason: fmt.Sprintf("no accepts/strategies and unrecognized legacy kind %q", t.Kind)})
-				continue
-			}
-			t.Accepts, t.Strategies = accepts, strategies
-		}
 		if reason := ValidateTarget(t); reason != "" {
 			invalid = append(invalid, InvalidTarget{Reason: reason})
 			continue

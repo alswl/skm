@@ -38,7 +38,10 @@ func newTestInstaller(t *testing.T, entryKind common.EntryKind) (*common.Entry, 
 	if entryKind == common.KindCommand {
 		entry.Path = skillDir
 	}
-	target := common.InstallTarget{Name: "t", Path: filepath.Join(root, "targets", "t"), Kind: entryKind}
+	target := skillTarget("t", filepath.Join(root, "targets", "t"))
+	if entryKind == common.KindCommand {
+		target = commandTarget("t", filepath.Join(root, "targets", "t"))
+	}
 	mkdir(t, target.Path)
 	return entry, target, installer.NewInstaller([]common.InstallTarget{target}, nil)
 }
@@ -66,7 +69,6 @@ func TestInstallSkillCreatesDirSymlinkAndIsIdempotent(t *testing.T) {
 func TestInstallCodexCommandCreatesDirSymlink(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
 	target.Name = "codex"
-	target.Kind = ""
 	target.Accepts = []common.EntryKind{common.KindCommand}
 	target.Strategies = map[common.EntryKind]common.InstallStrategy{
 		common.KindCommand: common.StrategyCommandSymlink,
@@ -86,7 +88,6 @@ func TestInstallCodexCommandCreatesDirSymlink(t *testing.T) {
 
 func TestInstallClaudeCommandCreatesMarkdownSymlink(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
-	target.Kind = common.KindCommand // command target
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Install(tx, entry, target, false)
 	require.NoError(t, err)
@@ -101,7 +102,7 @@ func TestInstallClaudeCommandCreatesMarkdownSymlink(t *testing.T) {
 
 func TestInstallCommandAdapter(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
-	target.Kind = common.KindSkill // e.g. a Codex skill target
+	target = skillTarget(target.Name, target.Path) // e.g. a Codex skill target
 	tx := &dal.FileTransaction{}
 	changed, err := inst.Install(tx, entry, target, false)
 	require.NoError(t, err)
@@ -126,7 +127,6 @@ func TestInstallCommandAdapter(t *testing.T) {
 
 func TestPluginSkillTargetFallsBackToCommandAdapter(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
-	target.Kind = ""
 	target.Accepts = []common.EntryKind{common.KindSkill}
 	target.Strategies = map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("acme")}
 
@@ -151,7 +151,7 @@ func TestPluginSkillTargetFallsBackToCommandAdapter(t *testing.T) {
 
 func TestInstallCommandAdapterReplacesLegacyDirectorySymlink(t *testing.T) {
 	entry, target, inst := newTestInstaller(t, common.KindCommand)
-	target.Kind = common.KindSkill // legacy Codex command target shape
+	target = skillTarget(target.Name, target.Path) // Codex-style skill target
 	legacy := filepath.Join(target.Path, entry.Name)
 	require.NoError(t, os.Symlink(entry.Path, legacy))
 
@@ -183,7 +183,7 @@ func TestInstallCommandAdapterForSingleFileCommand(t *testing.T) {
 	markerPath := filepath.Join(root, "commands", "local", "flatcmd.md")
 	write(t, markerPath, "---\nname: flatcmd\ndescription: a single-file command\n---\nbody\n")
 	entry := &common.Entry{Name: "flatcmd", Kind: common.KindCommand, Path: markerPath}
-	target := common.InstallTarget{Name: "t", Path: filepath.Join(root, "targets", "t"), Kind: common.KindSkill}
+	target := skillTarget("t", filepath.Join(root, "targets", "t"))
 	mkdir(t, target.Path)
 	inst := installer.NewInstaller([]common.InstallTarget{target}, nil)
 
@@ -285,7 +285,7 @@ func TestUninstallRemovesLegacySelfBuildDanglingLink(t *testing.T) {
 		Path:       filepath.Join(root, "skills", "self-build", "demo"),
 		ProviderID: &providerID,
 	}
-	target := common.InstallTarget{Name: "t", Path: filepath.Join(root, "target"), Kind: common.KindSkill}
+	target := skillTarget("t", filepath.Join(root, "target"))
 	mkdir(t, target.Path)
 	link := filepath.Join(target.Path, entry.Name)
 	legacyPath := filepath.Join(root, "skills", entry.Name)
@@ -324,7 +324,7 @@ func TestUninstallRemovesDanglingUnknownSkillAtOriginalDirectorySlot(t *testing.
 		ProviderID: &providerID,
 		Origin:     &common.Origin{ProviderID: &providerID, InstallSlot: installSlot},
 	}
-	target := common.InstallTarget{Name: "codex", Path: filepath.Join(root, "target"), Kind: common.KindSkill}
+	target := skillTarget("codex", filepath.Join(root, "target"))
 	mkdir(t, target.Path)
 	link := filepath.Join(target.Path, "atc-cli")
 	require.NoError(t, os.Symlink(entry.Path, link))

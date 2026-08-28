@@ -14,7 +14,7 @@ func TestImportCommandLocalJSON(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "review")
 	writeTestFile(t, src, "SKILL.md", "---\nname: review\ndescription: a review skill\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	out, err := runCmd(t, "import", src, "--root", root, "--config", cfgDir, "--json")
 	require.NoError(t, err)
@@ -33,7 +33,7 @@ func TestImportCommandDryRunWritesNothing(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "review")
 	writeTestFile(t, src, "SKILL.md", "---\nname: review\ndescription: a review skill\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	_, err := runCmd(t, "import", src, "--root", root, "--config", cfgDir, "--json", "--dry-run")
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func TestImportCommandCollisionRefused(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "dup")
 	writeTestFile(t, src, "SKILL.md", "---\nname: dup\ndescription: second\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	_, err := runCmd(t, "import", src, "--root", root, "--config", cfgDir)
 	require.Error(t, err, "collision must be refused without --force")
@@ -83,7 +83,7 @@ func TestImportCommandReadsSourceListFromStdin(t *testing.T) {
 	writeTestFile(t, alpha, "SKILL.md", "---\nname: alpha\ndescription: a\n---\nbody\n")
 	writeTestFile(t, beta, "SKILL.md", "---\nname: beta\ndescription: b\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	stdin := alpha + "\n\n# a comment\n" + beta + "\n"
 	out, err := runCmdStdin(t, stdin, "import", "-", "--root", root, "--config", cfgDir, "--json")
@@ -101,7 +101,7 @@ func TestImportCommandStdinReportsSuccessesBeforeAFailure(t *testing.T) {
 	alpha := filepath.Join(t.TempDir(), "alpha")
 	writeTestFile(t, alpha, "SKILL.md", "---\nname: alpha\ndescription: a\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	out, err := runCmdStdin(t, alpha+"\n/nope/does/not/exist\n", "import", "-", "--root", root, "--config", cfgDir)
 	require.Error(t, err)
@@ -112,7 +112,7 @@ func TestImportCommandStdinReportsSuccessesBeforeAFailure(t *testing.T) {
 
 func TestImportCommandStdinRejectsAnEmptyList(t *testing.T) {
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 	_, err := runCmdStdin(t, "\n#only a comment\n", "import", "-", "--root", t.TempDir(), "--config", cfgDir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no sources")

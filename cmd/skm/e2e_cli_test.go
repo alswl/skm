@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 // E2E CLI suite: builds the real `skm` binary once and runs it as a
@@ -53,21 +52,14 @@ func e2eFixture(t *testing.T) (root, cfgDir string) {
 	cfgDir = t.TempDir()
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	writeTestFile(t, cfgDir, "targets.json",
-		`[{"name":"claude-skills","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: claude-skills\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: skill-symlink\n")
 	return root, cfgDir
 }
 
 // writeTestFile writes content to base/rel, creating parent directories.
 func writeTestFile(t *testing.T, base, rel, content string) {
 	t.Helper()
-	if rel == "targets.json" {
-		var targets any
-		require.NoError(t, json.Unmarshal([]byte(content), &targets))
-		data, err := yaml.Marshal(map[string]any{"targets": targets})
-		require.NoError(t, err)
-		rel, content = "config.yaml", string(data)
-	}
 	p := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,18 +25,10 @@ import (
 	"github.com/alswl/skm/skm/pkg/tui/components"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 )
 
 func writeFileT(t *testing.T, base, rel, content string) {
 	t.Helper()
-	if rel == "targets.json" {
-		var targets any
-		require.NoError(t, json.Unmarshal([]byte(content), &targets))
-		data, err := yaml.Marshal(map[string]any{"targets": targets})
-		require.NoError(t, err)
-		rel, content = "config.yaml", string(data)
-	}
 	p := filepath.Join(base, rel)
 	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
@@ -58,7 +49,8 @@ func newTestModel(t *testing.T) model {
 	cfgDir := t.TempDir()
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	writeFileT(t, cfgDir, "targets.json", `[{"name":"t","path":"`+targetDir+`","builtin":false,"kind":"skill"}]`)
+	writeFileT(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill, command]\n    strategies:\n      skill: skill-symlink\n      command: command-adapter\n")
 
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)

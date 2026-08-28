@@ -23,7 +23,7 @@ func adoptFixture(t *testing.T) (*Services, string, string) {
 	require.NoError(t, os.WriteFile(filepath.Join(extPath, "SKILL.md"),
 		[]byte("---\nname: ext\ndescription: external skill\n---\nbody\n"), 0o644))
 
-	target := common.InstallTarget{Name: "t", Path: targetDir, Kind: common.KindSkill}
+	target := skillTarget("t", targetDir)
 	svc, err := New(newCfg(root, []common.InstallTarget{target}), common.NewLogger(false))
 	require.NoError(t, err)
 	return svc, root, extPath
@@ -74,8 +74,8 @@ func TestAdoptExternalKeepsSameNamedSkillsInUnknownGroups(t *testing.T) {
 	writeFile(t, second, "SKILL.md", frontmatter("atc", "second external copy"))
 
 	svc, err := New(newCfg(root, []common.InstallTarget{
-		{Name: "first", Path: firstTarget, Kind: common.KindSkill},
-		{Name: "second", Path: secondTarget, Kind: common.KindSkill},
+		skillTarget("first", firstTarget),
+		skillTarget("second", secondTarget),
 	}), common.NewLogger(false))
 	require.NoError(t, err)
 
