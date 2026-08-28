@@ -24,7 +24,7 @@ func exportFixture(t *testing.T) (*Services, *common.InstallTarget, string) {
 
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	target := common.InstallTarget{Name: "t", Path: targetDir, Kind: common.KindSkill}
+	target := skillTarget("t", targetDir)
 
 	cfg := newCfg(root, []common.InstallTarget{target})
 	svc, err := New(cfg, common.NewLogger(false))
@@ -34,6 +34,30 @@ func exportFixture(t *testing.T) (*Services, *common.InstallTarget, string) {
 
 func newCfg(root string, targets []common.InstallTarget) *config.Config {
 	return &config.Config{Root: root, ConfigDir: filepath.Join(root, ".cfg"), Targets: targets}
+}
+
+// skillTarget returns a target accepting skills via symlink and commands via
+// the command-adapter — the shape nearly every install test needs.
+func skillTarget(name, path string) common.InstallTarget {
+	return common.InstallTarget{
+		Name:    name,
+		Path:    path,
+		Accepts: []common.EntryKind{common.KindSkill, common.KindCommand},
+		Strategies: map[common.EntryKind]common.InstallStrategy{
+			common.KindSkill:   common.StrategySkillSymlink,
+			common.KindCommand: common.StrategyCommandAdapter,
+		},
+	}
+}
+
+// commandTarget returns a target accepting only commands, as command-markers.
+func commandTarget(name, path string) common.InstallTarget {
+	return common.InstallTarget{
+		Name:       name,
+		Path:       path,
+		Accepts:    []common.EntryKind{common.KindCommand},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindCommand: common.StrategyCommandMarker},
+	}
 }
 
 func TestExportEmitsScopedDeployCommand(t *testing.T) {

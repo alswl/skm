@@ -198,7 +198,7 @@ func TestNormalizeActiveEntryRelinksInstalls(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/github/demo/SKILL.md", frontmatter("demo", "a demo skill"))
 	targetDir := t.TempDir()
-	cfg := newCfg(root, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	cfg := newCfg(root, []common.InstallTarget{skillTarget("t", targetDir)})
 	svc, err := New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 
@@ -240,7 +240,7 @@ func TestNormalizeActiveEntryRestoresLinksWhenMoveFails(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/github/demo/SKILL.md", frontmatter("demo", "a demo skill"))
 	targetDir := t.TempDir()
-	cfg := newCfg(root, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	cfg := newCfg(root, []common.InstallTarget{skillTarget("t", targetDir)})
 	svc, err := New(cfg, common.NewLogger(false))
 	require.NoError(t, err)
 

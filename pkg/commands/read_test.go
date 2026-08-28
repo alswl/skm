@@ -23,7 +23,7 @@ func readFixture(t *testing.T) (root, cfgDir string) {
 	writeTestFile(t, root, "archived/local/old-skill/SKILL.md", "---\nname: old-skill\ndescription: An archived skill\n---\nbody\n")
 	writeTestFile(t, root, "skills/local/bad-marker/SKILL.md", "---\ndescription: missing name\n---\nbody\n")
 	cfgDir = t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 	return root, cfgDir
 }
 
@@ -71,7 +71,7 @@ func TestVerifyCleanRepoExitsZero(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, root, "skills/local/ok/SKILL.md", "---\nname: ok\ndescription: fine\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 	_, err := runCmd(t, "verify", "repo", "--root", root, "--config", cfgDir)
 	require.NoError(t, err, "clean repo verify exits 0")
 }
@@ -85,7 +85,7 @@ func TestListAndVerifyFlagNonStandardLocation(t *testing.T) {
 	writeTestFile(t, root, "skills/local/ok/SKILL.md", "---\nname: ok\ndescription: fine\n---\nbody\n")
 	writeTestFile(t, root, "stray-skill/SKILL.md", "---\nname: stray\ndescription: misplaced\n---\nbody\n")
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json", "[]")
+	writeTestFile(t, cfgDir, "config.yaml", "targets: []\n")
 
 	out, err := runCmd(t, "list", "--root", root, "--config", cfgDir, "--json")
 	require.NoError(t, err)
@@ -120,8 +120,8 @@ func TestVerifyArchivedSameNameAsActiveIsNotDanglingOrConflict(t *testing.T) {
 	writeTestFile(t, root, "archived/local/demo/SKILL.md", "---\nname: demo\ndescription: old archived version\n---\nbody\n")
 	targetDir := t.TempDir()
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json",
-		`[{"name":"t","path":"`+targetDir+`","accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: skill-symlink\n")
 	// The active entry is healthy-installed: the link named demo resolves to
 	// the active path, not the archived one.
 	require.NoError(t, os.Symlink(filepath.Join(root, "skills/local/demo"), filepath.Join(targetDir, "demo")))
@@ -153,8 +153,8 @@ func TestVerifyFlatArchivedSameNameAsActiveIsNotDanglingOrConflict(t *testing.T)
 	writeTestFile(t, root, "archived/demo/SKILL.md", "---\nname: demo\ndescription: old archived version\n---\nbody\n")
 	targetDir := t.TempDir()
 	cfgDir := t.TempDir()
-	writeTestFile(t, cfgDir, "targets.json",
-		`[{"name":"t","path":"`+targetDir+`","accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: skill-symlink\n")
 	// The active entry is healthy-installed: the link named demo resolves to
 	// the active path, not the archived one.
 	require.NoError(t, os.Symlink(filepath.Join(root, "skills/local/demo"), filepath.Join(targetDir, "demo")))

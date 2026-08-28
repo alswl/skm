@@ -9,11 +9,12 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // cmdFixture builds a repository + config dir + a single target for CLI
 // integration tests.
-func cmdFixture(t *testing.T, kind string) (root, cfgDir string) {
+func cmdFixture(t *testing.T) (root, cfgDir string) {
 	t.Helper()
 	root = t.TempDir()
 	writeTestFile(t, root, "skills/local/skill-a/SKILL.md", "---\nname: skill-a\ndescription: A skill\n---\nbody\n")
@@ -21,8 +22,8 @@ func cmdFixture(t *testing.T, kind string) (root, cfgDir string) {
 	cfgDir = filepath.Join(t.TempDir(), "cfg")
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	cfg := `[{"name":"t","path":"` + targetDir + `","builtin":false,"kind":"` + kind + `"}]`
-	writeTestFile(t, cfgDir, "targets.json", cfg)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill, command]\n    strategies:\n      skill: skill-symlink\n      command: command-adapter\n")
 	return root, cfgDir
 }
 
@@ -66,26 +67,26 @@ func assertGoldenJSON(t *testing.T, got []byte, goldenPath string) {
 	require.Equal(t, want, g)
 }
 
-// fixtureTargetDir extracts the target path from a fixture targets.json.
+// fixtureTargetDir extracts the target path from a fixture config.yaml.
 func fixtureTargetDir(t *testing.T, cfgDir string) string {
 	t.Helper()
-	var targets []struct{ Path string }
-	data, err := os.ReadFile(filepath.Join(cfgDir, "targets.json"))
+	var cfg struct{ Targets []struct{ Path string } }
+	data, err := os.ReadFile(filepath.Join(cfgDir, "config.yaml"))
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &targets))
-	require.NotEmpty(t, targets)
-	return targets[0].Path
+	require.NoError(t, yaml.Unmarshal(data, &cfg))
+	require.NotEmpty(t, cfg.Targets)
+	return cfg.Targets[0].Path
 }
 
 func TestInstallCommandJSONGolden(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	out, err := runCmd(t, "install", "skill-a", "--root", root, "--config", cfgDir, "--json", "--target", "t")
 	require.NoError(t, err)
 	assertGoldenJSON(t, []byte(out), "../../testdata/golden/install.json")
 }
 
 func TestInstallCommandDryRunJSONGolden(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	targetDir := fixtureTargetDir(t, cfgDir)
 	out, err := runCmd(t, "install", "skill-a", "--root", root, "--config", cfgDir, "--json", "--dry-run", "--target", "t")
 	require.NoError(t, err)
@@ -96,7 +97,7 @@ func TestInstallCommandDryRunJSONGolden(t *testing.T) {
 }
 
 func TestUninstallCommandJSONGolden(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	// Install first so uninstall has something managed to remove.
 	_, err := runCmd(t, "install", "skill-a", "--root", root, "--config", cfgDir, "--target", "t")
 	require.NoError(t, err)
@@ -106,7 +107,7 @@ func TestUninstallCommandJSONGolden(t *testing.T) {
 }
 
 func TestInstallRefusesConflictExitCode(t *testing.T) {
-	root, cfgDir := cmdFixture(t, "skill")
+	root, cfgDir := cmdFixture(t)
 	// A user file at the target blocks the install (conflict).
 	targetDir := fixtureTargetDir(t, cfgDir)
 	writeTestFile(t, targetDir, "skill-a", "user data")

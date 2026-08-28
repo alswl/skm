@@ -122,13 +122,19 @@ in a file you can still override for one invocation.
 root: ~/skills           # same as --root; omit to discover upward from cwd
 plugin_dirs:             # scanned after the default ~/.config/skm/plugins
   - ~/work/skm-plugins
+targets:                 # custom targets and built-in overrides
+  - name: my-tool
+    path: ~/.mytool/skills
+    accepts: [skill]
+    strategies:
+      skill: skill-symlink
 ```
 
 | Setting | Flag | Environment | Notes |
 | --- | --- | --- | --- |
 | Repository root | `--root` | `SKM_ROOT` | Discovered upward from cwd when unset |
 | Extra plugin dirs | — | `SKM_PLUGINS_DIR` | OS path list (`:`-separated); replaces the file's list |
-| Config directory | `--config` | `XDG_CONFIG_HOME` | Holds `targets.json` and `config.yaml`; defaults to `~/.config/skm` |
+| Config directory | `--config` | `XDG_CONFIG_HOME` | Holds `config.yaml`; defaults to `~/.config/skm` |
 
 `--config` is flag-only by design: the settings file lives *in* the config directory, so it cannot
 also choose it.

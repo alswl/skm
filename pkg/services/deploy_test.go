@@ -25,7 +25,7 @@ func TestDeployPlainDirDirectUse(t *testing.T) {
 	writeSvcFile(t, src, "skills/local/a/SKILL.md", "---\nname: a\ndescription: a\n---\nbody\n")
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	target := common.InstallTarget{Name: "t", Path: targetDir, Kind: common.KindSkill}
+	target := skillTarget("t", targetDir)
 	svc := newDeploySvc(t, []common.InstallTarget{target})
 
 	res, err := svc.Deploy(context.Background(), DeployOptions{Repo: src})
@@ -65,7 +65,7 @@ func TestDeployLocalGitRepoPullsFFOnly(t *testing.T) {
 
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	svc := newDeploySvc(t, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	svc := newDeploySvc(t, []common.InstallTarget{skillTarget("t", targetDir)})
 
 	res, err := svc.Deploy(context.Background(), DeployOptions{Repo: src})
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestDeployRefusesNonGitNonEmptyCloneTarget(t *testing.T) {
 	writeSvcFile(t, src, "skills/local/a/SKILL.md", "---\nname: a\ndescription: a\n---\nbody\n")
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	svc := newDeploySvc(t, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	svc := newDeploySvc(t, []common.InstallTarget{skillTarget("t", targetDir)})
 
 	// Pre-create a non-git, non-empty clone cache dir for the URL.
 	cacheBase := t.TempDir()
@@ -100,7 +100,7 @@ func TestDeployBareRepoClones(t *testing.T) {
 
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	svc := newDeploySvc(t, []common.InstallTarget{{Name: "t", Path: targetDir, Kind: common.KindSkill}})
+	svc := newDeploySvc(t, []common.InstallTarget{skillTarget("t", targetDir)})
 
 	res, err := svc.Deploy(context.Background(), DeployOptions{Repo: bare, CacheDir: t.TempDir()})
 	require.NoError(t, err)

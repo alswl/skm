@@ -1,4 +1,4 @@
 // Package dal provides filesystem data access: the repository lock,
 // rollbackable file transactions, symlink/adapter primitives, and
-// frontmatter/meta.json/targets.json IO.
+// frontmatter/meta.json/config.yaml IO.
 package dal

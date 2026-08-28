@@ -22,7 +22,7 @@ func TestDiscoverReportsOnlyRealSkillDirectories(t *testing.T) {
 	// A managed symlink into the repo -> not reported, never deleted.
 	require.NoError(t, os.Symlink(filepath.Join(root, "skills/local/managed"), filepath.Join(target, "managed")))
 
-	targets := []common.InstallTarget{{Name: "t", Path: target, Kind: common.KindSkill}}
+	targets := []common.InstallTarget{skillTarget("t", target)}
 	found := engines.NewRepository(root).Discover(targets, "")
 
 	require.Len(t, found, 1, "only the real skill directory is reported")

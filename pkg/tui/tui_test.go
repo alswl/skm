@@ -49,7 +49,8 @@ func newTestModel(t *testing.T) model {
 	cfgDir := t.TempDir()
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	writeFileT(t, cfgDir, "targets.json", `[{"name":"t","path":"`+targetDir+`","builtin":false,"kind":"skill"}]`)
+	writeFileT(t, cfgDir, "config.yaml",
+		"targets:\n  - name: t\n    path: "+targetDir+"\n    accepts: [skill, command]\n    strategies:\n      skill: skill-symlink\n      command: command-adapter\n")
 
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)

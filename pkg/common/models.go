@@ -121,7 +121,7 @@ func (s InstallStrategy) PluginID() string {
 // A plugin-delegated strategy is accepted structurally for any kind here;
 // whether the referenced plugin actually supports that kind is a runtime
 // check against its declared Capability, not a schema-level one (mirrors a
-// Provider's CanHandle being dynamic rather than declared in targets.json).
+// Provider's CanHandle being dynamic rather than declared in config.yaml).
 func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
 	if s.IsPlugin() {
 		return true
@@ -135,22 +135,20 @@ func (s InstallStrategy) CompatibleWith(kind EntryKind) bool {
 	return false
 }
 
-// InstallTarget is a destination directory for installs, from targets.json or
+// InstallTarget is a destination directory for installs, from config.yaml or
 // built-in defaults. Accepts/Strategies declare which kinds it receives and
-// how (002-open-provider-target FR-012); Kind is the legacy single-kind field,
-// kept for v1 targets.json backward compatibility during migration. NameRule is
+// how (002-open-provider-target FR-012). NameRule is
 // an optional per-target name-compatibility rule (e.g. "kebab-case"); when set,
 // the installer rejects entries whose names fail the rule before writing
 // (006-deepseek-harness-target FR-006). Empty means no restriction.
 type InstallTarget struct {
-	Name       string                        `json:"name"`
-	Platform   string                        `json:"platform,omitempty"`
-	Path       string                        `json:"path"`
-	Builtin    bool                          `json:"builtin"`
-	Kind       EntryKind                     `json:"kind,omitempty"`
-	Accepts    []EntryKind                   `json:"accepts,omitempty"`
-	Strategies map[EntryKind]InstallStrategy `json:"strategies,omitempty"`
-	NameRule   string                        `json:"name_rule,omitempty"`
+	Name       string                        `json:"name" yaml:"name"`
+	Platform   string                        `json:"platform,omitempty" yaml:"platform,omitempty"`
+	Path       string                        `json:"path" yaml:"path"`
+	Builtin    bool                          `json:"builtin" yaml:"builtin"`
+	Accepts    []EntryKind                   `json:"accepts,omitempty" yaml:"accepts,omitempty"`
+	Strategies map[EntryKind]InstallStrategy `json:"strategies,omitempty" yaml:"strategies,omitempty"`
+	NameRule   string                        `json:"name_rule,omitempty" yaml:"name_rule,omitempty"`
 }
 
 // AcceptsKind reports whether the target receives installs of kind, per
@@ -159,56 +157,25 @@ func (t InstallTarget) AcceptsKind(kind EntryKind) bool {
 	return slices.Contains(t.EffectiveAccepts(), kind)
 }
 
-// EffectiveAccepts returns Accepts when set (v2), or the accepts derived from
-// the legacy Kind field (data-model.md Migration Mapping, research R6) when
-// not. This is the single source of truth for v1→v2 kind semantics: a
-// Kind:"skill" target accepts both skill (its own kind) and command (via a
-// command-adapter); a Kind:"command" target accepts only command.
+// EffectiveAccepts returns the kinds the target receives: Accepts as declared,
+// plus command when the target handles skills through a plugin — a plugin
+// target reaches commands via a command-adapter without having to declare it.
 func (t InstallTarget) EffectiveAccepts() []EntryKind {
-	if len(t.Accepts) > 0 {
-		if slices.Contains(t.Accepts, KindSkill) && t.Strategies[KindSkill].IsPlugin() && !slices.Contains(t.Accepts, KindCommand) {
-			return append(append([]EntryKind(nil), t.Accepts...), KindCommand)
-		}
-		return t.Accepts
+	if slices.Contains(t.Accepts, KindSkill) && t.Strategies[KindSkill].IsPlugin() && !slices.Contains(t.Accepts, KindCommand) {
+		return append(append([]EntryKind(nil), t.Accepts...), KindCommand)
 	}
-	accepts, _ := legacyKindDefaults(t.Kind)
-	return accepts
+	return t.Accepts
 }
 
-// EffectiveStrategy returns the strategy Strategies[kind] declares when set
-// (v2), or the strategy the legacy Kind field implies for kind (research R6)
-// when not. ok is false when kind isn't accepted at all.
+// EffectiveStrategy returns the strategy Strategies declares for kind, or the
+// command-adapter when kind is command and the target handles skills through a
+// plugin (mirroring EffectiveAccepts). ok is false when kind isn't accepted.
 func (t InstallTarget) EffectiveStrategy(kind EntryKind) (strategy InstallStrategy, ok bool) {
-	if len(t.Strategies) > 0 {
-		strategy, ok = t.Strategies[kind]
-		if !ok && kind == KindCommand && t.Strategies[KindSkill].IsPlugin() {
-			return StrategyCommandAdapter, true
-		}
-		return strategy, ok
+	strategy, ok = t.Strategies[kind]
+	if !ok && kind == KindCommand && t.Strategies[KindSkill].IsPlugin() {
+		return StrategyCommandAdapter, true
 	}
-	_, strategies := legacyKindDefaults(t.Kind)
-	strategy, ok = strategies[kind]
 	return strategy, ok
-}
-
-// legacyKindDefaults maps a v1 targets.json {kind} value to its v2
-// accepts/strategies, reproducing 001's installer.go dispatch exactly
-// (data-model.md Migration Mapping): a skill-kind target also receives
-// commands via a command-adapter; a command-kind target receives only
-// commands, as a command-marker.
-func legacyKindDefaults(kind EntryKind) ([]EntryKind, map[EntryKind]InstallStrategy) {
-	switch kind {
-	case KindSkill:
-		return []EntryKind{KindSkill, KindCommand}, map[EntryKind]InstallStrategy{
-			KindSkill:   StrategySkillSymlink,
-			KindCommand: StrategyCommandAdapter,
-		}
-	case KindCommand:
-		return []EntryKind{KindCommand}, map[EntryKind]InstallStrategy{
-			KindCommand: StrategyCommandMarker,
-		}
-	}
-	return nil, nil
 }
 
 // Entry is the central asset — a managed skill or command.

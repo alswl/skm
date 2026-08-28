@@ -151,8 +151,8 @@ func fixtureProgramModel(t *testing.T) *model {
 	cfgDir := t.TempDir()
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	writeFileT(t, cfgDir, "targets.json",
-		`[{"name":"claude-skills","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	writeFileT(t, cfgDir, "config.yaml",
+		"targets:\n  - name: claude-skills\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: skill-symlink\n")
 	cfg, err := config.Load(root, cfgDir)
 	require.NoError(t, err)
 	svc, err := services.New(cfg, common.NewLogger(false))

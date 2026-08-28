@@ -52,8 +52,8 @@ func e2eFixture(t *testing.T) (root, cfgDir string) {
 	cfgDir = t.TempDir()
 	targetDir := filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.MkdirAll(targetDir, 0o755))
-	writeTestFile(t, cfgDir, "targets.json",
-		`[{"name":"claude-skills","path":"`+targetDir+`","builtin":false,"accepts":["skill"],"strategies":{"skill":"skill-symlink"}}]`)
+	writeTestFile(t, cfgDir, "config.yaml",
+		"targets:\n  - name: claude-skills\n    path: "+targetDir+"\n    accepts: [skill]\n    strategies:\n      skill: skill-symlink\n")
 	return root, cfgDir
 }
 
