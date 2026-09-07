@@ -619,6 +619,29 @@ func TestModelImportSelectsProviderAndKind(t *testing.T) {
 	require.NotNil(t, m.svc.FindEntry("imported"))
 }
 
+// A successful import must follow its repository identity through the
+// post-job scan and sorting, including onto a later page, rather than leaving
+// the cursor at its former numerical index.
+func TestImportSelectsNewEntryAfterRescanAndMakesItVisible(t *testing.T) {
+	m := newTestModel(t)
+	m.pageSize = 5
+	for i := 0; i < 40; i++ {
+		writeFileT(t, m.svc.Cfg.Root, fmt.Sprintf("skills/local/sk-%02d/SKILL.md", i), fmt.Sprintf("---\nname: sk-%02d\ndescription: fixture\n---\nbody\n", i))
+	}
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "sk-00", m.filtered[m.cursor].Name)
+
+	src := t.TempDir()
+	writeFileT(t, src, "SKILL.md", "---\nname: zzz-last\ndescription: imported fixture\n---\nbody\n")
+	m.runImport(src, "", "auto")
+	drainJob(t, &m)
+
+	require.Equal(t, "zzz-last", m.filtered[m.cursor].Name)
+	requireCursorVisible(t, m)
+	require.Contains(t, m.View(), "zzz-last", "the selected imported entry is rendered without manual scrolling")
+	require.Empty(t, m.pendingSelect, "selection requests are consumed by exactly one scan")
+}
+
 func TestModelClaimAndRepairSelectedSkill(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")

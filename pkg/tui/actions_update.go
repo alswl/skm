@@ -14,7 +14,7 @@ import (
 // current. ref is the entry's path, so same-named entries in different
 // providers resolve uniquely (FindEntry prefers path matches). Errors carry the
 // entry name so the failure surfaces who failed, not just the reason (FR-005).
-func (m *model) updateEntry(name, ref string) func(ctx context.Context) (any, error) {
+func (m *model) updateEntry(name, ref string, selectAfterScan bool) func(ctx context.Context) (any, error) {
 	return func(ctx context.Context) (any, error) {
 		result, err := m.svc.Update(ctx, ref, services.UpdateOptions{})
 		if err != nil {
@@ -24,7 +24,11 @@ func (m *model) updateEntry(name, ref string) func(ctx context.Context) (any, er
 		if !result.Changed {
 			verb = "current"
 		}
-		return fmt.Sprintf("%s is %s", name, verb), nil
+		jobResult := selectionJobResult{status: fmt.Sprintf("%s is %s", name, verb)}
+		if selectAfterScan {
+			jobResult.path = m.svc.Repo.RelPath(ref)
+		}
+		return jobResult, nil
 	}
 }
 
@@ -43,7 +47,7 @@ func (m *model) updateSelected() {
 		m.setStatus(fmt.Sprintf("%s %s; nothing to update", entry.Name, reason))
 		return
 	}
-	m.submitJob("update "+entry.Name, m.updateEntry(entry.Name, entry.Path))
+	m.submitJob("update "+entry.Name, m.updateEntry(entry.Name, entry.Path, true))
 }
 
 // batchUpdateCandidates returns the updatable entries in the current provider
@@ -80,7 +84,7 @@ func (m *model) batchUpdate() {
 		Prompt: fmt.Sprintf("Update %d %s in this tab from their origins?", len(cands), noun),
 		OnYes: func() {
 			for _, e := range cands {
-				m.submitJob("update "+e.Name, m.updateEntry(e.Name, e.Path))
+				m.submitJob("update "+e.Name, m.updateEntry(e.Name, e.Path, false))
 			}
 		},
 	}

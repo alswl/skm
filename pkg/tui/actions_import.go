@@ -143,7 +143,10 @@ func (m *model) runImport(addr, provider, kind string) {
 			if err != nil {
 				return nil, err
 			}
-			return fmt.Sprintf("imported %s (%s) via %s", result.Name, result.Type, result.Provider), nil
+			return selectionJobResult{
+				status: fmt.Sprintf("imported %s (%s) via %s", result.Name, result.Type, result.Provider),
+				path:   m.svc.Repo.RelPath(result.Path),
+			}, nil
 		}
 	}
 	m.submitJobForce("import "+addr, attempt(false), attempt(true))

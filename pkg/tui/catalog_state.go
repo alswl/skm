@@ -108,7 +108,25 @@ func (m *model) refreshFiltered() {
 		}
 	}
 	m.buildRows()
+	m.consumePendingSelect()
 	m.clampView()
+}
+
+// consumePendingSelect follows an affected entry through the post-job scan
+// and re-sort. Filters stay intact: when the entry is hidden, the ordinary
+// clamped selection remains. In either case the request is one-shot.
+func (m *model) consumePendingSelect() {
+	if m.pendingSelect == "" {
+		return
+	}
+	want := m.pendingSelect
+	m.pendingSelect = ""
+	for i, e := range m.filtered {
+		if m.svc.Repo.RelPath(e.Path) == want {
+			m.cursor = i
+			return
+		}
+	}
 }
 
 type dispRow struct {

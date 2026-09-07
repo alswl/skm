@@ -107,6 +107,11 @@ type model struct {
 	providerTabs   []string
 	providerTabIdx int
 
+	// pendingSelect is the repository-relative identity of an entry changed by
+	// a successful import or single update. It is consumed once after that
+	// operation's scan, so unrelated refreshes preserve later user navigation.
+	pendingSelect string
+
 	// providerIcons maps a provider id (entry.ProviderID) to its declared
 	// one-glyph icon, computed once at startup (the registry never changes
 	// after Services.New()). Precomputed here rather than looked up in View,
