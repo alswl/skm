@@ -195,6 +195,32 @@ func TestProviderIconDistinguishesSelfBuildAndUnknown(t *testing.T) {
 	require.Equal(t, unknownProviderIcon, m.providerIcon("some-unregistered-provider"))
 }
 
+func TestUnresolvedProviderEntriesShareTabHeaderAndDetailLabel(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/unknown/adopted/SKILL.md", "---\nname: adopted\ndescription: adopted\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "archived/legacy/SKILL.md", "---\nname: legacy\ndescription: legacy\n---\nbody\n")
+	m.showArchived = true
+	m.applyScan(m.svc.Scan())
+
+	count := 0
+	for _, tab := range m.providerTabs {
+		if tab == tabNone {
+			count++
+		}
+	}
+	require.Equal(t, 1, count)
+	m.jumpToProviderTab(len(m.providerTabs) - 1)
+	require.Len(t, m.filtered, 2)
+	require.Equal(t, "unresolved", sectionHeader(m.filtered[0]))
+	for i, e := range m.filtered {
+		if e.Name == "adopted" {
+			m.cursor = i
+		}
+	}
+	m.openDetail()
+	require.Contains(t, m.detail, "unresolved")
+}
+
 func TestModelRendersListAndOpensDetail(t *testing.T) {
 	m := newTestModel(t)
 	view := m.View()
