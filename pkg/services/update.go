@@ -18,7 +18,10 @@ type UpdateOptions struct {
 // Update refreshes a single entry from its origin. It fails (exit 1) when the
 // entry is missing, not active, or has no origin (FR-023).
 func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("update: %w", err)
+	}
 	if entry == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q not found", name), common.ExitObject)
 	}

@@ -676,6 +676,20 @@ func TestModelDeleteRequiresConfirmation(t *testing.T) {
 	require.Nil(t, m.confirm)
 	drainJob(t, &m)
 	require.Nil(t, m.svc.FindEntry("skill-a"), "deleted after confirming")
+	for _, entry := range m.entries {
+		require.NotEqual(t, "skill-a", entry.Name, "post-delete scan removes the entry from the full list")
+	}
+	for _, entry := range m.filtered {
+		require.NotEqual(t, "skill-a", entry.Name, "post-delete scan removes the entry from the visible list")
+	}
+}
+
+func TestModelFailedDeleteKeepsEntryVisible(t *testing.T) {
+	m := newTestModel(t)
+	m.submitJob("delete skill-a", func(context.Context) (any, error) { return nil, errors.New("delete refused") })
+	drainJob(t, &m)
+	require.NotNil(t, m.svc.FindEntry("skill-a"))
+	require.Contains(t, m.status, "task failed: delete refused")
 }
 
 func TestModelDeleteUsesSelectedSameNamedEntryPath(t *testing.T) {
@@ -1402,6 +1416,24 @@ func TestBatchUpdateScopesToCurrentTab(t *testing.T) {
 	done := m.queue.Snapshot().Completed
 	require.Len(t, done, 1)
 	require.Equal(t, "update gh-skill", done[0].Name, "gitlab entry is not updated from the github tab")
+}
+
+func TestBatchUpdateScopesToVisibleSearchAndNamesIt(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-a/meta.json", `{"address":"/fa","mode_id":"local"}`)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-b/meta.json", `{"address":"/fb","mode_id":"local"}`)
+	m.applyScan(m.svc.Scan())
+	m.search = "skill-a"
+	m.refreshFiltered()
+
+	m.batchUpdate()
+	require.NotNil(t, m.confirm)
+	require.Contains(t, m.confirm.Prompt, "1 entry")
+	require.Contains(t, m.confirm.Prompt, `"skill-a"`)
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.Len(t, m.queue.Snapshot().Completed, 1)
+	require.Equal(t, "update skill-a", m.queue.Snapshot().Completed[0].Name)
 }
 
 // TestBatchUpdateResolvesSameNameByPath: two same-named entries in different

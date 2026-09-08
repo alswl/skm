@@ -129,6 +129,22 @@ const (
 	tabNone = "none"
 )
 
+const unresolvedProviderLabel = "unresolved"
+
+func providerDisplayID(id string) string {
+	if id == "" || id == "unknown" {
+		return tabNone
+	}
+	return id
+}
+
+func providerDisplayLabel(id string) string {
+	if providerDisplayID(id) == tabNone {
+		return unresolvedProviderLabel
+	}
+	return id
+}
+
 // initialModel returns a pointer model: the TUI runs on a single heap-allocated
 // *model so every closure capturing the receiver (picker/confirm callbacks,
 // job runners) always refers to the live model object. A value-based model

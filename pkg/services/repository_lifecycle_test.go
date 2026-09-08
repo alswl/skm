@@ -57,6 +57,31 @@ func TestDeleteRequiresForce(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(root, "skills/local/demo"))
 }
 
+func TestAmbiguousLifecycleReferencesDoNotWrite(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/github/team/dup/SKILL.md", frontmatter("dup", "remote"))
+	writeFile(t, root, "skills/local/dup/SKILL.md", frontmatter("dup", "local"))
+	writeFile(t, root, "archived/github/team/old/SKILL.md", frontmatter("old", "remote"))
+	writeFile(t, root, "archived/local/old/SKILL.md", frontmatter("old", "local"))
+	svc, err := New(newCfg(root, nil), common.NewLogger(false))
+	require.NoError(t, err)
+
+	_, err = svc.Delete(context.Background(), "dup", engines.LifecycleOptions{Force: true})
+	require.Error(t, err)
+	_, err = svc.Archive(context.Background(), "dup", engines.LifecycleOptions{})
+	require.Error(t, err)
+	_, err = svc.Unarchive(context.Background(), "old", engines.LifecycleOptions{})
+	require.Error(t, err)
+	_, err = svc.Normalize(context.Background(), "dup", "local", engines.LifecycleOptions{})
+	require.Error(t, err)
+	_, err = svc.Convert(context.Background(), "dup", common.KindCommand, engines.LifecycleOptions{})
+	require.Error(t, err)
+	require.FileExists(t, filepath.Join(root, "skills/github/team/dup/SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills/local/dup/SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "archived/github/team/old/SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "archived/local/old/SKILL.md"))
+}
+
 func TestConvertFlipsKindAndDropsOrigin(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, "skills/local/demo/SKILL.md", frontmatter("demo", "a skill"))

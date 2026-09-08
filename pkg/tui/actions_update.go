@@ -50,16 +50,13 @@ func (m *model) updateSelected() {
 	m.submitJob("update "+entry.Name, m.updateEntry(entry.Name, entry.Path, true))
 }
 
-// batchUpdateCandidates returns the updatable entries in the current provider
-// tab (not the search-narrowed list): batch update acts on the whole tab, so a
-// leftover search can't silently shrink what gets refreshed. Which entries are
-// updatable is the services layer's rule (svc.Updatable); the TUI only applies
-// its own tab scope on top.
+// batchUpdateCandidates returns the updatable entries the user can currently
+// see. m.filtered already applies the active provider tab, search text and
+// archived toggle; the services layer remains the authority for eligibility.
 func (m *model) batchUpdateCandidates() []*common.Entry {
-	tab := m.activeProviderTab()
 	var updatable []*common.Entry
-	for _, e := range m.entries {
-		if matchesProviderTab(e, tab) && m.svc.Updatable(e) {
+	for _, e := range m.filtered {
+		if m.svc.Updatable(e) {
 			updatable = append(updatable, e)
 		}
 	}
@@ -81,11 +78,19 @@ func (m *model) batchUpdate() {
 		noun = "entry"
 	}
 	m.confirm = &pages.Confirm{
-		Prompt: fmt.Sprintf("Update %d %s in this tab from their origins?", len(cands), noun),
+		Prompt: m.batchUpdatePrompt(len(cands), noun),
 		OnYes: func() {
 			for _, e := range cands {
 				m.submitJob("update "+e.Name, m.updateEntry(e.Name, e.Path, false))
 			}
 		},
 	}
+}
+
+func (m *model) batchUpdatePrompt(n int, noun string) string {
+	scope := "this tab"
+	if m.search != "" {
+		scope += fmt.Sprintf(" matching %q", m.search)
+	}
+	return fmt.Sprintf("Update %d %s visible in %s from their origins?", n, noun, scope)
 }

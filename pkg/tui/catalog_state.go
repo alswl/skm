@@ -22,7 +22,7 @@ func (m *model) computeProviderTabs() {
 	seen := map[string]bool{}
 	hasNone := false
 	for _, e := range m.entries {
-		if id := e.ProviderIDValue(); id != "" {
+		if id := providerDisplayID(e.ProviderIDValue()); id != tabNone {
 			seen[id] = true
 		} else {
 			hasNone = true
@@ -78,9 +78,9 @@ func matchesProviderTab(e *common.Entry, tab string) bool {
 	if tab == tabAll {
 		return true
 	}
-	id := e.ProviderIDValue()
+	id := providerDisplayID(e.ProviderIDValue())
 	if tab == tabNone {
-		return id == ""
+		return id == tabNone
 	}
 	return id == tab
 }
@@ -158,10 +158,7 @@ func (m *model) buildRows() {
 }
 
 func sectionHeader(e *common.Entry) string {
-	id := e.ProviderIDValue()
-	if id == "" {
-		id = "—"
-	}
+	id := providerDisplayLabel(e.ProviderIDValue())
 	if group := e.GroupValue(); group != "" {
 		return id + " / " + group
 	}

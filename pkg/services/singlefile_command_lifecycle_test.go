@@ -45,10 +45,11 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 	require.Equal(t, common.StatusActive, entry.Status)
 
 	ctx := context.Background()
+	ref := "commands/self-build/flatcmd.md"
 	adapterDir := filepath.Join(adapterTarget, "flatcmd")
 
 	// Install into both strategies at once.
-	res, err := svc.Install(ctx, "flatcmd", InstallOptions{})
+	res, err := svc.Install(ctx, ref, InstallOptions{})
 	require.NoError(t, err, "install must not crash on a single-file command (command-adapter regression)")
 	require.True(t, res.Success)
 	require.Len(t, res.Results, 2)
@@ -60,20 +61,20 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 
 	// Uninstall from both: never touches the real repo file, only the
 	// target-side managed links/adapters.
-	_, err = svc.Uninstall(ctx, "flatcmd", InstallOptions{})
+	_, err = svc.Uninstall(ctx, ref, InstallOptions{})
 	require.NoError(t, err)
 	require.NoFileExists(t, filepath.Join(markerTarget, "flatcmd.md"))
 	require.NoDirExists(t, adapterDir)
 	require.FileExists(t, markerPath, "uninstall never removes the repo entry itself")
 
 	// Re-install so archive's uninstall-first step has something real to undo.
-	_, err = svc.Install(ctx, "flatcmd", InstallOptions{})
+	_, err = svc.Install(ctx, ref, InstallOptions{})
 	require.NoError(t, err)
 
 	// Archive: the TUI uninstalls first (actions_lifecycle.go), then archives.
-	_, err = svc.Uninstall(ctx, "flatcmd", InstallOptions{})
+	_, err = svc.Uninstall(ctx, ref, InstallOptions{})
 	require.NoError(t, err)
-	_, err = svc.Archive(ctx, "flatcmd", engines.LifecycleOptions{})
+	_, err = svc.Archive(ctx, ref, engines.LifecycleOptions{})
 	require.NoError(t, err, "archiving a single-file command must not crash")
 	require.NoDirExists(t, adapterDir, "archive uninstalled the adapter first")
 
@@ -83,7 +84,7 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 	require.FileExists(t, archived.Path, "the flat .md file survives the move to archived/ as a file, not a directory")
 
 	// Unarchive back to active.
-	_, err = svc.Unarchive(ctx, "flatcmd", engines.LifecycleOptions{})
+	_, err = svc.Unarchive(ctx, "archived/self-build/flatcmd.md", engines.LifecycleOptions{})
 	require.NoError(t, err, "unarchiving a single-file command must not crash")
 	restored := svc.FindEntry("flatcmd")
 	require.NotNil(t, restored)
@@ -92,7 +93,7 @@ func TestSingleFileCommandFullLifecycle(t *testing.T) {
 
 	// Delete (requires Force, matching the TUI's confirm-then-Force:true
 	// pattern in actions_lifecycle.go's deleteSelected).
-	_, err = svc.Delete(ctx, "flatcmd", engines.LifecycleOptions{Force: true})
+	_, err = svc.Delete(ctx, ref, engines.LifecycleOptions{Force: true})
 	require.NoError(t, err, "deleting a single-file command must not crash")
 	require.Nil(t, svc.FindEntry("flatcmd"))
 	require.NoFileExists(t, markerPath)

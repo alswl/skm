@@ -2,6 +2,7 @@ package services
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
@@ -42,4 +43,39 @@ func TestFindEntryLocatesByRepoPath(t *testing.T) {
 	// same-named entry at another path.
 	require.Nil(t, svc.FindEntry("archived/local/demo2"))
 	require.Nil(t, svc.FindEntry(""))
+}
+
+func TestResolveEntryRejectsSameTierNameAmbiguity(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/github/team/demo/SKILL.md", frontmatter("demo", "remote"))
+	writeFile(t, root, "skills/local/demo/SKILL.md", frontmatter("demo", "local"))
+	svc, err := New(&config.Config{Root: root, ConfigDir: t.TempDir(), Targets: []common.InstallTarget{}}, common.NewLogger(false))
+	require.NoError(t, err)
+
+	entry, err := svc.ResolveEntry("demo")
+	require.Nil(t, entry)
+	require.Error(t, err)
+	require.Equal(t, common.ExitObject, common.ExitCodeOf(err, common.ExitError))
+	require.Contains(t, err.Error(), "skills/github/team/demo")
+	require.Contains(t, err.Error(), "skills/local/demo")
+	require.True(t, strings.Contains(err.Error(), "re-run with one of the paths"))
+
+	entry, err = svc.ResolveEntry("skills/local/demo")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "skills/local/demo"), entry.Path)
+}
+
+func TestResolveEntryUsesActiveOverArchivedAndNeverFallsBackFromPath(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/local/demo/SKILL.md", frontmatter("demo", "active"))
+	writeFile(t, root, "archived/local/demo/SKILL.md", frontmatter("demo", "archived"))
+	svc, err := New(&config.Config{Root: root, ConfigDir: t.TempDir(), Targets: []common.InstallTarget{}}, common.NewLogger(false))
+	require.NoError(t, err)
+
+	entry, err := svc.ResolveEntry("demo")
+	require.NoError(t, err)
+	require.Equal(t, common.StatusActive, entry.Status)
+	entry, err = svc.ResolveEntry("archived/local/missing")
+	require.NoError(t, err)
+	require.Nil(t, entry)
 }
