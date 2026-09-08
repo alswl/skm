@@ -221,6 +221,26 @@ func TestUnresolvedProviderEntriesShareTabHeaderAndDetailLabel(t *testing.T) {
 	require.Contains(t, m.detail, "unresolved")
 }
 
+func TestUnregisteredProviderRemainsDistinctAndOptionalValuesStayDashed(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/custom/remote/SKILL.md", "---\nname: remote\ndescription: remote\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/unknown/adopted/SKILL.md", "---\nname: adopted\ndescription: adopted\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, unknownProviderIcon, m.providerIcon("custom"))
+	for i, e := range m.filtered {
+		if e.Name == "remote" {
+			require.Equal(t, "custom", sectionHeader(e))
+		}
+		if e.Name == "adopted" {
+			m.cursor = i
+		}
+	}
+	m.openDetail()
+	require.Contains(t, m.detail, "provider:  ❓ unresolved")
+	require.Contains(t, m.detail, "group:     —")
+	require.Contains(t, m.detail, "version:   —")
+}
+
 func TestModelRendersListAndOpensDetail(t *testing.T) {
 	m := newTestModel(t)
 	view := m.View()
@@ -766,6 +786,25 @@ func TestModelDeleteUsesSelectedSameNamedEntryPath(t *testing.T) {
 
 	require.FileExists(t, filepath.Join(root, "skills", "unknown", "first", "one", "SKILL.md"))
 	require.NoDirExists(t, filepath.Join(root, "skills", "unknown", "second", "two"))
+}
+
+func TestModelDeleteRootNonStandardDuplicateFailsSafely(t *testing.T) {
+	m := newTestModel(t)
+	root := m.svc.Cfg.Root
+	writeFileT(t, root, "loose/SKILL.md", "---\nname: duplicate\ndescription: loose\n---\nbody\n")
+	writeFileT(t, root, "skills/local/duplicate/SKILL.md", "---\nname: duplicate\ndescription: managed\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	for i, entry := range m.filtered {
+		if entry.Path == filepath.Join(root, "loose") {
+			m.cursor = i
+		}
+	}
+	m.deleteSelected()
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.Contains(t, m.status, "not found", "a root-level non-standard reference must fail rather than select its same-named managed peer")
+	require.FileExists(t, filepath.Join(root, "loose/SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills/local/duplicate/SKILL.md"))
 }
 
 func TestModelArchiveUsesSelectedSameNamedEntryPath(t *testing.T) {
