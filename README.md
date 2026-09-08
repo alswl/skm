@@ -98,6 +98,13 @@ The footer always shows what's available *right now* — unavailable actions are
 one tells you why instead of silently doing nothing. Confirmations spell out the consequence before
 anything destructive happens.
 
+### Addressing duplicate names
+
+An entry's repository-relative path is its identity. If two active entries share a name, commands
+such as `delete`, `archive`, `install`, and `update` reject the bare name and list the candidate
+paths. Re-run the command with one of those paths, for example
+`skm delete skills/local/mf-cli --force`. The TUI always uses this exact path for its selected row.
+
 Prefer scripting? Every action has a CLI equivalent:
 
 ```bash
