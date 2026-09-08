@@ -642,6 +642,34 @@ func TestImportSelectsNewEntryAfterRescanAndMakesItVisible(t *testing.T) {
 	require.Empty(t, m.pendingSelect, "selection requests are consumed by exactly one scan")
 }
 
+func TestPendingSelectionIsOneShotAndRespectsFilters(t *testing.T) {
+	m := newTestModel(t)
+	m.pendingSelect = "skills/local/skill-a"
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
+	require.Empty(t, m.pendingSelect)
+
+	m.cursor = 1
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "skill-b", m.filtered[m.cursor].Name, "a later manual refresh does not jump back")
+
+	m.search = "skill-a"
+	m.refreshFiltered()
+	m.pendingSelect = "skills/local/skill-b"
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
+	require.Equal(t, "skill-a", m.search, "selection never changes a user filter")
+}
+
+func TestFailedImportDoesNotMoveSelection(t *testing.T) {
+	m := newTestModel(t)
+	before := m.filtered[m.cursor].Name
+	m.submitJob("import broken", func(context.Context) (any, error) { return nil, errors.New("broken import") })
+	drainJob(t, &m)
+	require.Equal(t, before, m.filtered[m.cursor].Name)
+	require.Empty(t, m.pendingSelect)
+}
+
 func TestModelClaimAndRepairSelectedSkill(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
