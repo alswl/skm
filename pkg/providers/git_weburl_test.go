@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,16 @@ func TestParseGitWebURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestContainedPathRejectsRepositoryEscape(t *testing.T) {
+	base := t.TempDir()
+	got, err := containedPath(base, "skills/mf-cli")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(base, "skills", "mf-cli"), got)
+	_, err = containedPath(base, "../outside")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "escapes the repository")
 }
 
 // A web URL must still land under <provider>/<owner>/<repo>/, exactly like the

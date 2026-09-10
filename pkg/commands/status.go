@@ -32,7 +32,10 @@ var statusCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		entry := svc.FindEntry(args[0])
+		entry, err := svc.ResolveEntry(args[0])
+		if err != nil {
+			return fmt.Errorf("status: %w", err)
+		}
 		if entry == nil {
 			return common.WithExitCode(fmt.Errorf("status: entry %q not found", args[0]), common.ExitObject)
 		}

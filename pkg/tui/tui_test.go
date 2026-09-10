@@ -195,6 +195,52 @@ func TestProviderIconDistinguishesSelfBuildAndUnknown(t *testing.T) {
 	require.Equal(t, unknownProviderIcon, m.providerIcon("some-unregistered-provider"))
 }
 
+func TestUnresolvedProviderEntriesShareTabHeaderAndDetailLabel(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/unknown/adopted/SKILL.md", "---\nname: adopted\ndescription: adopted\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "archived/legacy/SKILL.md", "---\nname: legacy\ndescription: legacy\n---\nbody\n")
+	m.showArchived = true
+	m.applyScan(m.svc.Scan())
+
+	count := 0
+	for _, tab := range m.providerTabs {
+		if tab == tabNone {
+			count++
+		}
+	}
+	require.Equal(t, 1, count)
+	m.jumpToProviderTab(len(m.providerTabs) - 1)
+	require.Len(t, m.filtered, 2)
+	require.Equal(t, "unresolved", sectionHeader(m.filtered[0]))
+	for i, e := range m.filtered {
+		if e.Name == "adopted" {
+			m.cursor = i
+		}
+	}
+	m.openDetail()
+	require.Contains(t, m.detail, "unresolved")
+}
+
+func TestUnregisteredProviderRemainsDistinctAndOptionalValuesStayDashed(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/custom/remote/SKILL.md", "---\nname: remote\ndescription: remote\n---\nbody\n")
+	writeFileT(t, m.svc.Cfg.Root, "skills/unknown/adopted/SKILL.md", "---\nname: adopted\ndescription: adopted\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, unknownProviderIcon, m.providerIcon("custom"))
+	for i, e := range m.filtered {
+		if e.Name == "remote" {
+			require.Equal(t, "custom", sectionHeader(e))
+		}
+		if e.Name == "adopted" {
+			m.cursor = i
+		}
+	}
+	m.openDetail()
+	require.Contains(t, m.detail, "provider:  ❓ unresolved")
+	require.Contains(t, m.detail, "group:     —")
+	require.Contains(t, m.detail, "version:   —")
+}
+
 func TestModelRendersListAndOpensDetail(t *testing.T) {
 	m := newTestModel(t)
 	view := m.View()
@@ -619,6 +665,57 @@ func TestModelImportSelectsProviderAndKind(t *testing.T) {
 	require.NotNil(t, m.svc.FindEntry("imported"))
 }
 
+// A successful import must follow its repository identity through the
+// post-job scan and sorting, including onto a later page, rather than leaving
+// the cursor at its former numerical index.
+func TestImportSelectsNewEntryAfterRescanAndMakesItVisible(t *testing.T) {
+	m := newTestModel(t)
+	m.pageSize = 5
+	for i := 0; i < 40; i++ {
+		writeFileT(t, m.svc.Cfg.Root, fmt.Sprintf("skills/local/sk-%02d/SKILL.md", i), fmt.Sprintf("---\nname: sk-%02d\ndescription: fixture\n---\nbody\n", i))
+	}
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "sk-00", m.filtered[m.cursor].Name)
+
+	src := t.TempDir()
+	writeFileT(t, src, "SKILL.md", "---\nname: zzz-last\ndescription: imported fixture\n---\nbody\n")
+	m.runImport(src, "", "auto")
+	drainJob(t, &m)
+
+	require.Equal(t, "zzz-last", m.filtered[m.cursor].Name)
+	requireCursorVisible(t, m)
+	require.Contains(t, m.View(), "zzz-last", "the selected imported entry is rendered without manual scrolling")
+	require.Empty(t, m.pendingSelect, "selection requests are consumed by exactly one scan")
+}
+
+func TestPendingSelectionIsOneShotAndRespectsFilters(t *testing.T) {
+	m := newTestModel(t)
+	m.pendingSelect = "skills/local/skill-a"
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
+	require.Empty(t, m.pendingSelect)
+
+	m.cursor = 1
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "skill-b", m.filtered[m.cursor].Name, "a later manual refresh does not jump back")
+
+	m.search = "skill-a"
+	m.refreshFiltered()
+	m.pendingSelect = "skills/local/skill-b"
+	m.applyScan(m.svc.Scan())
+	require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
+	require.Equal(t, "skill-a", m.search, "selection never changes a user filter")
+}
+
+func TestFailedImportDoesNotMoveSelection(t *testing.T) {
+	m := newTestModel(t)
+	before := m.filtered[m.cursor].Name
+	m.submitJob("import broken", func(context.Context) (any, error) { return nil, errors.New("broken import") })
+	drainJob(t, &m)
+	require.Equal(t, before, m.filtered[m.cursor].Name)
+	require.Empty(t, m.pendingSelect)
+}
+
 func TestModelClaimAndRepairSelectedSkill(t *testing.T) {
 	m := newTestModel(t)
 	writeFileT(t, m.svc.Cfg.Root, "skills/local/broken/SKILL.md", "---\nname: broken\n---\nbody\n")
@@ -653,6 +750,20 @@ func TestModelDeleteRequiresConfirmation(t *testing.T) {
 	require.Nil(t, m.confirm)
 	drainJob(t, &m)
 	require.Nil(t, m.svc.FindEntry("skill-a"), "deleted after confirming")
+	for _, entry := range m.entries {
+		require.NotEqual(t, "skill-a", entry.Name, "post-delete scan removes the entry from the full list")
+	}
+	for _, entry := range m.filtered {
+		require.NotEqual(t, "skill-a", entry.Name, "post-delete scan removes the entry from the visible list")
+	}
+}
+
+func TestModelFailedDeleteKeepsEntryVisible(t *testing.T) {
+	m := newTestModel(t)
+	m.submitJob("delete skill-a", func(context.Context) (any, error) { return nil, errors.New("delete refused") })
+	drainJob(t, &m)
+	require.NotNil(t, m.svc.FindEntry("skill-a"))
+	require.Contains(t, m.status, "task failed: delete refused")
 }
 
 func TestModelDeleteUsesSelectedSameNamedEntryPath(t *testing.T) {
@@ -675,6 +786,25 @@ func TestModelDeleteUsesSelectedSameNamedEntryPath(t *testing.T) {
 
 	require.FileExists(t, filepath.Join(root, "skills", "unknown", "first", "one", "SKILL.md"))
 	require.NoDirExists(t, filepath.Join(root, "skills", "unknown", "second", "two"))
+}
+
+func TestModelDeleteRootNonStandardDuplicateFailsSafely(t *testing.T) {
+	m := newTestModel(t)
+	root := m.svc.Cfg.Root
+	writeFileT(t, root, "loose/SKILL.md", "---\nname: duplicate\ndescription: loose\n---\nbody\n")
+	writeFileT(t, root, "skills/local/duplicate/SKILL.md", "---\nname: duplicate\ndescription: managed\n---\nbody\n")
+	m.applyScan(m.svc.Scan())
+	for i, entry := range m.filtered {
+		if entry.Path == filepath.Join(root, "loose") {
+			m.cursor = i
+		}
+	}
+	m.deleteSelected()
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.Contains(t, m.status, "not found", "a root-level non-standard reference must fail rather than select its same-named managed peer")
+	require.FileExists(t, filepath.Join(root, "loose/SKILL.md"))
+	require.FileExists(t, filepath.Join(root, "skills/local/duplicate/SKILL.md"))
 }
 
 func TestModelArchiveUsesSelectedSameNamedEntryPath(t *testing.T) {
@@ -1379,6 +1509,24 @@ func TestBatchUpdateScopesToCurrentTab(t *testing.T) {
 	done := m.queue.Snapshot().Completed
 	require.Len(t, done, 1)
 	require.Equal(t, "update gh-skill", done[0].Name, "gitlab entry is not updated from the github tab")
+}
+
+func TestBatchUpdateScopesToVisibleSearchAndNamesIt(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-a/meta.json", `{"address":"/fa","mode_id":"local"}`)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/skill-b/meta.json", `{"address":"/fb","mode_id":"local"}`)
+	m.applyScan(m.svc.Scan())
+	m.search = "skill-a"
+	m.refreshFiltered()
+
+	m.batchUpdate()
+	require.NotNil(t, m.confirm)
+	require.Contains(t, m.confirm.Prompt, "1 entry")
+	require.Contains(t, m.confirm.Prompt, `"skill-a"`)
+	m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.Len(t, m.queue.Snapshot().Completed, 1)
+	require.Equal(t, "update skill-a", m.queue.Snapshot().Completed[0].Name)
 }
 
 // TestBatchUpdateResolvesSameNameByPath: two same-named entries in different

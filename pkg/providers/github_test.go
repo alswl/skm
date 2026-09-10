@@ -1,10 +1,45 @@
 package providers
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func fakeGitFixture(t *testing.T) string {
+	t.Helper()
+	fixture := t.TempDir()
+	bin := t.TempDir()
+	script := filepath.Join(bin, "git")
+	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\nfor arg; do dest=$arg; done\ncp -R \"$SKM_GIT_FIXTURE/.\" \"$dest\"\n"), 0o755))
+	t.Setenv("SKM_GIT_FIXTURE", fixture)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return fixture
+}
+
+func TestGitHubBrowseURLStagesContainingSkillDirectory(t *testing.T) {
+	fixture := fakeGitFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(fixture, "skills", "mf-cli"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixture, "skills", "mf-cli", "SKILL.md"), []byte("---\nname: mf-cli\n---\n"), 0o644))
+	g := NewGitHub().(gitHostProvider)
+	staged, err := g.Fetch(context.Background(), "https://github.com/alswl/mind-forge/blob/master/skills/mf-cli/SKILL.md")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(staged) })
+	require.FileExists(t, filepath.Join(staged, "SKILL.md"))
+}
+
+func TestGitHubBrowseURLMissingDirectoryNamesRepositoryRefAndSubdirectory(t *testing.T) {
+	fakeGitFixture(t)
+	g := NewGitHub().(gitHostProvider)
+	_, err := g.Fetch(context.Background(), "https://github.com/alswl/mind-forge/tree/master/skills/missing")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "alswl/mind-forge")
+	require.Contains(t, err.Error(), "master")
+	require.Contains(t, err.Error(), "skills/missing")
+}
 
 // TestGitHubProviderGroupDerivesOwnerRepo covers every address form CanHandle
 // accepts (owner/repo shorthand, https, ssh://, git@ SCP-style, a bare .git

@@ -91,15 +91,23 @@ func (s *Services) Scan() []*common.Entry {
 	return s.Repo.Scan()
 }
 
-// FindEntry returns the entry addressed by ref, or nil. An entry's identity
+// FindEntry returns the entry addressed by ref, or nil. It is retained for
+// callers that only need a best-effort lookup; state-changing operations use
+// ResolveEntry so an ambiguous bare name can never select an arbitrary entry.
+func (s *Services) FindEntry(ref string) *common.Entry {
+	entry, _ := s.ResolveEntry(ref)
+	return entry
+}
+
+// ResolveEntry returns the entry addressed by ref. An entry's identity
 // is its repository-relative path, so a path-like ref (contains a separator,
 // or is absolute) is matched against paths first — "archived/local/demo"
 // resolves to the archived copy of a same-named pair; a bare name falls back
-// to the global name space for ergonomics. Error entries carry a name and are
-// findable.
-func (s *Services) FindEntry(ref string) *common.Entry {
+// to the first non-empty precedence tier for ergonomics. Error entries carry
+// a name and are findable.
+func (s *Services) ResolveEntry(ref string) (*common.Entry, error) {
 	if ref == "" {
-		return nil
+		return nil, nil
 	}
 	want := filepath.Clean(ref)
 	if filepath.IsAbs(want) {
@@ -109,14 +117,28 @@ func (s *Services) FindEntry(ref string) *common.Entry {
 	if strings.ContainsAny(ref, `/\`) {
 		for _, e := range entries {
 			if s.Repo.RelPath(e.Path) == want {
-				return e
+				return e, nil
 			}
 		}
+		return nil, nil
 	}
-	for _, e := range entries {
-		if e.Name == ref {
-			return e
+	for _, archived := range []bool{false, true} {
+		var matches []*common.Entry
+		for _, e := range entries {
+			if e.Name == ref && (e.Status == common.StatusArchived) == archived {
+				matches = append(matches, e)
+			}
+		}
+		if len(matches) == 1 {
+			return matches[0], nil
+		}
+		if len(matches) > 1 {
+			paths := make([]string, len(matches))
+			for i, e := range matches {
+				paths[i] = s.Repo.RelPath(e.Path)
+			}
+			return nil, ambiguous(ref, paths)
 		}
 	}
-	return nil
+	return nil, nil
 }

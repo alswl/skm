@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
@@ -22,7 +23,10 @@ type LifecycleResult struct {
 // Archive moves an active entry into the archived tree. CLI archive only
 // changes the repository; the TUI uninstalls first (FR-013).
 func (s *Services) Archive(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("archive: %w", err)
+	}
 	if entry == nil {
 		return nil, notFound("archive", name)
 	}
@@ -35,7 +39,10 @@ func (s *Services) Archive(ctx context.Context, name string, opts engines.Lifecy
 
 // Unarchive moves an archived entry back to its kind's tree.
 func (s *Services) Unarchive(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("unarchive: %w", err)
+	}
 	if entry == nil {
 		return nil, notFound("unarchive", name)
 	}
@@ -48,7 +55,10 @@ func (s *Services) Unarchive(ctx context.Context, name string, opts engines.Life
 
 // Delete permanently removes an entry (requires --force).
 func (s *Services) Delete(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("delete: %w", err)
+	}
 	if entry == nil {
 		return nil, notFound("delete", name)
 	}
@@ -65,7 +75,10 @@ func (s *Services) Delete(ctx context.Context, name string, opts engines.Lifecyc
 // moving it relinks them to the new location (uninstall -> move -> reinstall),
 // like Convert. DryRun previews the destination without writing.
 func (s *Services) Normalize(ctx context.Context, name, provider string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("normalize: %w", err)
+	}
 	if entry == nil {
 		return nil, notFound("normalize", name)
 	}
@@ -100,7 +113,10 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 // Convert flips a directory entry's kind, cleaning old-kind links and
 // reinstalling under the new kind (FR-026).
 func (s *Services) Convert(ctx context.Context, name string, targetKind common.EntryKind, opts engines.LifecycleOptions) (*LifecycleResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("convert: %w", err)
+	}
 	if entry == nil {
 		return nil, notFound("convert", name)
 	}
@@ -145,4 +161,8 @@ func (s *Services) installLinks(entry *common.Entry) {
 
 func notFound(action, name string) error {
 	return common.WithExitCode(fmt.Errorf("%s: entry %q not found", action, name), common.ExitObject)
+}
+
+func ambiguous(name string, paths []string) error {
+	return common.WithExitCode(fmt.Errorf("entry %q is ambiguous; %d entries share this name:\n  %s\nre-run with one of the paths above", name, len(paths), strings.Join(paths, "\n  ")), common.ExitObject)
 }

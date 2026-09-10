@@ -664,7 +664,7 @@ func (m model) buildDetail() string {
 	fmt.Fprintf(&sb, "%-10s %s\n", "path:", m.svc.Repo.RelPath(e.Path))
 	fmt.Fprintf(&sb, "%-10s %s\n", "kind:", e.Kind)
 	fmt.Fprintf(&sb, "%-10s %s\n", "status:", e.Status)
-	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ProviderIDValue()), e.ProviderIDValue()))
+	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ProviderIDValue()), providerDisplayLabel(e.ProviderIDValue())))
 	fmt.Fprintf(&sb, "%-10s %s\n", "group:", orDash(e.GroupValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "version:", orDash(e.VersionValue()))
 	if e.Origin != nil {

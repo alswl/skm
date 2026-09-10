@@ -22,7 +22,7 @@ func (m *model) computeProviderTabs() {
 	seen := map[string]bool{}
 	hasNone := false
 	for _, e := range m.entries {
-		if id := e.ProviderIDValue(); id != "" {
+		if id := providerDisplayID(e.ProviderIDValue()); id != tabNone {
 			seen[id] = true
 		} else {
 			hasNone = true
@@ -78,9 +78,9 @@ func matchesProviderTab(e *common.Entry, tab string) bool {
 	if tab == tabAll {
 		return true
 	}
-	id := e.ProviderIDValue()
+	id := providerDisplayID(e.ProviderIDValue())
 	if tab == tabNone {
-		return id == ""
+		return id == tabNone
 	}
 	return id == tab
 }
@@ -108,7 +108,25 @@ func (m *model) refreshFiltered() {
 		}
 	}
 	m.buildRows()
+	m.consumePendingSelect()
 	m.clampView()
+}
+
+// consumePendingSelect follows an affected entry through the post-job scan
+// and re-sort. Filters stay intact: when the entry is hidden, the ordinary
+// clamped selection remains. In either case the request is one-shot.
+func (m *model) consumePendingSelect() {
+	if m.pendingSelect == "" {
+		return
+	}
+	want := m.pendingSelect
+	m.pendingSelect = ""
+	for i, e := range m.filtered {
+		if m.svc.Repo.RelPath(e.Path) == want {
+			m.cursor = i
+			return
+		}
+	}
 }
 
 type dispRow struct {
@@ -140,10 +158,7 @@ func (m *model) buildRows() {
 }
 
 func sectionHeader(e *common.Entry) string {
-	id := e.ProviderIDValue()
-	if id == "" {
-		id = "—"
-	}
+	id := providerDisplayLabel(e.ProviderIDValue())
 	if group := e.GroupValue(); group != "" {
 		return id + " / " + group
 	}

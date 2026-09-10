@@ -28,7 +28,10 @@ var infoCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		entry := svc.FindEntry(args[0])
+		entry, err := svc.ResolveEntry(args[0])
+		if err != nil {
+			return fmt.Errorf("info: %w", err)
+		}
 		if entry == nil {
 			return common.WithExitCode(fmt.Errorf("info: entry %q not found", args[0]), common.ExitObject)
 		}

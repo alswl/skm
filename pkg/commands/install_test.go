@@ -116,3 +116,16 @@ func TestInstallRefusesConflictExitCode(t *testing.T) {
 	require.Error(t, err, "conflict must be refused")
 	require.Equal(t, common.ExitObject, common.ExitCodeOf(err, 0), "conflict is an object problem -> exit 1")
 }
+
+func TestDeleteAmbiguousNameListsPathsAndDoesNotWrite(t *testing.T) {
+	root, cfgDir := cmdFixture(t)
+	writeTestFile(t, root, "skills/github/team/skill-a/SKILL.md", "---\nname: skill-a\ndescription: remote\n---\nbody\n")
+
+	_, err := runCmd(t, "delete", "skill-a", "--root", root, "--config", cfgDir, "--force")
+	require.Error(t, err)
+	require.Equal(t, common.ExitObject, common.ExitCodeOf(err, 0))
+	require.Contains(t, err.Error(), "skills/github/team/skill-a")
+	require.Contains(t, err.Error(), "skills/local/skill-a")
+	require.DirExists(t, filepath.Join(root, "skills/github/team/skill-a"))
+	require.DirExists(t, filepath.Join(root, "skills/local/skill-a"))
+}

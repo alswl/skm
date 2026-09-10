@@ -19,6 +19,16 @@ type forceRetry struct {
 	run  func(ctx context.Context) (any, error)
 }
 
+// selectionJobResult carries the human-facing status plus the stable identity
+// of an entry that a successful operation should reveal after its rescan. The
+// path is repository-relative so it survives a fresh scan and its re-sort.
+// Batch updates leave path empty: only import and an explicitly selected
+// single-entry update should move the user's selection.
+type selectionJobResult struct {
+	status string
+	path   string
+}
+
 // submitJob enqueues a long operation onto the FIFO single-concurrency queue.
 func (m *model) submitJob(name string, run func(ctx context.Context) (any, error)) {
 	m.setStatus("queued: " + name)
@@ -71,6 +81,11 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 	}
 	if r.Err != nil {
 		m.setStatus("task failed: " + r.Err.Error())
+	} else if result, ok := r.Value.(selectionJobResult); ok {
+		m.setStatus(result.status)
+		if result.path != "" {
+			m.pendingSelect = result.path
+		}
 	} else if s, ok := r.Value.(string); ok {
 		m.setStatus(s)
 	} else {

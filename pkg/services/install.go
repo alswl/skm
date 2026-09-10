@@ -37,7 +37,10 @@ func (s *Services) Uninstall(ctx context.Context, name string, opts InstallOptio
 }
 
 func (s *Services) runInstall(ctx context.Context, action, name string, opts InstallOptions) (*InstallResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", action, err)
+	}
 	if entry == nil {
 		return nil, common.WithExitCode(fmt.Errorf("%s: entry %q not found", action, name), common.ExitObject)
 	}
@@ -95,7 +98,10 @@ func (s *Services) runInstall(ctx context.Context, action, name string, opts Ins
 // named targets (the installs picker's "uninstall a conflict" path). Callers
 // confirm the removal first — unlike Uninstall it deletes the occupying object.
 func (s *Services) RemoveForeign(ctx context.Context, name string, targets []string) (*InstallResult, error) {
-	entry := s.FindEntry(name)
+	entry, err := s.ResolveEntry(name)
+	if err != nil {
+		return nil, fmt.Errorf("remove-foreign: %w", err)
+	}
 	if entry == nil {
 		return nil, common.WithExitCode(fmt.Errorf("remove-foreign: entry %q not found", name), common.ExitObject)
 	}
