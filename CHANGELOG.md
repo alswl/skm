@@ -1,3 +1,17 @@
+## [0.3.0] - 2026-09-10
+
+### 🐛 Bug Fixes
+
+- Reject ambiguous entry references, focus imported skill after rescan
+
+### 🚜 Refactor
+
+- Move targets into config.yaml and fix update provider identity
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.2.0-dev
+- Pin Go version and clarify architecture boundary
 ## [0.2.0] - 2026-08-25
 
 ### 🚀 Features
@@ -11,6 +25,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.1.2-dev
+- Bump version to v0.2.0
 ## [0.1.2] - 2026-08-14
 
 ### 🚀 Features
