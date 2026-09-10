@@ -198,11 +198,12 @@ func normalizeImportSource(source string) string {
 }
 
 // grouper is implemented by providers that derive a natural sub-directory
-// grouping from the source address — currently gitHostProvider's owner/repo
-// (provider_github.go) — so an import lands under <provider>/<group>/<name>
-// instead of flat <provider>/<name>. It's an optional capability (type
-// assertion, not part of the Provider interface) so plugin providers and
-// every other built-in are unaffected.
+// grouping from the source address — gitHostProvider's clone URLs
+// (provider_github.go) and the skills.sh shortcut forms (provider_skillssh.go)
+// — so an import lands under <provider>/<group>/<name> instead of flat
+// <provider>/<name>. It's an optional capability (type assertion, not part of
+// the Provider interface) so plugin providers and every other built-in are
+// unaffected.
 type grouper interface {
 	Group(address string) string
 }

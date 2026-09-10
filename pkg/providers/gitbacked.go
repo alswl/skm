@@ -42,12 +42,13 @@ func (g gitBackedProvider) Capability() Capability {
 	description := fmt.Sprintf("Fetches git-backed assets from %s<path> addresses", g.scheme)
 	if g.id == "skills-sh" {
 		schemes = []string{
-			"npx skills add <repo-url> --skill <name>",
+			"npx skills add <owner>/<repo> [--skill <name>]",
 			"https://skills.sh/<owner>/<repo>/<name>",
 		}
-		description = "Fetches a skill named on a skills.sh page — paste either its npx " +
-			"install command or the page URL itself — by searching the repo for a " +
-			"matching directory"
+		description = "Fetches a skill named on a skills.sh page — paste its npx install " +
+			"command (owner/repo shorthand or a full URL; --skill optional when the " +
+			"repo ships one skill) or the page URL itself — by searching the repo for " +
+			"a matching directory"
 	}
 	return Capability{
 		ID: g.id, Label: g.label,
@@ -58,12 +59,19 @@ func (g gitBackedProvider) Capability() Capability {
 }
 
 // CanHandle reports whether address uses this provider's scheme, or (for
-// skills.sh) one of parseSkillsShShortcut's copy-paste forms.
+// skills.sh) one of parseSkillsShShortcut's copy-paste forms. A malformed npx
+// command (several --skill names, an unusable source) still counts: the
+// address is skills.sh's to reject, so claiming it lets Fetch surface the
+// specific message instead of a generic no-provider-matches error.
 func (g gitBackedProvider) CanHandle(address string) bool {
 	if strings.HasPrefix(address, g.scheme) {
 		return true
 	}
-	return g.id == "skills-sh" && parseSkillsShShortcut(address) != nil
+	if g.id == "skills-sh" {
+		sc, err := parseSkillsShShortcut(address)
+		return sc != nil || err != nil
+	}
+	return false
 }
 
 // Normalize returns the address unchanged. Rewriting it to a plain clone URL
@@ -76,6 +84,28 @@ func (g gitBackedProvider) CanHandle(address string) bool {
 // Normalize a no-op for the same reason.
 func (g gitBackedProvider) Normalize(address string) (string, error) {
 	return address, nil
+}
+
+// Group derives the "owner/repo" sub-directory group from a skills.sh
+// address, so every form of the address pastes to the same layout *within
+// this provider* — the resulting entries are skills-sh's own, never shared
+// with or merged into github's tree for the same repo. Every skills.sh
+// address resolves to a GitHub owner/repo, so there is no subgroup ambiguity
+// to refuse; anything unparseable groups flat (""). Only skills-sh groups
+// today: gitlab's scheme form keeps its existing flat layout.
+func (g gitBackedProvider) Group(address string) string {
+	if g.id != "skills-sh" {
+		return ""
+	}
+	if strings.HasPrefix(address, g.scheme) {
+		repoPath, _ := splitRepoSubpath(strings.TrimPrefix(address, g.scheme))
+		return ownerRepoGroup(repoPath)
+	}
+	sc, err := parseSkillsShShortcut(address)
+	if err != nil || sc == nil {
+		return ""
+	}
+	return ownerRepoGroup(strings.TrimSuffix(strings.TrimPrefix(sc.repoURL, "https://github.com/"), ".git"))
 }
 
 // splitRepoSubpath splits a "owner/repo[/sub/dir]" path into the repository
@@ -111,14 +141,19 @@ func (g gitBackedProvider) resolveHost() string {
 // address naming a subdirectory (splitRepoSubpath) clones the repository to
 // the side and stages just that directory — the same technique GitHub's
 // browse-URL/subpath-shorthand support uses (provider_git_weburl.go). A
-// skills.sh shortcut (parseSkillsShShortcut) instead searches the clone by
-// name, since it carries no path.
+// skills.sh shortcut (parseSkillsShShortcut) instead searches the clone — by
+// name when the shortcut carries one, else for the repository's sole skill
+// — since it carries no path.
 func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, error) {
 	if g.id == "skills-sh" {
-		if sc := parseSkillsShShortcut(address); sc != nil {
-			return g.cloneAndStage(ctx, sc.repoURL, func(work string) (string, error) {
-				return findSkillDirectory(work, sc.name)
-			})
+		if sc, err := parseSkillsShShortcut(address); err != nil {
+			return "", &ProviderError{Code: CodeUnsupportedAddress, Message: err.Error()}
+		} else if sc != nil {
+			locate := findSoleSkillDirectory
+			if sc.name != "" {
+				locate = func(work string) (string, error) { return findSkillDirectory(work, sc.name) }
+			}
+			return g.cloneAndStage(ctx, sc.repoURL, locate)
 		}
 	}
 	if !strings.HasPrefix(address, g.scheme) {

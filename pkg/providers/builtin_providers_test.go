@@ -102,11 +102,50 @@ func TestSkillsShCanHandleSubpathAddress(t *testing.T) {
 
 // skills.sh's own site shows two copy-paste forms — its npx install command
 // and a skill's page URL — that name a skill by its short directory name,
-// not its "skills.sh://" scheme. Both must be recognized directly.
+// not its "skills.sh://" scheme. Both must be recognized directly, in the
+// bare (no --skill) and --skill'd npx forms alike.
 func TestSkillsShCanHandleCopyPasteForms(t *testing.T) {
 	require.True(t, NewSkillsSh().CanHandle("npx skills add https://github.com/vercel-labs/skills --skill find-skills"))
 	require.True(t, NewSkillsSh().CanHandle("$ npx skills add https://github.com/mattpocock/skills --skill grill-me"))
+	require.True(t, NewSkillsSh().CanHandle("npx skills add ant-design/ant-design-cli"))
 	require.True(t, NewSkillsSh().CanHandle("https://skills.sh/vercel-labs/skills/find-skills"))
+}
+
+// A malformed npx command is still skills.sh's to reject: auto-match must
+// claim it so the user sees the specific message, not a generic
+// no-provider-matches error. The parse errors surface before any clone, so
+// these stay hermetic.
+func TestSkillsShFetchSurfacesShortcutParseErrors(t *testing.T) {
+	p := NewSkillsSh()
+	for _, addr := range []string{
+		"npx skills add owner/repo --skill a b",
+		"npx skills add ./my-local-skills",
+	} {
+		require.True(t, p.CanHandle(addr), "CanHandle for %q", addr)
+		_, err := p.Fetch(t.Context(), addr)
+		require.Error(t, err, "Fetch for %q", addr)
+	}
+}
+
+// Whatever form of a skills.sh address is pasted, the import must group the
+// same within skills-sh. That shape mirrors github's owner/repo convention,
+// but the entries stay provider-scoped: the same repo imported through both
+// providers yields two distinct skills, never one.
+func TestSkillsShGroupsAllFormsUnderOwnerRepo(t *testing.T) {
+	g, ok := NewSkillsSh().(gitBackedProvider)
+	require.True(t, ok, "skills-sh must be a gitBackedProvider with Group")
+	for _, addr := range []string{
+		"npx skills add ant-design/ant-design-cli",
+		"$ npx skills add ant-design/ant-design-cli --skill antd -g -y",
+		"npx skills add https://github.com/ant-design/ant-design-cli.git --skill antd",
+		"https://skills.sh/ant-design/ant-design-cli/antd",
+		"skills.sh://ant-design/ant-design-cli/skills/antd",
+	} {
+		require.Equal(t, "ant-design/ant-design-cli", g.Group(addr), "group for %q", addr)
+	}
+	// Not skills.sh's address, or not resolvable to an owner/repo: flat.
+	require.Equal(t, "", g.Group("owner/repo"))
+	require.Equal(t, "", g.Group("skills.sh://just-one-segment"))
 }
 
 func TestSplitRepoSubpath(t *testing.T) {

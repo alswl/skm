@@ -138,6 +138,16 @@ func (g gitHostProvider) Group(address string) string {
 		return ""
 	}
 	path = strings.TrimSuffix(path, ".git")
+	return ownerRepoGroup(path)
+}
+
+// ownerRepoGroup validates a repo path into a "owner/repo" group name, or ""
+// when it isn't exactly two non-empty segments — the shared tail of both git
+// providers' Group derivation. Sharing it keeps the grouping *rule* identical
+// across providers; the entries themselves stay distinct (a skills-sh import
+// and a GitHub import of one repo are different skills, grouped under their
+// own provider and never merged).
+func ownerRepoGroup(path string) string {
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return ""

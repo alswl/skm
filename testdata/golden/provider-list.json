@@ -39,8 +39,8 @@
       "id": "skills-sh",
       "label": "Skills.sh",
       "kind": "builtin",
-      "description": "Fetches a skill named on a skills.sh page — paste either its npx install command or the page URL itself — by searching the repo for a matching directory",
-      "schemes": ["npx skills add <repo-url> --skill <name>", "https://skills.sh/<owner>/<repo>/<name>"],
+      "description": "Fetches a skill named on a skills.sh page — paste its npx install command (owner/repo shorthand or a full URL; --skill optional when the repo ships one skill) or the page URL itself — by searching the repo for a matching directory",
+      "schemes": ["npx skills add <owner>/<repo> [--skill <name>]", "https://skills.sh/<owner>/<repo>/<name>"],
       "loaded": true,
       "error": null
     }
