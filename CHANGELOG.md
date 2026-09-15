@@ -1,3 +1,12 @@
+## [0.3.1] - 2026-09-15
+
+### 🚀 Features
+
+- Support bare npx skills add <owner>/<repo> and group skills-sh imports
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.3.0-dev
 ## [0.3.0] - 2026-09-10
 
 ### 🐛 Bug Fixes
@@ -12,6 +21,7 @@
 
 - Prepare next version v0.2.0-dev
 - Pin Go version and clarify architecture boundary
+- Bump version to v0.3.0
 ## [0.2.0] - 2026-08-25
 
 ### 🚀 Features
