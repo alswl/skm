@@ -169,3 +169,43 @@ func TestFindSoleSkillDirectoryListsSeveral(t *testing.T) {
 	require.Contains(t, err.Error(), "skills/a, skills/b")
 	require.Contains(t, err.Error(), "--skill <name>")
 }
+
+// A skills.sh scheme address naming a path inside the repository stages that
+// directory through a partial (filter+blob:none, sparse) clone, so one skill
+// does not cost a full checkout of the repository it lives in — the same
+// technique GitHub browse URLs use (github_test.go).
+func TestSkillsShSchemeSubpathClonesSparse(t *testing.T) {
+	fixture := fakeGitFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(fixture, "skills", "mf-cli"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixture, "skills", "mf-cli", "SKILL.md"), []byte("---\nname: mf-cli\n---\n"), 0o644))
+	log := filepath.Join(t.TempDir(), "git-args.log")
+	t.Setenv("SKM_GIT_ARGS_LOG", log)
+	staged, err := NewSkillsSh().Fetch(t.Context(), "skills.sh://alswl/mind-forge/skills/mf-cli")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(staged) })
+	require.FileExists(t, filepath.Join(staged, "SKILL.md"))
+	args, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "--filter=blob:none")
+	require.Contains(t, string(args), "--sparse")
+	require.Contains(t, string(args), "sparse-checkout set skills/mf-cli")
+}
+
+// Without filter support the scheme-subpath import falls back to the plain
+// shallow clone and still stages the named directory.
+func TestSkillsShSchemeSubpathFallsBackToFullShallowClone(t *testing.T) {
+	fixture := fakeGitFixture(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(fixture, "skills", "mf-cli"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(fixture, "skills", "mf-cli", "SKILL.md"), []byte("---\nname: mf-cli\n---\n"), 0o644))
+	t.Setenv("SKM_GIT_FAIL_ON_FILTER", "1")
+	log := filepath.Join(t.TempDir(), "git-args.log")
+	t.Setenv("SKM_GIT_ARGS_LOG", log)
+	staged, err := NewSkillsSh().Fetch(t.Context(), "skills.sh://alswl/mind-forge/skills/mf-cli")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(staged) })
+	require.FileExists(t, filepath.Join(staged, "SKILL.md"))
+	args, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Contains(t, string(args), "--filter=blob:none") // the sparse attempt happened…
+	require.NotContains(t, string(args), "sparse-checkout") // …but the fallback clone ran without one
+}

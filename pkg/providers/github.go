@@ -206,9 +206,15 @@ func (g gitHostProvider) Fetch(ctx context.Context, address string) (string, err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 
-	if err := g.clone(ctx, "https://"+g.host+"/"+loc.repoPath, loc.ref, work); err != nil {
-		_ = os.RemoveAll(tmp)
-		return "", err
+	if err := cloneSubdir(ctx, g.id, "https://"+g.host+"/"+loc.repoPath, loc.ref, loc.subdir, work); err != nil {
+		// The partial clone needs a recent git and a host that supports
+		// filters; when either is missing, fall back to the full shallow
+		// clone the sparse attempt may have left half-written.
+		_ = os.RemoveAll(work)
+		if err := g.clone(ctx, "https://"+g.host+"/"+loc.repoPath, loc.ref, work); err != nil {
+			_ = os.RemoveAll(tmp)
+			return "", err
+		}
 	}
 	src, err := containedPath(work, loc.subdir)
 	if err != nil {
@@ -226,6 +232,29 @@ func (g gitHostProvider) Fetch(ctx context.Context, address string) (string, err
 		return "", fmt.Errorf("%s: stage %q: %w", g.id, loc.subdir, err)
 	}
 	return tmp, nil
+}
+
+// cloneSubdir shallow-clones url at ref into dir, checking out only subdir —
+// a browse URL names one directory inside an arbitrarily large repository, and
+// a full checkout would pull every unrelated directory's bytes too (a 200MB+
+// repository for one small skill, minutes of a hung-looking import). A
+// filter+blob:none sparse clone fetches just that directory's blobs; ref may
+// be empty (the host's default branch). id names the provider in error
+// messages; shared by every git-backed provider that stages a known
+// subdirectory.
+func cloneSubdir(ctx context.Context, id, url, ref, subdir, dir string) error {
+	args := []string{"clone", "--depth", "1", "--filter=blob:none", "--sparse"}
+	if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, url, dir)
+	if out, err := exec.CommandContext(ctx, "git", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: git clone %s: %s: %w", id, url, strings.TrimSpace(string(out)), err)
+	}
+	if out, err := exec.CommandContext(ctx, "git", "-C", dir, "sparse-checkout", "set", subdir).CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: git sparse-checkout %s: %s: %w", id, subdir, strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 // refOrDefault names the ref an error message should mention: the explicit

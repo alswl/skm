@@ -153,7 +153,7 @@ func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, e
 			if sc.name != "" {
 				locate = func(work string) (string, error) { return findSkillDirectory(work, sc.name) }
 			}
-			return g.cloneAndStage(ctx, sc.repoURL, locate)
+			return g.cloneAndStage(ctx, sc.repoURL, "", locate)
 		}
 	}
 	if !strings.HasPrefix(address, g.scheme) {
@@ -175,7 +175,7 @@ func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, e
 		return tmp, nil
 	}
 
-	return g.cloneAndStage(ctx, repoURL, func(work string) (string, error) {
+	return g.cloneAndStage(ctx, repoURL, subdir, func(work string) (string, error) {
 		src, err := containedPath(work, subdir)
 		if err != nil {
 			return "", err
@@ -190,8 +190,12 @@ func (g gitBackedProvider) Fetch(ctx context.Context, address string) (string, e
 // cloneAndStage clones repoURL to a side directory, resolves the directory to
 // keep via locate, and moves just that into a fresh temp dir — the caller
 // frees exactly the path returned here, so the clone cannot stay wrapped
-// around it (mirrors gitHostProvider.Fetch).
-func (g gitBackedProvider) cloneAndStage(ctx context.Context, repoURL string, locate func(work string) (string, error)) (string, error) {
+// around it (mirrors gitHostProvider.Fetch). A non-empty subdir makes the
+// clone a partial one that checks out only that directory — like a skills.sh
+// scheme address naming a path, it stages one skill without paying for every
+// other directory in the repository; locate still runs, so a missing
+// directory reports the same error it always did.
+func (g gitBackedProvider) cloneAndStage(ctx context.Context, repoURL, subdir string, locate func(work string) (string, error)) (string, error) {
 	tmp, err := os.MkdirTemp("", "skm-"+g.id+"-*")
 	if err != nil {
 		return "", &ProviderError{Code: CodeFetchFailed, Message: fmt.Sprintf("%s: create temp dir: %s", g.id, err)}
@@ -203,7 +207,18 @@ func (g gitBackedProvider) cloneAndStage(ctx context.Context, repoURL string, lo
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 
-	if err := g.clone(ctx, repoURL, work); err != nil {
+	if subdir != "" {
+		if err := cloneSubdir(ctx, g.id, repoURL, "", subdir, work); err != nil {
+			// The partial clone needs a recent git and a host that supports
+			// filters; when either is missing, fall back to the full shallow
+			// clone the sparse attempt may have left half-written.
+			_ = os.RemoveAll(work)
+			if err := g.clone(ctx, repoURL, work); err != nil {
+				_ = os.RemoveAll(tmp)
+				return "", err
+			}
+		}
+	} else if err := g.clone(ctx, repoURL, work); err != nil {
 		_ = os.RemoveAll(tmp)
 		return "", err
 	}
