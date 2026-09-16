@@ -80,8 +80,9 @@ type model struct {
 	help     help.Model
 	showHelp bool
 
-	loading bool // true while the initial scan is still running (spinner shown in place of the list)
-	spinner spinner.Model
+	loading  bool // true while the initial scan is still running (spinner shown in place of the list)
+	spinner  spinner.Model
+	spinning bool // true while a spinner.Tick loop is in flight; keeps exactly one loop running
 
 	showDetail      bool   // true renders the full-screen detail page (Enter/v)
 	detail          string // detail page content, built lazily in openDetail
@@ -255,12 +256,39 @@ func scanCmd(svc *services.Services, reason scanReason) tea.Cmd {
 // and cheap enough for the event loop.
 func (m *model) Init() tea.Cmd {
 	if m.loading {
-		return tea.Batch(m.spinner.Tick, scanCmd(m.svc, scanInitial), waitForResult(m.queue), statusTickCmd())
+		return tea.Batch(m.spinnerCmd(), scanCmd(m.svc, scanInitial), waitForResult(m.queue), statusTickCmd())
 	}
 	return waitForResult(m.queue)
 }
 
+// Update wraps the per-message handling so every returned command carries the
+// spinner tick along when one is needed. Jobs are submitted from many places
+// (key handlers, picker and confirm callbacks), so restarting the animation
+// here — rather than at each submission site — is what makes the status bar
+// spin for every background task, not just the startup scan.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	return model, tea.Batch(cmd, m.spinnerCmd())
+}
+
+// spinnerActive reports whether anything the user is waiting on is in flight.
+// The queue is nil in tests that drive the model without a background worker.
+func (m model) spinnerActive() bool {
+	return m.loading || (m.queue != nil && m.queue.Busy())
+}
+
+// spinnerCmd starts the tick loop when work is in flight and no loop is
+// already running, so the frames never double up (two loops would advance the
+// spinner twice per tick and flicker).
+func (m *model) spinnerCmd() tea.Cmd {
+	if m.spinning || !m.spinnerActive() {
+		return nil
+	}
+	m.spinning = true
+	return m.spinner.Tick
+}
+
+func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -298,8 +326,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, statusTickCmd()
 	case spinner.TickMsg:
-		if !m.loading {
-			return m, nil // scan already finished: drop stray ticks so the spinner doesn't keep animating
+		if !m.spinnerActive() {
+			// Nothing left to wait on: end the loop so the spinner stops
+			// animating until the next scan or job restarts it.
+			m.spinning = false
+			return m, nil
 		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)

@@ -2,8 +2,17 @@ package jobs
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 )
+
+// DefaultTimeout bounds how long one job may run. Jobs shell out to git
+// (clone, pull) over the network, so a dead host or a hung credential prompt
+// would otherwise block the single worker — and every job queued behind it —
+// forever, with no way out but killing the app. Cancel (Ctrl-C) covers the
+// jobs a user notices; this covers the ones they don't.
+const DefaultTimeout = 5 * time.Minute
 
 // Job is a long-running operation run in the background (FR-010).
 type Job struct {
@@ -85,14 +94,19 @@ type Queue struct {
 	pending       []JobInfo
 	completed     []JobInfo
 	closed        bool
+	timeout       time.Duration
 }
 
-// New creates a queue. buffer sizes the results channel; the job backlog is
-// unbounded.
-func New(buffer int) *Queue {
+// New creates a queue with DefaultTimeout. buffer sizes the results channel;
+// the job backlog is unbounded.
+func New(buffer int) *Queue { return NewWithTimeout(buffer, DefaultTimeout) }
+
+// NewWithTimeout is New with an explicit per-job timeout (<= 0 disables it).
+func NewWithTimeout(buffer int, timeout time.Duration) *Queue {
 	q := &Queue{
 		results: make(chan Result, buffer),
 		stale:   map[int64]bool{},
+		timeout: timeout,
 	}
 	q.cond = sync.NewCond(&q.mu)
 	go q.worker()
@@ -207,6 +221,16 @@ func (q *Queue) RunningStatus() (name string, queued int) {
 	return q.runningName, len(q.pending)
 }
 
+// Busy reports whether the queue has any work in flight — a running job or
+// jobs still queued behind it. The status bar spins its progress indicator
+// while this is true, so a job that is still waiting its turn animates the
+// same way the running one does.
+func (q *Queue) Busy() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.runningID != 0 || len(q.jobs) > 0
+}
+
 // Close stops accepting new jobs; the worker drains the backlog and exits.
 func (q *Queue) Close() {
 	q.mu.Lock()
@@ -226,16 +250,31 @@ func (q *Queue) worker() {
 			continue // cancelled while queued: skipped, stale result already emitted
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := q.jobContext()
 		q.mu.Lock()
 		q.runningCancel = cancel
 		q.mu.Unlock()
 
 		value, err := job.Run(ctx)
+		if ctx.Err() == context.DeadlineExceeded {
+			// A job that respects the context reports its own aborted error,
+			// and one that ignores it may even report success; neither says
+			// why it stopped, so the deadline names itself here.
+			value, err = nil, fmt.Errorf("%s: timed out after %s", job.Name, q.timeout)
+		}
 		cancel()
 		q.finishJob(job, err)
 		q.results <- Result{ID: job.ID, Value: value, Err: err}
 	}
+}
+
+// jobContext builds the context one job runs under: cancellable by the user
+// (Cancel) and bounded by the queue's timeout when one is configured.
+func (q *Queue) jobContext() (context.Context, context.CancelFunc) {
+	if q.timeout <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), q.timeout)
 }
 
 // dequeue returns the next queued job, blocking until one is available or the
