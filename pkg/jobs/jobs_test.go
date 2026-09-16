@@ -225,3 +225,49 @@ func TestQueueSubmitNeverBlocks(t *testing.T) {
 		waitResult(t, q)
 	}
 }
+
+// TestQueueTimeoutAbortsJobAndContinues: a job that never returns on its own
+// (a hung git clone against a dead host) must be stopped by the queue's
+// deadline, reported as a timeout, and must not strand the jobs queued behind
+// it.
+func TestQueueTimeoutAbortsJobAndContinues(t *testing.T) {
+	q := NewWithTimeout(8, 50*time.Millisecond)
+	defer q.Close()
+
+	hungID := q.Submit("import hung", func(ctx context.Context) (any, error) {
+		<-ctx.Done() // only the deadline ends this job
+		return "late", nil
+	})
+	nextID := q.Submit("next", func(ctx context.Context) (any, error) { return "next-done", nil })
+
+	hung := waitResult(t, q)
+	require.Equal(t, hungID, hung.ID)
+	require.Error(t, hung.Err, "an expired job must report an error, not its late value")
+	require.Contains(t, hung.Err.Error(), "timed out after 50ms")
+	require.Nil(t, hung.Value)
+
+	next := waitResult(t, q)
+	require.Equal(t, nextID, next.ID)
+	require.NoError(t, next.Err)
+	require.Equal(t, "next-done", next.Value)
+
+	done := q.Snapshot().Completed
+	require.Len(t, done, 2)
+	require.Equal(t, JobFailed, done[0].State, "a timed-out job is recorded as failed")
+}
+
+// TestQueueTimeoutCatchesJobsThatIgnoreContext: even a job that never looks at
+// its context is reported as timed out rather than silently succeeding late.
+func TestQueueTimeoutCatchesJobsThatIgnoreContext(t *testing.T) {
+	q := NewWithTimeout(8, 20*time.Millisecond)
+	defer q.Close()
+
+	id := q.Submit("stubborn", func(ctx context.Context) (any, error) {
+		time.Sleep(80 * time.Millisecond)
+		return "finished anyway", nil
+	})
+	r := waitResult(t, q)
+	require.Equal(t, id, r.ID)
+	require.Error(t, r.Err)
+	require.Contains(t, r.Err.Error(), "timed out")
+}

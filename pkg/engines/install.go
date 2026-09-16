@@ -104,7 +104,20 @@ func InstallAdapter(tx *dal.FileTransaction, entry *common.Entry, target common.
 	switch StateAdapter(adapterDir, entry) {
 	case common.InstallInstalled:
 		return false, nil
-	case common.InstallConflict, common.InstallDangling:
+	case common.InstallConflict:
+		// A managed adapter whose SKILL.md copy fell behind the entry marker
+		// (the entry was edited or updated after install) is skm's own
+		// install and is refreshed in place; only a foreign occupant of the
+		// slot requires --force.
+		if !force && !IsStaleManagedAdapter(adapterDir, entry) {
+			return false, common.WithExitCode(
+				common.WithNeedsForce(fmt.Errorf("install %q into %s: a same-named non-managed object exists; use --force", entry.Name, target.Name)),
+				common.ExitObject)
+		}
+		if err := tx.BackupRemove(adapterDir); err != nil {
+			return false, err
+		}
+	case common.InstallDangling:
 		if !force {
 			return false, common.WithExitCode(
 				common.WithNeedsForce(fmt.Errorf("install %q into %s: a same-named non-managed object exists; use --force", entry.Name, target.Name)),
@@ -265,6 +278,21 @@ func StateAdapter(adapterDir string, entry *common.Entry) common.InstallState {
 // carries the adapter marker and its regular SKILL.md contains the entry's
 // marker (install-semantics.md).
 func IsManagedAdapter(dir string, entry *common.Entry) bool {
+	return hasAdapterShape(dir) && adapterMarkerMatches(dir, entry)
+}
+
+// IsStaleManagedAdapter reports whether dir is skm's own adapter for entry
+// but its SKILL.md copy no longer matches the entry marker — the entry was
+// edited or updated after install. Unlike a foreign conflict, this occupant
+// is refreshable without --force (InstallAdapter rewrites it in place).
+func IsStaleManagedAdapter(dir string, entry *common.Entry) bool {
+	return hasAdapterShape(dir) && !adapterMarkerMatches(dir, entry)
+}
+
+// hasAdapterShape reports whether dir carries the adapter marker and a
+// regular (non-symlink), readable SKILL.md — the shape InstallAdapter
+// writes, regardless of content.
+func hasAdapterShape(dir string) bool {
 	if !dal.PathExists(filepath.Join(dir, dal.AdapterMarker)) {
 		return false
 	}
@@ -272,7 +300,14 @@ func IsManagedAdapter(dir string, entry *common.Entry) bool {
 	if dal.IsSymlink(skillFile) {
 		return false
 	}
-	actual, err := os.ReadFile(skillFile)
+	_, err := os.ReadFile(skillFile)
+	return err == nil
+}
+
+// adapterMarkerMatches reports whether the adapter's SKILL.md copy equals the
+// entry marker's content.
+func adapterMarkerMatches(dir string, entry *common.Entry) bool {
+	actual, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
 	if err != nil {
 		return false
 	}

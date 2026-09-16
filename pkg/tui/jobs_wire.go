@@ -110,7 +110,7 @@ func (m model) runningJobStatus() string {
 	if name == "" {
 		return ""
 	}
-	text := "▶ " + name
+	text := m.spinner.View() + " " + name
 	if queued > 0 {
 		text += fmt.Sprintf(" · %d queued", queued)
 	}

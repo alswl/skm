@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/engines"
 )
 
@@ -45,7 +46,42 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 		}
 		return &engines.UpdateResult{Before: before, After: after, Changed: changed}, nil
 	}
-	return s.Repo.UpdateEntry(ctx, entry, staged)
+	res, err := s.Repo.UpdateEntry(ctx, entry, staged)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.refreshInstalls(ctx, entry); err != nil {
+		return nil, fmt.Errorf("update: refresh installs: %w", err)
+	}
+	return res, nil
+}
+
+// refreshInstalls re-applies the entry's existing installs after a content
+// update, so target-side copies pick up the new content — a command adapter
+// keeps a copy of the entry marker, which the replacement just outdated.
+// Only targets that already hold a managed install are touched
+// (Installer.RefreshTargets); this refresh never claims new targets. It runs
+// under the repository lock in one transaction, mirroring runInstall.
+func (s *Services) refreshInstalls(ctx context.Context, entry *common.Entry) error {
+	targets := s.Installer.RefreshTargets(entry)
+	if len(targets) == 0 {
+		return nil
+	}
+	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
+
+	tx := &dal.FileTransaction{}
+	for _, t := range targets {
+		if _, err := s.Installer.Install(tx, entry, t, false); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	tx.Commit()
+	return nil
 }
 
 // Updatable reports whether an entry can be refreshed from its origin (active
@@ -143,6 +179,10 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 			cleanup()
 			if err != nil {
 				res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: err.Error()})
+				continue
+			}
+			if rErr := s.refreshInstalls(ctx, e); rErr != nil {
+				res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: "refresh installs: " + rErr.Error()})
 				continue
 			}
 		}

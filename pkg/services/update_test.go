@@ -122,3 +122,83 @@ func TestUpdateUsesTheRecordedOriginProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "new")
 }
+
+// adapterUpdateFixture builds a command entry with a local origin installed
+// into one command-adapter target ("adapter") and one target that has never
+// received it ("fresh").
+func adapterUpdateFixture(t *testing.T, markerBody string) (*Services, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	writeSvcFile(t, root, "commands/local/demo/command.md", "---\nname: demo\ndescription: demo\n---\n"+markerBody+"\n")
+	// Targets live outside the repository root so the scanner does not pick
+	// the installed copies up as entries.
+	adapterPath := filepath.Join(t.TempDir(), "adapter")
+	freshPath := filepath.Join(t.TempDir(), "fresh")
+	require.NoError(t, os.MkdirAll(adapterPath, 0o755))
+	require.NoError(t, os.MkdirAll(freshPath, 0o755))
+	svc, err := New(newCfg(root, []common.InstallTarget{
+		skillTarget("adapter", adapterPath),
+		skillTarget("fresh", freshPath),
+	}), common.NewLogger(false))
+	require.NoError(t, err)
+	return svc, adapterPath, freshPath
+}
+
+// TestUpdateRefreshesCommandAdapterInstalls pins the update-then-refresh
+// contract: a command adapter keeps a copy of the entry marker, so replacing
+// the entry's content must re-apply the existing install. Targets without a
+// prior install are never claimed by an update.
+func TestUpdateRefreshesCommandAdapterInstalls(t *testing.T) {
+	src := t.TempDir()
+	writeSvcFile(t, src, "command.md", "---\nname: demo\ndescription: demo\n---\nnew\n")
+	svc, adapterPath, freshPath := adapterUpdateFixture(t, "old")
+	writeSvcFile(t, svc.Cfg.Root, "commands/local/demo/meta.json", `{"address":"`+src+`","mode_id":"local"}`)
+
+	ctx := context.Background()
+	_, err := svc.Install(ctx, "demo", InstallOptions{Targets: []string{"adapter"}})
+	require.NoError(t, err)
+
+	res, err := svc.Update(ctx, "demo", UpdateOptions{})
+	require.NoError(t, err)
+	require.True(t, res.Changed)
+
+	data, err := os.ReadFile(filepath.Join(adapterPath, "demo", "SKILL.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "new", "update must refresh the adapter's stale SKILL.md copy")
+	entry := svc.FindEntry("demo")
+	require.NotNil(t, entry)
+	target, _ := svc.Installer.TargetByName("adapter")
+	require.Equal(t, common.InstallInstalled, svc.Installer.State(entry, target))
+	require.NoDirExists(t, filepath.Join(freshPath, "demo"), "update must not claim a target with no prior install")
+}
+
+// TestInstallRefreshesStaleManagedAdapter covers the hand-edited-entry path:
+// installing over skm's own but outdated adapter succeeds without --force and
+// rewrites the copy, while a foreign occupant still requires --force.
+func TestInstallRefreshesStaleManagedAdapter(t *testing.T) {
+	svc, adapterPath, _ := adapterUpdateFixture(t, "old")
+
+	ctx := context.Background()
+	_, err := svc.Install(ctx, "demo", InstallOptions{})
+	require.NoError(t, err)
+
+	writeSvcFile(t, svc.Cfg.Root, "commands/local/demo/command.md", "---\nname: demo\ndescription: demo\n---\nnew\n")
+	entry := svc.FindEntry("demo")
+	require.NotNil(t, entry)
+	target, _ := svc.Installer.TargetByName("adapter")
+	require.Equal(t, common.InstallConflict, svc.Installer.State(entry, target))
+
+	_, err = svc.Install(ctx, "demo", InstallOptions{})
+	require.NoError(t, err, "a managed-but-stale adapter is refreshable without --force")
+	data, err := os.ReadFile(filepath.Join(adapterPath, "demo", "SKILL.md"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), "new")
+	require.Equal(t, common.InstallInstalled, svc.Installer.State(entry, target))
+
+	// A foreign directory in the slot (no adapter marker) is not refreshable.
+	require.NoError(t, os.RemoveAll(filepath.Join(adapterPath, "demo")))
+	writeSvcFile(t, adapterPath, "demo/SKILL.md", "---\nname: demo\ndescription: foreign\n---\n")
+	_, err = svc.Install(ctx, "demo", InstallOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--force")
+}

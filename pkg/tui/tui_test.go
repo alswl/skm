@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -1573,6 +1574,46 @@ func TestStatusBarShowsRunningJob(t *testing.T) {
 	close(release)
 	drainJob(t, &m)
 	drainJob(t, &m)
+}
+
+// TestStatusBarSpinsWhileJobRuns: a background job (import, update, …) must
+// animate a spinner in the status bar, not just a static marker — otherwise a
+// slow import looks indistinguishable from a frozen UI. The animation has to
+// start from a job submitted long after the startup scan cleared m.loading,
+// which is where the tick loop used to stop for good.
+func TestStatusBarSpinsWhileJobRuns(t *testing.T) {
+	m := newTestModel(t)
+	m.loading = false
+	m.spinning = false
+	release := make(chan struct{})
+	m.submitJob("update skill-a", func(ctx context.Context) (any, error) { <-release; return "done", nil })
+
+	// Any message pumped through Update while the queue is busy must (re)start
+	// the tick loop.
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	require.NotNil(t, cmd, "Update must return a command that carries the spinner tick")
+	require.True(t, m.spinning, "a job in flight starts the spinner tick loop")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(m.statusContent(), "update skill-a") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The frames advance: feeding ticks back in changes the rendered status.
+	frames := map[string]bool{}
+	for i := 0; i < len(spinner.Line.Frames)*2; i++ {
+		m.Update(m.spinner.Tick())
+		frames[strings.Fields(m.statusContent())[0]] = true
+	}
+	require.Greater(t, len(frames), 1, "spinner frame never changed while the job ran: %v", frames)
+	require.Contains(t, m.statusContent(), "update skill-a")
+
+	close(release)
+	drainJob(t, &m)
+
+	// Idle again: the loop ends instead of animating forever.
+	m.Update(m.spinner.Tick())
+	require.False(t, m.spinning, "spinner stops once the queue drains")
 }
 
 // TestDiscoverSurfacesProviderLoadFailure: a provider plugin that fails to
