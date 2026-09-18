@@ -44,6 +44,7 @@ skm [flags]
 * [skm list](skm_list.md)	 - List the repository catalog
 * [skm normalize](skm_normalize.md)	 - Move a non-standard entry into a provider location
 * [skm provider](skm_provider.md)	 - Manage acquisition providers (built-in and plugin)
+* [skm share](skm_share.md)	 - Create and install compact skill share PAYLOADs
 * [skm status](skm_status.md)	 - Show the health of a single entry across targets
 * [skm target](skm_target.md)	 - Manage install targets (platform, path, accepted kinds, install strategy)
 * [skm to-command](skm_to-command.md)	 - Convert a directory skill into a command
