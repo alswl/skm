@@ -33,6 +33,9 @@ var shareCreateCmd = &cobra.Command{
 		if flagJSON {
 			return printJSON(cmd, result)
 		}
+		for _, warning := range result.Warnings {
+			fmt.Fprintln(cmd.ErrOrStderr(), "share:", warning)
+		}
 		fmt.Fprintln(cmd.OutOrStdout(), result.Command)
 		return nil
 	},

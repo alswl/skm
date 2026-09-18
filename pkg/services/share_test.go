@@ -28,6 +28,30 @@ func TestCreateShareSelectsInstalledEntriesAndEmitsCommand(t *testing.T) {
 	require.Equal(t, result.Items, decoded)
 }
 
+func TestCreateShareSkipsEntriesWithoutDownloadableSources(t *testing.T) {
+	svc, target, root := exportFixture(t)
+	writeFile(t, root, "skills/local/demo/meta.json", `{"address":"https://github.com/acme/skills","mode_id":"local"}`)
+	writeFile(t, root, "skills/local/local-only/SKILL.md", "---\nname: local-only\ndescription: local only\n---\nbody\n")
+	entry := svc.FindEntry("demo")
+	require.NotNil(t, entry)
+	tx := &dal.FileTransaction{}
+	_, err := svc.Installer.Install(tx, entry, *target, false)
+	require.NoError(t, err)
+	tx.Commit()
+	localOnly := svc.FindEntry("local-only")
+	require.NotNil(t, localOnly)
+	tx = &dal.FileTransaction{}
+	_, err = svc.Installer.Install(tx, localOnly, *target, false)
+	require.NoError(t, err)
+	tx.Commit()
+
+	result, err := svc.CreateShare(t.Context(), nil)
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	require.Equal(t, "demo", result.Items[0].Name)
+	require.Equal(t, []string{"skipped \"local-only\": no downloadable source URL"}, result.Warnings)
+}
+
 func TestInstallShareContinuesAfterIndependentFailures(t *testing.T) {
 	payload, err := encodeSharePayload([]ShareItem{
 		{Source: "https://github.com/acme/missing-one", Name: "one", Kind: common.KindSkill},

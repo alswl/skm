@@ -19,9 +19,10 @@ type ShareItem struct {
 }
 
 type ShareCreateResult struct {
-	Payload string      `json:"payload"`
-	Command string      `json:"command"`
-	Items   []ShareItem `json:"items"`
+	Payload  string      `json:"payload"`
+	Command  string      `json:"command"`
+	Items    []ShareItem `json:"items"`
+	Warnings []string    `json:"warnings,omitempty"`
 }
 
 type SharePreview struct {
@@ -50,10 +51,12 @@ func (s *Services) CreateShare(_ context.Context, names []string) (*ShareCreateR
 		return nil, err
 	}
 	items := make([]ShareItem, 0, len(entries))
+	warnings := make([]string, 0)
 	seen := make(map[string]bool)
 	for _, entry := range entries {
 		if entry.Origin == nil || !shareableAddress(entry.Origin.Address) {
-			return nil, common.WithExitCode(fmt.Errorf("share: entry %q has no downloadable source URL", entry.Name), common.ExitObject)
+			warnings = append(warnings, fmt.Sprintf("skipped %q: no downloadable source URL", entry.Name))
+			continue
 		}
 		key := entry.Origin.Address + "\x00" + string(entry.Kind) + "\x00" + entry.Name
 		if seen[key] {
@@ -72,13 +75,16 @@ func (s *Services) CreateShare(_ context.Context, names []string) (*ShareCreateR
 		return items[i].Name < items[j].Name
 	})
 	if len(items) == 0 {
+		if len(warnings) > 0 {
+			return nil, common.WithExitCode(fmt.Errorf("share: no installed entries have a downloadable source URL"), common.ExitObject)
+		}
 		return nil, common.WithExitCode(fmt.Errorf("share: no installed entries to share"), common.ExitObject)
 	}
 	payload, err := encodeSharePayload(items)
 	if err != nil {
 		return nil, err
 	}
-	return &ShareCreateResult{Payload: payload, Command: "skm share install '" + payload + "'", Items: items}, nil
+	return &ShareCreateResult{Payload: payload, Command: "skm share install '" + payload + "'", Items: items, Warnings: warnings}, nil
 }
 
 func (s *Services) shareEntries(names []string) ([]*common.Entry, error) {
