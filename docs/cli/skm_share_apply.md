@@ -1,16 +1,15 @@
-## skm share create
+## skm share apply
 
-Create a content or --upstream share PAYLOAD from selected entries
+Import and install every entry in an inline share PAYLOAD
 
 ```
-skm share create [NAME ...] [flags]
+skm share apply PAYLOAD [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help       help for create
-      --upstream   share only the source address, name, and kind (no local content)
+  -h, --help   help for apply
 ```
 
 ### Options inherited from parent commands

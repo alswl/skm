@@ -1,32 +1,30 @@
 package commands
 
 import (
-	"bufio"
 	"fmt"
-	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
-var shareYes bool
+var shareUpstream bool
 
 var shareCmd = &cobra.Command{
 	Use:   "share",
-	Short: "Create and install compact skill share PAYLOADs",
+	Short: "Share selected local skill/command entries as a compact PAYLOAD",
 }
 
 var shareCreateCmd = &cobra.Command{
 	Use:   "create [NAME ...]",
-	Short: "Create a complete share install command",
+	Short: "Create a content or --upstream share PAYLOAD from selected entries",
 	Args:  cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)
 		if err != nil {
 			return err
 		}
-		result, err := svc.CreateShare(cmd.Context(), args)
+		result, err := svc.CreateShare(cmd.Context(), args, shareUpstream)
 		if err != nil {
 			return err
 		}
@@ -41,34 +39,16 @@ var shareCreateCmd = &cobra.Command{
 	},
 }
 
-var shareInstallCmd = &cobra.Command{
-	Use:   "install PAYLOAD",
-	Short: "Preview or install an inline share PAYLOAD",
+var shareApplyCmd = &cobra.Command{
+	Use:   "apply PAYLOAD",
+	Short: "Import and install every entry in an inline share PAYLOAD",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)
 		if err != nil {
 			return err
 		}
-		preview, err := svc.PreviewShare(args[0])
-		if err != nil {
-			return err
-		}
-		if flagJSON && !shareYes {
-			return common.WithExitCode(fmt.Errorf("share install: --json requires --yes"), common.ExitError)
-		}
-		if !flagJSON && !shareYes {
-			printSharePreview(cmd, preview)
-			ok, confirmErr := confirmShare(cmd)
-			if confirmErr != nil {
-				return confirmErr
-			}
-			if !ok {
-				fmt.Fprintln(cmd.OutOrStdout(), "cancelled")
-				return nil
-			}
-		}
-		result, err := svc.InstallShare(cmd.Context(), args[0])
+		result, err := svc.ApplyShare(cmd.Context(), args[0])
 		if err != nil {
 			return err
 		}
@@ -77,47 +57,33 @@ var shareInstallCmd = &cobra.Command{
 				return err
 			}
 		} else {
-			printShareResult(cmd, result)
+			printShareApplyResult(cmd, result)
 		}
 		if !result.Success {
-			return common.WithExitCode(fmt.Errorf("share install: one or more items failed"), common.ExitObject)
+			return common.WithExitCode(fmt.Errorf("share apply: one or more items were skipped or failed"), common.ExitObject)
 		}
 		return nil
 	},
 }
 
-func printSharePreview(cmd *cobra.Command, preview *services.SharePreview) {
-	fmt.Fprintf(cmd.OutOrStdout(), "share PAYLOAD: %d item(s), all compatible Targets by default\n", len(preview.Items))
-	for _, item := range preview.Items {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s) <- %s\n", item.Name, item.Kind, item.Source)
-	}
-}
-
-func confirmShare(cmd *cobra.Command) (bool, error) {
-	fmt.Fprint(cmd.OutOrStdout(), "install all items? [y/N] ")
-	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-	if err != nil && len(line) == 0 {
-		return false, nil
-	}
-	answer := strings.TrimSpace(strings.ToLower(line))
-	return answer == "y" || answer == "yes", nil
-}
-
-func printShareResult(cmd *cobra.Command, result *services.ShareInstallResult) {
+func printShareApplyResult(cmd *cobra.Command, result *services.ShareApplyResult) {
 	for _, item := range result.Items {
-		if item.Reason != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %q: %s (%s)\n", item.Status, item.Name, item.Reason, item.Source)
-			continue
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s %q (%s)\n", item.Status, item.Name, item.Kind)
-		for _, report := range item.Results {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s -> %s\n", report.Target, report.Status)
+		switch item.Status {
+		case "imported":
+			fmt.Fprintf(cmd.OutOrStdout(), "imported %q, but %s\n", item.Name, item.Reason)
+		case "skipped", "failed":
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %q: %s\n", item.Status, item.Name, item.Reason)
+		default:
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %q (%s)\n", item.Status, item.Name, item.Kind)
+			for _, report := range item.Results {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s -> %s\n", report.Target, report.Status)
+			}
 		}
 	}
 }
 
 func init() {
-	shareInstallCmd.Flags().BoolVar(&shareYes, "yes", false, "install directly without confirmation")
-	shareCmd.AddCommand(shareCreateCmd, shareInstallCmd)
+	shareCreateCmd.Flags().BoolVar(&shareUpstream, "upstream", false, "share only the source address, name, and kind (no local content)")
+	shareCmd.AddCommand(shareCreateCmd, shareApplyCmd)
 	rootCmd.AddCommand(shareCmd)
 }

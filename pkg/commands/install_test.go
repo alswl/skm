@@ -44,7 +44,8 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 	flagRoot, flagConfig = "", ""
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false
 	flagNoStrict = false
-	shareYes = false
+	shareUpstream = false
+	backupRestoreID = ""
 	normalizeFlags.provider = "local"
 	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
