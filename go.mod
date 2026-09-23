@@ -10,7 +10,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.7.0
 	github.com/klauspost/compress v1.17.11
 	github.com/mattn/go-isatty v0.0.20
-	github.com/mr-tron/base58 v1.2.0
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

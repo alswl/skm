@@ -4,97 +4,161 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/providers"
 )
 
-// ShareItem is the decoded, portable identity of one entry. Targets are
-// deliberately absent: installation expands to all compatible local targets.
-type ShareItem struct {
-	Source string           `json:"source"`
+// ShareEntry carries only the source identity of one selected local entry —
+// never its file contents. A recipient always re-fetches from Source.
+type ShareEntry struct {
 	Name   string           `json:"name"`
 	Kind   common.EntryKind `json:"kind"`
+	Source string           `json:"source"`
 }
 
+// SharePayload is the decoded envelope.
+type SharePayload struct {
+	Entries []ShareEntry
+}
+
+// ShareEntrySummary is the display-oriented view of one entry in a create
+// result.
+type ShareEntrySummary struct {
+	Name   string           `json:"name"`
+	Kind   common.EntryKind `json:"kind"`
+	Source string           `json:"source"`
+}
+
+// ShareCreateResult is the CLI/TUI-facing result of `share create`.
 type ShareCreateResult struct {
-	Payload  string      `json:"payload"`
-	Command  string      `json:"command"`
-	Items    []ShareItem `json:"items"`
-	Warnings []string    `json:"warnings,omitempty"`
+	Payload  string              `json:"payload"`
+	Command  string              `json:"command"`
+	Entries  []ShareEntrySummary `json:"entries"`
+	Warnings []string            `json:"warnings,omitempty"`
 }
 
-type SharePreview struct {
-	Items []ShareItem `json:"items"`
-}
-
+// ShareItemResult's outcome is independent per entry: one entry's failure
+// never overwrites another's result.
 type ShareItemResult struct {
-	Source  string                 `json:"source"`
 	Name    string                 `json:"name"`
 	Kind    common.EntryKind       `json:"kind"`
+	Source  string                 `json:"source,omitempty"`
 	Status  string                 `json:"status"`
 	Reason  string                 `json:"reason,omitempty"`
 	Results []common.InstallReport `json:"results,omitempty"`
 }
 
-type ShareInstallResult struct {
+// ShareApplyResult is the aggregate result of `share apply`. Success is false
+// only when at least one item was skipped or failed; an item imported with no
+// compatible target still counts as success.
+type ShareApplyResult struct {
 	Items   []ShareItemResult `json:"items"`
 	Success bool              `json:"success"`
 }
 
-// CreateShare emits a portable command; entries without a canonical source
-// cannot be represented in a receiver-independent PAYLOAD.
-func (s *Services) CreateShare(_ context.Context, names []string) (*ShareCreateResult, error) {
+// ShareProgressFunc reports collection progress for a multi-entry
+// CreateShare selection; done is 1-indexed. It is called synchronously from
+// the collection loop, so it must return quickly.
+type ShareProgressFunc func(done, total int, name string)
+
+// CreateShare never embeds an entry's file contents: every shared entry
+// carries only a source address a recipient re-fetches from. An entry with no
+// address of its own — no upstream origin, and (for a local/self-build entry)
+// no shareable repository location — cannot be shared at all; there is no
+// content fallback.
+func (s *Services) CreateShare(_ context.Context, names []string, onProgress ShareProgressFunc) (*ShareCreateResult, error) {
 	entries, err := s.shareEntries(names)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]ShareItem, 0, len(entries))
-	warnings := make([]string, 0)
-	seen := make(map[string]bool)
-	for _, entry := range entries {
-		if entry.Origin == nil || !shareableAddress(entry.Origin.Address) {
-			warnings = append(warnings, fmt.Sprintf("skipped %q: no downloadable source URL", entry.Name))
-			continue
+	explicit := len(names) > 0
+	total := len(entries)
+	report := func(i int, name string) {
+		if onProgress != nil {
+			onProgress(i+1, total, name)
 		}
-		key := entry.Origin.Address + "\x00" + string(entry.Kind) + "\x00" + entry.Name
+	}
+
+	var warnings []string
+	items := make([]ShareEntry, 0, len(entries))
+	summaries := make([]ShareEntrySummary, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+
+	for i, entry := range entries {
+		report(i, entry.Name)
+		key := string(entry.Kind) + "\x00" + entry.Name
 		if seen[key] {
 			continue
 		}
+		source, ok := s.shareSource(entry)
+		if !ok {
+			reason := fmt.Sprintf("entry %q has no shareable source", entry.Name)
+			if explicit {
+				return nil, common.WithExitCode(fmt.Errorf("share: %s", reason), common.ExitObject)
+			}
+			warnings = append(warnings, reason)
+			continue
+		}
 		seen[key] = true
-		items = append(items, ShareItem{Source: entry.Origin.Address, Name: entry.Name, Kind: entry.Kind})
+		items = append(items, ShareEntry{Name: entry.Name, Kind: entry.Kind, Source: source})
+		summaries = append(summaries, ShareEntrySummary{Name: entry.Name, Kind: entry.Kind, Source: source})
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Source != items[j].Source {
-			return items[i].Source < items[j].Source
-		}
-		if items[i].Kind != items[j].Kind {
-			return items[i].Kind < items[j].Kind
-		}
-		return items[i].Name < items[j].Name
-	})
 	if len(items) == 0 {
-		if len(warnings) > 0 {
-			return nil, common.WithExitCode(fmt.Errorf("share: no installed entries have a downloadable source URL"), common.ExitObject)
-		}
-		return nil, common.WithExitCode(fmt.Errorf("share: no installed entries to share"), common.ExitObject)
+		return nil, common.WithExitCode(fmt.Errorf("share: no eligible entries have a shareable source"), common.ExitObject)
 	}
-	payload, err := encodeSharePayload(items)
+	sort.Slice(summaries, func(i, j int) bool {
+		return entryLess(summaries[i].Kind, summaries[i].Name, summaries[j].Kind, summaries[j].Name)
+	})
+
+	token, err := encodeSharePayload(SharePayload{Entries: items})
 	if err != nil {
-		return nil, err
+		return nil, common.WithExitCode(err, common.ExitError)
 	}
-	return &ShareCreateResult{Payload: payload, Command: "skm share install '" + payload + "'", Items: items, Warnings: warnings}, nil
+	return &ShareCreateResult{
+		Payload:  token,
+		Command:  "skm share apply '" + token + "'",
+		Entries:  summaries,
+		Warnings: warnings,
+	}, nil
 }
 
+// shareSource resolves the address a recipient re-fetches entry from: its own
+// upstream origin when it has a valid one, or — for a directory-style entry
+// with none (a local/self-build skill or command) — this repository's own git
+// remote pointed at the entry's subdirectory, the same address shape
+// deploy/export already use for the whole repository (repoOrigin,
+// providers.BrowseTreeURL). A single-file command has no subdirectory of its
+// own to address without also pulling in sibling files, so it is not offered
+// this fallback.
+func (s *Services) shareSource(entry *common.Entry) (string, bool) {
+	if entry.Origin != nil && shareableAddress(entry.Origin.Address) {
+		return entry.Origin.Address, true
+	}
+	if !entry.IsDirectory() {
+		return "", false
+	}
+	remote, branch := s.repoOrigin(), s.repoBranch()
+	if remote == "" || branch == "" {
+		return "", false
+	}
+	rel := filepath.ToSlash(s.Repo.RelPath(entry.Path))
+	return providers.BrowseTreeURL(remote, branch, rel)
+}
+
+// shareEntries resolves the selection: no names selects every active entry;
+// an explicit name that does not resolve to an active entry is a hard error,
+// independent of shareability.
 func (s *Services) shareEntries(names []string) ([]*common.Entry, error) {
 	if len(names) == 0 {
 		var out []*common.Entry
 		for _, entry := range s.Scan() {
-			if entry.Status != common.StatusActive || !s.entryInstalled(entry) {
-				continue
+			if entry.Status == common.StatusActive {
+				out = append(out, entry)
 			}
-			out = append(out, entry)
 		}
 		return out, nil
 	}
@@ -104,24 +168,12 @@ func (s *Services) shareEntries(names []string) ([]*common.Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		if entry == nil {
+		if entry == nil || entry.Status != common.StatusActive {
 			return nil, common.WithExitCode(fmt.Errorf("share: entry %q not found", name), common.ExitObject)
-		}
-		if entry.Status != common.StatusActive || !s.entryInstalled(entry) {
-			return nil, common.WithExitCode(fmt.Errorf("share: entry %q is not currently installed", name), common.ExitObject)
 		}
 		out = append(out, entry)
 	}
 	return out, nil
-}
-
-func (s *Services) entryInstalled(entry *common.Entry) bool {
-	for _, target := range s.Installer.Targets(entry) {
-		if s.Installer.State(entry, target) == common.InstallInstalled {
-			return true
-		}
-	}
-	return false
 }
 
 func shareableAddress(address string) bool {
@@ -132,78 +184,76 @@ func shareableAddress(address string) bool {
 	return u.Scheme == "http" || u.Scheme == "https" || u.Scheme == "ssh"
 }
 
-func (s *Services) PreviewShare(payload string) (*SharePreview, error) {
-	items, err := decodeSharePayload(payload)
+// ApplyShare validates the whole payload before touching the repository, then
+// processes each entry independently: a same-named active entry is skipped
+// without overwrite, and one entry's failure never erases another's success.
+func (s *Services) ApplyShare(ctx context.Context, token string) (*ShareApplyResult, error) {
+	payload, err := decodeSharePayload(token)
 	if err != nil {
 		return nil, common.WithExitCode(err, common.ExitError)
 	}
-	return &SharePreview{Items: items}, nil
-}
-
-// InstallShare retains independent item outcomes so one failed source does
-// not cancel the batch.
-func (s *Services) InstallShare(ctx context.Context, payload string) (*ShareInstallResult, error) {
-	items, err := decodeSharePayload(payload)
-	if err != nil {
-		return nil, common.WithExitCode(err, common.ExitError)
-	}
-	result := &ShareInstallResult{Items: make([]ShareItemResult, 0, len(items)), Success: true}
-	for _, item := range items {
-		itemResult := ShareItemResult{Source: item.Source, Name: item.Name, Kind: item.Kind}
-		entry, err := s.findOrigin(item)
-		if err != nil {
-			itemResult.Status, itemResult.Reason = "failed", err.Error()
+	result := &ShareApplyResult{Items: []ShareItemResult{}, Success: true}
+	for _, entry := range payload.Entries {
+		item := s.applyShareEntry(ctx, entry)
+		if item.Status == "skipped" || item.Status == "failed" {
 			result.Success = false
-			result.Items = append(result.Items, itemResult)
-			continue
 		}
-		if entry == nil {
-			imported, importErr := s.Import(ctx, item.Source, ImportOptions{Kind: string(item.Kind)})
-			if importErr != nil {
-				itemResult.Status, itemResult.Reason = "failed", importErr.Error()
-				result.Success = false
-				result.Items = append(result.Items, itemResult)
-				continue
-			}
-			entry, err = s.ResolveEntry(s.Repo.RelPath(imported.Path))
-			if err != nil || entry == nil {
-				itemResult.Status, itemResult.Reason = "failed", "imported entry could not be resolved"
-				result.Success = false
-				result.Items = append(result.Items, itemResult)
-				continue
-			}
-		}
-		installed, installErr := s.Install(ctx, s.Repo.RelPath(entry.Path), InstallOptions{})
-		if installErr != nil {
-			itemResult.Status, itemResult.Reason = "failed", installErr.Error()
-			result.Success = false
-			result.Items = append(result.Items, itemResult)
-			continue
-		}
-		itemResult.Results = installed.Results
-		itemResult.Status = "installed"
-		allUnchanged := len(installed.Results) > 0
-		for _, report := range installed.Results {
-			if report.Changed {
-				allUnchanged = false
-			}
-		}
-		if allUnchanged {
-			itemResult.Status = "already_present"
-		}
-		result.Items = append(result.Items, itemResult)
+		result.Items = append(result.Items, item)
 	}
 	return result, nil
 }
 
-func (s *Services) findOrigin(item ShareItem) (*common.Entry, error) {
-	for _, entry := range s.Scan() {
-		if entry.Status != common.StatusActive || entry.Origin == nil {
-			continue
-		}
-		if entry.Origin.Address == item.Source && entry.Kind == item.Kind {
-			return entry, nil
+func (s *Services) applyShareEntry(ctx context.Context, entry ShareEntry) ShareItemResult {
+	item := ShareItemResult{Name: entry.Name, Kind: entry.Kind, Source: entry.Source}
+	if existing := s.findActiveByIdentity(entry.Name, entry.Kind); existing != nil {
+		item.Status, item.Reason = "skipped", fmt.Sprintf("an entry named %q already exists", entry.Name)
+		return item
+	}
+	imported, err := s.Import(ctx, entry.Source, ImportOptions{Kind: string(entry.Kind)})
+	if err != nil {
+		item.Status, item.Reason = "failed", err.Error()
+		return item
+	}
+	return s.finishShareInstall(ctx, item, imported.Path)
+}
+
+// finishShareInstall treats an empty compatible-target set as a preserved
+// import, not a failure.
+func (s *Services) finishShareInstall(ctx context.Context, item ShareItemResult, entryPath string) ShareItemResult {
+	entry, err := s.ResolveEntry(s.Repo.RelPath(entryPath))
+	if err != nil || entry == nil {
+		item.Status, item.Reason = "failed", "imported entry could not be resolved"
+		return item
+	}
+	installed, err := s.Install(ctx, s.Repo.RelPath(entry.Path), InstallOptions{})
+	if err != nil {
+		item.Status, item.Reason = "failed", err.Error()
+		return item
+	}
+	item.Results = installed.Results
+	if len(installed.Results) == 0 {
+		item.Status, item.Reason = "imported", "no compatible installer target was found"
+		return item
+	}
+	anyChanged := false
+	for _, report := range installed.Results {
+		if report.Changed {
+			anyChanged = true
 		}
 	}
-	return nil, nil
+	if anyChanged {
+		item.Status = "installed"
+	} else {
+		item.Status = "already_present"
+	}
+	return item
+}
+
+func (s *Services) findActiveByIdentity(name string, kind common.EntryKind) *common.Entry {
+	for _, entry := range s.Scan() {
+		if entry.Status == common.StatusActive && entry.Kind == kind && entry.Name == name {
+			return entry
+		}
+	}
+	return nil
 }

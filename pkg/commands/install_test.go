@@ -40,11 +40,19 @@ func writeTestFile(t *testing.T, base, rel, content string) {
 // assertable.
 func runCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	out, _, err := runCmdWithStderr(t, args...)
+	return out, err
+}
+
+// runCmdWithStderr is runCmd, but also returns captured stderr for tests that
+// assert on diagnostics (warnings, progress) rather than the stdout report.
+func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	installTargets = nil
 	flagRoot, flagConfig = "", ""
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false
 	flagNoStrict = false
-	shareYes = false
+	backupRestoreID = ""
 	normalizeFlags.provider = "local"
 	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
@@ -52,8 +60,8 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 	rootCmd.SetOut(outBuf)
 	rootCmd.SetErr(errBuf)
 	rootCmd.SetArgs(args)
-	err := rootCmd.Execute()
-	return outBuf.String(), err
+	err = rootCmd.Execute()
+	return outBuf.String(), errBuf.String(), err
 }
 
 // assertGoldenJSON compares got (a JSON document) semantically against a

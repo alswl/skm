@@ -55,6 +55,7 @@ func TestInfoJSONGolden(t *testing.T) {
 }
 
 func TestVerifyJSONGoldenAndExitCodes(t *testing.T) {
+	t.Setenv("HOME", t.TempDir()) // hermetic: the merged-in built-in targets point into an empty home
 	root, cfgDir := readFixture(t)
 	// Strict verify on an inconsistent repo -> report + exit 1.
 	out, err := runCmd(t, "verify", "repo", "--root", root, "--config", cfgDir, "--json")

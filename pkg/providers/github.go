@@ -333,3 +333,23 @@ func normalizeGitURL(s, host string) string {
 	}
 	return s
 }
+
+// BrowseTreeURL builds a GitHub/GitLab "tree" browse address for a
+// subdirectory of a repository from that repository's own git remote — the
+// same shape CanHandle/webOrSubpathLocation already parse back (git_weburl.go
+// parseGitWebURL), so an entry inside a repository whose remote is on one of
+// these hosts can be re-fetched from that single URL. ok is false when
+// remote's host isn't one of these hosts (a self-hosted git server has no
+// browsable "tree/<ref>/<path>" convention this build knows), or when any
+// input is empty.
+func BrowseTreeURL(remote, ref, subdir string) (string, bool) {
+	host := gitURLHost(remote)
+	if host != "github.com" && host != "gitlab.com" {
+		return "", false
+	}
+	path := strings.TrimSuffix(gitURLPath(remote), ".git")
+	if path == "" || ref == "" || subdir == "" {
+		return "", false
+	}
+	return "https://" + host + "/" + path + "/tree/" + ref + "/" + subdir, true
+}

@@ -45,7 +45,7 @@ func (s *Services) runInstall(ctx context.Context, action, name string, opts Ins
 		return nil, common.WithExitCode(fmt.Errorf("%s: entry %q not found", action, name), common.ExitObject)
 	}
 	if entry.Status != common.StatusActive {
-		return nil, common.WithExitCode(fmt.Errorf("%s: entry %q is %s; only active entries can be %sd", action, name, entry.Status, action), common.ExitObject)
+		return nil, common.WithExitCode(fmt.Errorf("%s: entry %q is %s; only active entries can be %sed", action, name, entry.Status, action), common.ExitObject)
 	}
 	targets, err := s.selectTargets(entry, opts.Targets)
 	if err != nil {

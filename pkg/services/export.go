@@ -67,6 +67,19 @@ func (s *Services) repoOrigin() string {
 	return strings.TrimSpace(string(out))
 }
 
+// repoBranch returns the repository's current branch name, or "".
+func (s *Services) repoBranch() string {
+	out, err := exec.Command("git", "-C", s.Cfg.Root, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" {
+		return "" // detached HEAD carries no stable ref a recipient can re-fetch
+	}
+	return branch
+}
+
 func sortedKeys(set map[string]bool) []string {
 	out := make([]string, 0, len(set))
 	for k := range set {
