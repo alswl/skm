@@ -1,3 +1,12 @@
+## [0.4.1] - 2026-09-24
+
+### 🚀 Features
+
+- Register a target plugin's target on plugin add
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.4.0-dev
 ## [0.4.0] - 2026-09-24
 
 ### 🚀 Features
@@ -14,6 +23,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.3.1-dev
+- Bump version to v0.4.0
 ## [0.3.1] - 2026-09-15
 
 ### 🚀 Features
