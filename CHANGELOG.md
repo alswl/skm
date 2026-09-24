@@ -1,3 +1,10 @@
+## [0.4.2] - 2026-09-24
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.4.1-dev
+- Use the CHANGELOG section as the release description
+- Span the release notes from the last published release
 ## [0.4.1] - 2026-09-24
 
 ### 🚀 Features
@@ -7,6 +14,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.4.0-dev
+- Bump version to v0.4.1
 ## [0.4.0] - 2026-09-24
 
 ### 🚀 Features
