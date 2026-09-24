@@ -8,11 +8,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBackupCreateReportsIDAndPath(t *testing.T) {
+func TestBackupCreateReportsPath(t *testing.T) {
 	root, cfgDir := cmdFixture(t)
 	out, err := runCmd(t, "backup", "create", "--root", root, "--config", cfgDir)
 	require.NoError(t, err)
 	require.Contains(t, out, "created backup")
+}
+
+func TestBackupRoundTripsThroughAGivenFile(t *testing.T) {
+	root, cfgDir := cmdFixture(t)
+	dest := filepath.Join(t.TempDir(), "my-backup.json")
+
+	out, err := runCmd(t, "backup", "create", dest, "--root", root, "--config", cfgDir)
+	require.NoError(t, err)
+	require.Contains(t, out, dest)
+	require.FileExists(t, dest)
+
+	_, err = runCmd(t, "backup", "restore", dest, "--root", root, "--config", cfgDir)
+	require.NoError(t, err)
 }
 
 func TestBackupRestoreReinstallsWithoutRecreatingRemovedContent(t *testing.T) {

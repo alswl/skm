@@ -52,7 +52,6 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	flagRoot, flagConfig = "", ""
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false
 	flagNoStrict = false
-	backupRestoreID = ""
 	normalizeFlags.provider = "local"
 	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
