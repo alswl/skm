@@ -67,7 +67,11 @@ directory. skm discovers it, lists it, validates it, and routes imports/updates 
 any built-in.
 
 1. Build (or copy) an executable implementing the protocol below.
-2. Make it executable (`chmod +x`) and place it under `<plugin dir>/providers/`.
+2. Make it executable (`chmod +x`) and place it under `<plugin dir>/providers/` — or let skm link
+   it there: `skm plugin add <path> --kind provider` (the `--kind` is inferred when the file
+   already sits in a `providers/` or `targets/` directory). `skm plugin list` shows what is
+   installed, including a link whose source has gone away; `skm plugin remove <name>` unlinks one
+   again, leaving your own file untouched.
 3. Confirm it loaded: `skm provider list --json` (or the human table without `--json`).
 4. If it didn't load, `skm provider list`/`validate` shows the specific reason — see
    [Isolation & diagnostics](#isolation--diagnostics) below.

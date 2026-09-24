@@ -157,6 +157,15 @@ hung is isolated and never takes skm down or blocks the others:
 └── targets/     # how assets get installed
 ```
 
+Install one instead of symlinking it by hand — `add` links the executable, so edits in your own
+checkout take effect immediately:
+
+```bash
+skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills   # kind read from providers/
+skm plugin add ~/bin/my-target --kind target --name codefuse
+skm plugin list && skm plugin remove codefuse
+```
+
 ```bash
 skm target add --name my-tool --platform mytool --path ~/.mytool/skills \
   --accepts skill --strategy skill=skill-symlink

@@ -115,6 +115,14 @@ skm status code-review
 └── targets/     # 怎么安装资产
 ```
 
+不用手工 symlink——`add` 是软链，改了你自己 checkout 里的插件立刻生效：
+
+```bash
+skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills   # kind 从 providers/ 推断
+skm plugin add ~/bin/my-target --kind target --name codefuse
+skm plugin list && skm plugin remove codefuse
+```
+
 ```bash
 skm target add --name my-tool --platform mytool --path ~/.mytool/skills \
   --accepts skill --strategy skill=skill-symlink

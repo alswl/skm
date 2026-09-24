@@ -53,6 +53,7 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false
 	flagNoStrict = false
 	normalizeFlags.provider = "local"
+	pluginKind, pluginName = "", ""
 	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
