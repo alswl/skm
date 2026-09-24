@@ -19,6 +19,13 @@ immediately.`,
 var pluginAddCmd = &cobra.Command{
 	Use:   "add <path>",
 	Short: "Link a local plugin executable into the plugin directory",
+	Long: `Link a local plugin executable into the plugin directory.
+
+A target plugin is an install strategy, not a target: linking it alone adds
+nothing to ` + "`skm target list`" + `. When the plugin declares a target_path in its
+capability answer, the matching target is registered in config.yaml here (and
+updated with --force); otherwise the ` + "`skm target add`" + ` command to run is
+printed.`,
 	Example: `  skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills
   skm plugin add ~/bin/my-target --kind target --name codefuse`,
 	Args: cobra.ExactArgs(1),
@@ -35,6 +42,12 @@ var pluginAddCmd = &cobra.Command{
 			return printJSON(cmd, map[string]any{"added": info, "success": true})
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "added %s %s -> %s\n", info.Kind, info.Path, info.Source)
+		if info.Target != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "registered target %s -> %s\n", info.Target.Name, info.Target.Path)
+		}
+		if info.Hint != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\n", info.Hint)
+		}
 		return nil
 	},
 }

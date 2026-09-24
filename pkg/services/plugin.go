@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/plugins"
@@ -21,6 +22,13 @@ type PluginInfo struct {
 	// Broken marks a link whose destination is gone or not executable — the
 	// plugin silently stops loading otherwise.
 	Broken bool `json:"broken"`
+	// Target is the config.yaml target `plugin add` registered for a target
+	// plugin that declares a target_path in its capability; nil when nothing
+	// was registered.
+	Target *common.InstallTarget `json:"target,omitempty"`
+	// Hint explains what is still missing when a target plugin was linked but
+	// no target could be registered from it — linking alone installs nothing.
+	Hint string `json:"hint,omitempty"`
 }
 
 // PluginListResult is the CLI JSON report for `skm plugin list`.
@@ -90,7 +98,112 @@ func (s *Services) PluginAdd(source, kind, name string, force bool) (*PluginInfo
 	if err := os.Symlink(abs, dest); err != nil {
 		return nil, common.WithExitCode(fmt.Errorf("plugin add: %w", err), common.ExitError)
 	}
-	return &PluginInfo{Name: name, Kind: kind, Path: dest, Source: abs, Broken: false}, nil
+	info := &PluginInfo{Name: name, Kind: kind, Path: dest, Source: abs, Broken: false}
+	if kind == "target" {
+		s.registerPluginTarget(info, dest, force)
+	}
+	return info, nil
+}
+
+// registerPluginTarget turns a freshly linked target plugin into a usable
+// target. A target plugin is an install strategy, not a target: without a
+// config.yaml entry referencing it as plugin:<id>, linking it changes nothing
+// visible (`target list` stays as it was) — the trap a fresh machine falls
+// into. When the plugin declares a target_path in its capability, the entry
+// is written here; otherwise info.Hint names the `target add` to run.
+func (s *Services) registerPluginTarget(info *PluginInfo, path string, force bool) {
+	plugin, err := NewTargetPlugin(path)
+	if err != nil {
+		info.Hint = fmt.Sprintf("linked, but the plugin did not load: %v", err)
+		return
+	}
+	cap := plugin.Capability()
+	kinds := cap.Kinds
+	if cap.TargetPath == "" || len(kinds) == 0 {
+		info.Hint = fmt.Sprintf("a target plugin is an install strategy, not a target — register one that uses it:\n"+
+			"  skm target add --name %s --path <install dir> --accepts %s%s",
+			cap.ID, kindsList(kinds), strategyFlags(kinds, cap.ID))
+		return
+	}
+
+	target := common.InstallTarget{
+		Name: cap.ID, Platform: cap.ID, Path: cap.TargetPath, Accepts: kinds,
+		Strategies: make(map[common.EntryKind]common.InstallStrategy, len(kinds)),
+	}
+	for _, k := range kinds {
+		target.Strategies[k] = common.PluginStrategy(cap.ID)
+	}
+
+	registered, err := s.registerTarget(target, force)
+	switch {
+	case err != nil:
+		info.Hint = fmt.Sprintf("linked, but registering target %q failed: %v", cap.ID, err)
+	case registered == nil:
+		info.Hint = fmt.Sprintf("target %q already exists and was left as it is; pass --force to update it to what the plugin declares", cap.ID)
+	default:
+		info.Target = registered
+	}
+}
+
+// registerTarget adds target, or updates the existing entry of that name when
+// force is set — re-linking a plugin on a machine that already has its target
+// must not fail, and --force is the user asking for the stored entry to match
+// what the plugin now declares. An existing entry left untouched returns
+// (nil, nil): nothing was written, so nothing may be reported as registered.
+func (s *Services) registerTarget(target common.InstallTarget, force bool) (*common.InstallTarget, error) {
+	exists := false
+	for _, t := range s.Cfg.Targets {
+		if t.Name == target.Name {
+			exists = true
+			break
+		}
+	}
+	var (
+		stored common.InstallTarget
+		err    error
+	)
+	switch {
+	case !exists:
+		stored, err = s.TargetAdd(target)
+	case !force:
+		return nil, nil
+	default:
+		stored, err = s.TargetUpdate(target.Name, func(t *common.InstallTarget) {
+			t.Path, t.Accepts, t.Strategies = target.Path, target.Accepts, target.Strategies
+		})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &stored, nil
+}
+
+// hintKinds is the kind list the hint's example command uses: what the plugin
+// declared, or skill when it declared nothing.
+func hintKinds(kinds []common.EntryKind) []common.EntryKind {
+	if len(kinds) == 0 {
+		return []common.EntryKind{common.KindSkill}
+	}
+	return kinds
+}
+
+// kindsList renders kinds as the comma-separated --accepts value.
+func kindsList(kinds []common.EntryKind) string {
+	parts := make([]string, 0, len(kinds))
+	for _, k := range hintKinds(kinds) {
+		parts = append(parts, string(k))
+	}
+	return strings.Join(parts, ",")
+}
+
+// strategyFlags renders one --strategy flag per accepted kind, since every
+// accepted kind needs its own strategy for the target to validate.
+func strategyFlags(kinds []common.EntryKind, id string) string {
+	var b strings.Builder
+	for _, k := range hintKinds(kinds) {
+		fmt.Fprintf(&b, " --strategy %s=plugin:%s", k, id)
+	}
+	return b.String()
 }
 
 // PluginList reports the plugins installed in the managed plugin directory,

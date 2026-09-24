@@ -122,3 +122,70 @@ func TestPluginListReportsBrokenLink(t *testing.T) {
 	require.Len(t, listRep.Plugins, 1)
 	require.True(t, listRep.Plugins[0].Broken)
 }
+
+// writeTargetPluginFile creates an executable target-plugin stub at
+// <dir>/<rel> whose capability answer carries capability (a JSON object body
+// without braces), so a test can vary what the plugin declares.
+func writeTargetPluginFile(t *testing.T, dir, rel, id, capability string) string {
+	t.Helper()
+	p := filepath.Join(dir, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+	script := "#!/bin/sh\nread -r line\ncase \"$line\" in\n" +
+		"  *capability*) echo '{" + capability + "}';;\n" +
+		"  *) echo '{\"id\":\"" + id + "\",\"protocol_version\":2}';;\n" +
+		"esac\n"
+	require.NoError(t, os.WriteFile(p, []byte(script), 0o755))
+	return p
+}
+
+func TestPluginAddRegistersDeclaredTarget(t *testing.T) {
+	pluginHome(t)
+	cfgDir := t.TempDir()
+	installDir := filepath.Join(t.TempDir(), "codefuse-skills")
+	src := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/codefuse", "codefuse",
+		`"kinds":["skill"],"target_path":"`+installDir+`"`)
+
+	out, err := runCmd(t, "plugin", "add", src, "--config", cfgDir, "--json")
+	require.NoError(t, err)
+	var addRep struct {
+		Added services.PluginInfo `json:"added"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &addRep))
+	require.NotNil(t, addRep.Added.Target, "a declared target_path must register a target")
+	require.Equal(t, "codefuse", addRep.Added.Target.Name)
+	require.Equal(t, installDir, addRep.Added.Target.Path)
+	require.Empty(t, addRep.Added.Hint)
+
+	// The target is persisted, so a later invocation sees it too.
+	out, err = runCmd(t, "target", "list", "--config", cfgDir, "--json")
+	require.NoError(t, err)
+	require.Contains(t, out, `"plugin:codefuse"`)
+
+	// Re-linking with --force updates the stored entry to what the plugin now
+	// declares instead of failing on the existing target.
+	moved := filepath.Join(t.TempDir(), "moved")
+	src2 := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/codefuse", "codefuse",
+		`"kinds":["skill"],"target_path":"`+moved+`"`)
+	_, err = runCmd(t, "plugin", "add", src2, "--config", cfgDir, "--force", "--json")
+	require.NoError(t, err)
+	out, err = runCmd(t, "target", "list", "--config", cfgDir, "--json")
+	require.NoError(t, err)
+	require.Contains(t, out, moved)
+}
+
+func TestPluginAddHintsWhenTargetPluginDeclaresNoPath(t *testing.T) {
+	pluginHome(t)
+	cfgDir := t.TempDir()
+	src := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/nopath", "nopath", `"kinds":["skill","command"]`)
+
+	out, err := runCmd(t, "plugin", "add", src, "--config", cfgDir, "--json")
+	require.NoError(t, err)
+	var addRep struct {
+		Added services.PluginInfo `json:"added"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &addRep))
+	require.Nil(t, addRep.Added.Target)
+	require.Contains(t, addRep.Added.Hint, "skm target add --name nopath")
+	require.Contains(t, addRep.Added.Hint, "--strategy skill=plugin:nopath")
+	require.Contains(t, addRep.Added.Hint, "--strategy command=plugin:nopath")
+}

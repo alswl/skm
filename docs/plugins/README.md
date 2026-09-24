@@ -204,13 +204,28 @@ skm target add --name my-tool --path ~/.my-tool/skills \
 ```
 
 1. Build (or copy) an executable implementing the protocol below.
-2. Make it executable (`chmod +x`) and place it under `<plugin dir>/targets/`.
+2. Make it executable (`chmod +x`) and place it under `<plugin dir>/targets/` — or let
+   skm link it there: `skm plugin add <path>`.
 3. Confirm it loaded: `skm target plugin list --json` (or the human table without
    `--json`).
 4. Point a target's strategy at it: `--strategy <kind>=plugin:<id>` on `target add`/
    `target update`, or select it from the strategy picker in the TUI target editor.
+   **A plugin that declares `target_path` in its `capability` answer skips this step**:
+   `skm plugin add` registers the target itself (see below), which is what makes a
+   fresh machine work from the plugin alone.
 5. If it didn't load, or a target references it incoherently, `skm target validate`
    reports the specific reason.
+
+#### Linking a plugin is not the same as having a target
+
+A Target plugin is an *install strategy*, not a target: with no `config.yaml` entry
+referencing it as `plugin:<id>`, linking it changes nothing you can install to —
+`skm target plugin list` shows it, `skm target list` does not. To close that gap, declare
+`target_path` in `capability`; `skm plugin add` then writes the target entry for you
+(name and platform = your `id`, `accepts` = your `kinds`, each kind's strategy =
+`plugin:<id>`), and `--force` updates an existing entry of that name to match what the
+plugin now declares. A plugin that declares no `target_path` is still linked — `plugin
+add` just prints the `skm target add` command you need to run.
 
 ### Protocol
 
@@ -321,8 +336,13 @@ strategy actually matches a kind you support.
 
 ```jsonc
 // request:  {"action":"capability"}
-// response: {"description":"Installs into My Tool's own skills layout","kinds":["skill"]}
+// response: {"description":"Installs into My Tool's own skills layout","kinds":["skill"],
+//            "target_path":"~/.my-tool/skills"}
 ```
+
+`target_path` is optional and is the install directory your tool reads from (a leading
+`~/` is expanded). Declaring it lets `skm plugin add` register the matching target, so
+installing your plugin on a new machine is one command instead of two.
 
 Omitting `kinds` (or answering with an empty list) is treated as "supports any kind" —
 the same permissive fallback a Provider's missing `capability` gets.

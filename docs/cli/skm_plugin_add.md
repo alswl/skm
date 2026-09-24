@@ -2,6 +2,16 @@
 
 Link a local plugin executable into the plugin directory
 
+### Synopsis
+
+Link a local plugin executable into the plugin directory.
+
+A target plugin is an install strategy, not a target: linking it alone adds
+nothing to `skm target list`. When the plugin declares a target_path in its
+capability answer, the matching target is registered in config.yaml here (and
+updated with --force); otherwise the `skm target add` command to run is
+printed.
+
 ```
 skm plugin add <path> [flags]
 ```

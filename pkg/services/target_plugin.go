@@ -54,6 +54,11 @@ type TargetPluginCapability struct {
 	Label       string
 	Description string
 	Kinds       []common.EntryKind
+	// TargetPath is the install directory the plugin's tool uses, declared so
+	// `skm plugin add` can register a target for the plugin instead of
+	// leaving the user to write the config.yaml entry by hand. Empty when the
+	// plugin doesn't declare one.
+	TargetPath string
 }
 
 // PluginLoadFailure records why a Target plugin failed to load during
@@ -90,6 +95,7 @@ type targetPluginResponse struct {
 	Label           string                      `json:"label,omitempty"`
 	Description     string                      `json:"description,omitempty"`
 	Kinds           []common.EntryKind          `json:"kinds,omitempty"`
+	TargetPath      string                      `json:"target_path,omitempty"`
 	Result          *bool                       `json:"result,omitempty"`
 	Path            string                      `json:"path,omitempty"`
 	State           string                      `json:"state,omitempty"`
@@ -128,7 +134,7 @@ func (p *TargetPlugin) Capability() TargetPluginCapability {
 	if err != nil || resp.Error != nil {
 		return TargetPluginCapability{ID: p.ID(), Label: p.Label()}
 	}
-	cap := TargetPluginCapability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Kinds: resp.Kinds}
+	cap := TargetPluginCapability{ID: p.ID(), Label: p.Label(), Description: resp.Description, Kinds: resp.Kinds, TargetPath: resp.TargetPath}
 	if resp.ID != "" {
 		cap.ID = resp.ID
 	}
