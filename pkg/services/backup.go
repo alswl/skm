@@ -17,7 +17,6 @@ import (
 
 // BackupCreateResult is the CLI/TUI-facing result of `backup create`.
 type BackupCreateResult struct {
-	ID      string   `json:"id"`
 	Path    string   `json:"path"`
 	Entries []string `json:"entries"`
 }
@@ -30,7 +29,7 @@ type BackupRestoreItemResult struct {
 }
 
 type BackupRestoreResult struct {
-	ID      string                    `json:"id"`
+	Path    string                    `json:"path"`
 	Items   []BackupRestoreItemResult `json:"items"`
 	Success bool                      `json:"success"`
 }
@@ -50,7 +49,6 @@ type backupEntryInstall struct {
 // source of truth for that; restoring content is that system's job, not
 // backup's.
 type backupDocument struct {
-	ID        string               `json:"id"`
 	CreatedAt time.Time            `json:"created_at"`
 	Entries   []string             `json:"entries"`
 	Roots     []string             `json:"roots"`
@@ -61,15 +59,19 @@ func (s *Services) backupsDir() string {
 	return filepath.Join(s.Cfg.ConfigDir, "backups")
 }
 
-func (s *Services) backupPath(id string) string {
-	return filepath.Join(s.backupsDir(), id+backupFileSuffix)
+// defaultBackupPath names a new backup after the moment it was taken; the
+// caller may pass any path instead.
+func (s *Services) defaultBackupPath() string {
+	return filepath.Join(s.backupsDir(), time.Now().UTC().Format("20060102T150405Z")+backupFileSuffix)
 }
 
 // CreateBackup never produces or consumes a share payload; backup and share
 // are deliberately separate local vs. cross-user mechanisms (research.md #5).
-func (s *Services) CreateBackup(_ context.Context) (*BackupCreateResult, error) {
-	id := time.Now().UTC().Format("20060102T150405Z")
-	doc := backupDocument{ID: id, CreatedAt: time.Now().UTC()}
+func (s *Services) CreateBackup(_ context.Context, dest string) (*BackupCreateResult, error) {
+	if dest == "" {
+		dest = s.defaultBackupPath()
+	}
+	doc := backupDocument{CreatedAt: time.Now().UTC()}
 
 	for _, top := range []string{"skills", "commands"} {
 		src := filepath.Join(s.Cfg.Root, top)
@@ -103,42 +105,41 @@ func (s *Services) CreateBackup(_ context.Context) (*BackupCreateResult, error) 
 		}
 	}
 
-	dest := s.backupPath(id)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return nil, common.WithExitCode(fmt.Errorf("backup: %w", err), common.ExitError)
 	}
 	if err := writeBackupDocument(dest, doc); err != nil {
 		return nil, common.WithExitCode(fmt.Errorf("backup: %w", err), common.ExitError)
 	}
-	return &BackupCreateResult{ID: id, Path: dest, Entries: doc.Entries}, nil
+	return &BackupCreateResult{Path: dest, Entries: doc.Entries}, nil
 }
 
 // RestoreBackup reinstalls every backed-up entry that still exists in the
 // repository to whichever of its previously-installed targets still exist
 // and still accept it. It never recreates an entry's content — backup
 // carries no file bytes — so an entry that no longer exists is reported as
-// failed rather than restored.
-func (s *Services) RestoreBackup(ctx context.Context, id string) (*BackupRestoreResult, error) {
-	if id == "" {
-		latest, err := s.latestBackupID()
+// failed rather than restored. force authorizes reinstalling over whatever
+// occupies a target path now.
+func (s *Services) RestoreBackup(ctx context.Context, src string, force bool) (*BackupRestoreResult, error) {
+	if src == "" {
+		latest, err := s.latestBackupPath()
 		if err != nil {
 			return nil, err
 		}
-		id = latest
+		src = latest
 	}
-	src := s.backupPath(id)
 	if !dal.PathExists(src) {
-		return nil, common.WithExitCode(fmt.Errorf("backup: %q not found", id), common.ExitObject)
+		return nil, common.WithExitCode(fmt.Errorf("backup: %q not found", src), common.ExitObject)
 	}
 	doc, err := readBackupDocument(src)
 	if err != nil {
 		return nil, common.WithExitCode(fmt.Errorf("backup: %w", err), common.ExitError)
 	}
 	if len(doc.Roots) == 0 {
-		return nil, common.WithExitCode(fmt.Errorf("backup: %q contains no entries", id), common.ExitObject)
+		return nil, common.WithExitCode(fmt.Errorf("backup: %q contains no entries", src), common.ExitObject)
 	}
 
-	result := &BackupRestoreResult{ID: id, Items: make([]BackupRestoreItemResult, 0, len(doc.Roots)), Success: true}
+	result := &BackupRestoreResult{Path: src, Items: make([]BackupRestoreItemResult, 0, len(doc.Roots)), Success: true}
 	for _, root := range doc.Roots {
 		item := BackupRestoreItemResult{Path: root}
 		entry, err := s.ResolveEntry(root)
@@ -149,28 +150,38 @@ func (s *Services) RestoreBackup(ctx context.Context, id string) (*BackupRestore
 			continue
 		}
 		item.Status = "restored"
-		item.Results, item.Reason = s.reinstallBackupEntry(ctx, root, installTargetsFor(doc.Installs, root))
+		item.Results, item.Reason = s.reinstallBackupEntry(ctx, root, installTargetsFor(doc.Installs, root), force)
 		result.Items = append(result.Items, item)
 	}
 	return result, nil
 }
 
-func (s *Services) latestBackupID() (string, error) {
+// latestBackupPath picks the most recently written backup in the default
+// directory. It sorts by modification time rather than by name, because a
+// backup written to a caller-chosen path need not be named after its time.
+func (s *Services) latestBackupPath() (string, error) {
 	entries, err := os.ReadDir(s.backupsDir())
 	if err != nil {
 		return "", common.WithExitCode(fmt.Errorf("backup: no backups found"), common.ExitObject)
 	}
-	var ids []string
+	var newest string
+	var newestAt time.Time
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), backupFileSuffix) {
-			ids = append(ids, strings.TrimSuffix(e.Name(), backupFileSuffix))
+		if e.IsDir() || !strings.HasSuffix(e.Name(), backupFileSuffix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if newest == "" || info.ModTime().After(newestAt) {
+			newest, newestAt = filepath.Join(s.backupsDir(), e.Name()), info.ModTime()
 		}
 	}
-	if len(ids) == 0 {
+	if newest == "" {
 		return "", common.WithExitCode(fmt.Errorf("backup: no backups found"), common.ExitObject)
 	}
-	sort.Strings(ids) // the timestamp id format sorts lexicographically = chronologically
-	return ids[len(ids)-1], nil
+	return newest, nil
 }
 
 // collectBackupRoots walks src (an absolute path under root) and returns the
@@ -212,7 +223,7 @@ func installTargetsFor(installs []backupEntryInstall, root string) []string {
 // recorded targets still exist and still accept it. A target that was
 // removed or reconfigured since the backup was taken is silently dropped
 // rather than failing the whole reinstall.
-func (s *Services) reinstallBackupEntry(ctx context.Context, root string, targets []string) ([]common.InstallReport, string) {
+func (s *Services) reinstallBackupEntry(ctx context.Context, root string, targets []string, force bool) ([]common.InstallReport, string) {
 	if len(targets) == 0 {
 		return nil, ""
 	}
@@ -231,7 +242,7 @@ func (s *Services) reinstallBackupEntry(ctx context.Context, root string, target
 	if len(valid) == 0 {
 		return nil, ""
 	}
-	installed, err := s.Install(ctx, root, InstallOptions{Targets: valid})
+	installed, err := s.Install(ctx, root, InstallOptions{Targets: valid, Force: force})
 	if err != nil {
 		return nil, "restored; reinstalling to its prior targets failed: " + err.Error()
 	}

@@ -7,44 +7,44 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var backupRestoreID string
-
 var backupCmd = &cobra.Command{
 	Use:   "backup",
 	Short: "Back up and restore local repository state (not for sharing)",
 }
 
 var backupCreateCmd = &cobra.Command{
-	Use:   "create",
+	Use:   "create [file]",
 	Short: "Create a local snapshot of the current repository state",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	Long:  "Create a local snapshot of the current repository state.\n\nWrites to the given file, or to a timestamped file under the config directory when none is given.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)
 		if err != nil {
 			return err
 		}
-		result, err := svc.CreateBackup(cmd.Context())
+		result, err := svc.CreateBackup(cmd.Context(), firstArg(args))
 		if err != nil {
 			return err
 		}
 		if flagJSON {
 			return printJSON(cmd, result)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "created backup %q (%s)\n", result.ID, result.Path)
+		fmt.Fprintf(cmd.OutOrStdout(), "created backup %s\n", result.Path)
 		return nil
 	},
 }
 
 var backupRestoreCmd = &cobra.Command{
-	Use:   "restore",
-	Short: "Restore entries from a local backup (defaults to the most recent)",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	Use:   "restore [file]",
+	Short: "Restore entries from a local backup file (defaults to the most recent)",
+	Long:  "Restore entries from a local backup file (defaults to the most recent).\n\nPass --force to reinstall over whatever occupies a target path now.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)
 		if err != nil {
 			return err
 		}
-		result, err := svc.RestoreBackup(cmd.Context(), backupRestoreID)
+		result, err := svc.RestoreBackup(cmd.Context(), firstArg(args), flagForce)
 		if err != nil {
 			return err
 		}
@@ -71,8 +71,14 @@ var backupRestoreCmd = &cobra.Command{
 	},
 }
 
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
+}
+
 func init() {
-	backupRestoreCmd.Flags().StringVar(&backupRestoreID, "id", "", "backup id to restore (default: most recent)")
 	backupCmd.AddCommand(backupCreateCmd, backupRestoreCmd)
 	rootCmd.AddCommand(backupCmd)
 }

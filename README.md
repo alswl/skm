@@ -114,7 +114,13 @@ skm import ./my-skill --kind skill
 skm install code-review --target codex
 skm list
 skm status code-review
+skm backup create
+skm backup restore --force
 ```
+
+`backup create` snapshots which entries exist and where each one is installed; `backup restore`
+puts them back on those targets. It stores no file content — your repo is the source of truth for
+that — and `--force` lets the reinstall overwrite whatever occupies an install path now.
 
 Then `git init && git commit` the repository and you're done — your skills are now versioned,
 portable, and installed in every tool at once.
@@ -157,6 +163,15 @@ hung is isolated and never takes skm down or blocks the others:
 └── targets/     # how assets get installed
 ```
 
+Install one instead of symlinking it by hand — `add` links the executable, so edits in your own
+checkout take effect immediately:
+
+```bash
+skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills   # kind read from providers/
+skm plugin add ~/bin/my-target --kind target --name codefuse
+skm plugin list && skm plugin remove codefuse
+```
+
 ```bash
 skm target add --name my-tool --platform mytool --path ~/.mytool/skills \
   --accepts skill --strategy skill=skill-symlink
@@ -168,8 +183,9 @@ Protocol, error codes, and working templates: [docs/plugins/README.md](docs/plug
 
 ## 📚 Docs & development
 
-Full command reference: [docs/cli](docs/cli/) — or `skm <command> --help` for anything. Build from
-source instead of installing a release:
+Full command reference: [docs/cli](docs/cli/) — or `skm <command> --help` for anything. Driving skm
+from a coding agent? [skill/SKILL.md](skill/SKILL.md) is a ready-made skill for that — install it
+with `skm import ./skill`. Build from source instead of installing a release:
 
 ```bash
 git clone git@github.com:alswl/skm.git && cd skm && make build && make install
