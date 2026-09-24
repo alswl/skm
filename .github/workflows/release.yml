@@ -52,22 +52,36 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum *.tar.gz > checksums.txt
-      # The release description is this version's CHANGELOG.md section (written
-      # by `make bump-*` via git-cliff, committed on the tagged commit), not
-      # only GitHub's generated commit list. A tag with no matching section
-      # leaves the body empty, which the generated notes below still fill.
+      # The release description is CHANGELOG.md (written by `make bump-*` via
+      # git-cliff, committed on the tagged commit), not only GitHub's generated
+      # commit list. It spans every version since the last *published* release
+      # rather than only this tag's section: a release left as a draft (this
+      # job's default) is invisible to users, so its changes would otherwise
+      # never appear in any published release.
       - name: Release notes from CHANGELOG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { found = 1; next }
-            found && /^## \[/ { exit }
+          # /releases/latest ignores drafts and prereleases, which is exactly
+          # the "last version the public actually saw" this range starts from.
+          # No published release at all (404) leaves prev empty, and the whole
+          # changelog is then the honest answer.
+          prev_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || true)"
+          echo "previous published release: ${prev_tag:-<none>}"
+          echo "prev_tag=${prev_tag}" >> "$GITHUB_OUTPUT"
+          awk -v v="${GITHUB_REF_NAME#v}" -v prev="${prev_tag#v}" '
+            $0 ~ "^## \\[" v "\\]" { found = 1 }
+            found && prev != "" && $0 ~ "^## \\[" prev "\\]" { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
           cat release-notes.md
+        id: notes
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
           body_path: release-notes.md
           generate_release_notes: true
+          # Same range for the generated commit list below the changelog;
+          # empty falls back to the action's default (the preceding tag).
+          previous_tag: ${{ steps.notes.outputs.prev_tag }}
           files: dist/*
