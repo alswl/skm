@@ -1,3 +1,19 @@
+## [0.4.0] - 2026-09-24
+
+### 🚀 Features
+
+- Job spinner and bounded timeouts; update refreshes installs
+- Add compact skill share install
+- Replace share install with source-address share/apply, add local backup
+- Backup and restore
+
+### 🐛 Bug Fixes
+
+- Skip unshareable entries when sharing
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.3.1-dev
 ## [0.3.1] - 2026-09-15
 
 ### 🚀 Features
@@ -7,6 +23,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.3.0-dev
+- Bump version to v0.3.1
 ## [0.3.0] - 2026-09-10
 
 ### 🐛 Bug Fixes
