@@ -44,6 +44,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -51,8 +52,22 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum *.tar.gz > checksums.txt
+      # The release description is this version's CHANGELOG.md section (written
+      # by `make bump-*` via git-cliff, committed on the tagged commit), not
+      # only GitHub's generated commit list. A tag with no matching section
+      # leaves the body empty, which the generated notes below still fill.
+      - name: Release notes from CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          cat release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
+          body_path: release-notes.md
           generate_release_notes: true
           files: dist/*
