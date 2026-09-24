@@ -114,7 +114,13 @@ skm import ./my-skill --kind skill
 skm install code-review --target codex
 skm list
 skm status code-review
+skm backup create
+skm backup restore --force
 ```
+
+`backup create` snapshots which entries exist and where each one is installed; `backup restore`
+puts them back on those targets. It stores no file content — your repo is the source of truth for
+that — and `--force` lets the reinstall overwrite whatever occupies an install path now.
 
 Then `git init && git commit` the repository and you're done — your skills are now versioned,
 portable, and installed in every tool at once.

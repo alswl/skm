@@ -95,6 +95,18 @@ skm export                      # a quote-safe `skm deploy` line for what's inst
 skm deploy <repo-url>           # clone/pull and batch-install on another machine
 ```
 
+## Backing up a setup
+
+```bash
+skm backup create [file]        # which entries exist + which targets each is installed on
+skm backup restore [file]       # defaults to the most recent backup
+skm backup restore --force      # let the reinstall overwrite an occupied install path
+```
+
+Local only, and content-free: a backup records entry roots and their installs, never file
+bytes, so restoring cannot resurrect an entry deleted from the repo — it reports that one
+as failed. Use git for content, `share` for another user.
+
 ## Gotchas
 
 - The plugin directory follows `$XDG_CONFIG_HOME`/`$HOME` (`~/.config/skm/plugins`),

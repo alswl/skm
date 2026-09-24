@@ -99,7 +99,12 @@ skm import ./my-skill --kind skill
 skm install code-review --target codex
 skm list
 skm status code-review
+skm backup create
+skm backup restore --force
 ```
+
+`backup create` 记录当前有哪些条目、各自装在哪些目标上，`backup restore` 把它们按记录重新装回去。
+它不保存文件内容——内容以你的仓库为准——`--force` 允许重装时覆盖当前占用安装路径的文件。
 
 然后对这个仓库执行 `git init && git commit`，大功告成——你的技能现在被版本化、可迁移，并且已经装
 进了每一个工具。
