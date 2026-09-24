@@ -53,6 +53,8 @@ provider 决定资产从哪里来，target 决定它们装到哪里。两者都�
 | Claude commands | `~/.claude/commands` |
 | Codex | `~/.codex/skills` |
 | pi | `~/.pi/agent/skills` |
+| dsh (deepseek-harness) | `~/.dsh/skills`（或 `$DSH_HOME`/skills） |
+| 共享 agents | `~/.agents/skills`（或 `$DSH_AGENTS_HOME`/skills） |
 | *自定义* | 任意路径，通过 `skm target add` 添加 |
 
 ## 🏁 快速上手
@@ -90,6 +92,12 @@ skm
 底部状态栏始终显示*此刻*能做什么——不可用的操作会变暗，按下去会告诉你原因，而不是悄无声息地什么
 都不做。破坏性操作的确认提示会先说清楚后果。
 
+### 重名条目的寻址方式
+
+条目在仓库中的相对路径就是它的身份。如果两个活跃条目重名，`delete`、`archive`、`install`、`update`
+等命令会拒绝裸名字，并列出候选路径。用其中一个路径重新执行即可，例如
+`skm delete skills/local/mf-cli --force`。TUI 对选中行始终使用这个完整路径。
+
 想用脚本？每个操作都有对应的 CLI 命令：
 
 ```bash
@@ -108,6 +116,32 @@ skm backup restore --force
 
 然后对这个仓库执行 `git init && git commit`，大功告成——你的技能现在被版本化、可迁移，并且已经装
 进了每一个工具。
+
+## ⚙️ 配置
+
+配置项的优先级是 **命令行参数 > 环境变量 > 配置文件 > 默认值**，所以写进文件的任何设置，都仍然可以
+为单次执行临时覆盖。
+
+```yaml
+# ~/.config/skm/config.yaml —— 可选；不写这个文件，一切行为不变
+root: ~/skills           # 等同于 --root；省略则从当前目录向上查找
+plugin_dirs:             # 在默认的 ~/.config/skm/plugins 之后扫描
+  - ~/work/skm-plugins
+targets:                 # 自定义 target，以及对内置 target 的覆盖
+  - name: my-tool
+    path: ~/.mytool/skills
+    accepts: [skill]
+    strategies:
+      skill: skill-symlink
+```
+
+| 配置项 | 参数 | 环境变量 | 说明 |
+| --- | --- | --- | --- |
+| 仓库根目录 | `--root` | `SKM_ROOT` | 未设置时从当前目录向上查找 |
+| 额外插件目录 | —— | `SKM_PLUGINS_DIR` | 系统路径列表（`:` 分隔）；会替换配置文件里的列表 |
+| 配置目录 | `--config` | `XDG_CONFIG_HOME` | 存放 `config.yaml`；默认 `~/.config/skm` |
+
+`--config` 刻意只做命令行参数：配置文件就在配置目录*里面*，因此它无法反过来决定这个目录。
 
 ## 🔌 插件
 
