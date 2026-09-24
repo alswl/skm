@@ -177,8 +177,9 @@ Protocol, error codes, and working templates: [docs/plugins/README.md](docs/plug
 
 ## 📚 Docs & development
 
-Full command reference: [docs/cli](docs/cli/) — or `skm <command> --help` for anything. Build from
-source instead of installing a release:
+Full command reference: [docs/cli](docs/cli/) — or `skm <command> --help` for anything. Driving skm
+from a coding agent? [skill/SKILL.md](skill/SKILL.md) is a ready-made skill for that — install it
+with `skm import ./skill`. Build from source instead of installing a release:
 
 ```bash
 git clone git@github.com:alswl/skm.git && cd skm && make build && make install

@@ -134,7 +134,9 @@ skm target plugin list
 
 ## 📚 文档与开发
 
-完整命令参考：[docs/cli](docs/cli/)——或者对任何命令执行 `skm <command> --help`。想从源码构建：
+完整命令参考：[docs/cli](docs/cli/)——或者对任何命令执行 `skm <command> --help`。想让 coding agent
+来用 skm：[skill/SKILL.md](skill/SKILL.md) 就是为此准备的技能，`skm import ./skill` 装上即可。
+想从源码构建：
 
 ```bash
 git clone git@github.com:alswl/skm.git && cd skm && make build && make install
