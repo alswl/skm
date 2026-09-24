@@ -118,8 +118,9 @@ func (s *Services) CreateBackup(_ context.Context, dest string) (*BackupCreateRe
 // repository to whichever of its previously-installed targets still exist
 // and still accept it. It never recreates an entry's content — backup
 // carries no file bytes — so an entry that no longer exists is reported as
-// failed rather than restored.
-func (s *Services) RestoreBackup(ctx context.Context, src string) (*BackupRestoreResult, error) {
+// failed rather than restored. force authorizes reinstalling over whatever
+// occupies a target path now.
+func (s *Services) RestoreBackup(ctx context.Context, src string, force bool) (*BackupRestoreResult, error) {
 	if src == "" {
 		latest, err := s.latestBackupPath()
 		if err != nil {
@@ -149,7 +150,7 @@ func (s *Services) RestoreBackup(ctx context.Context, src string) (*BackupRestor
 			continue
 		}
 		item.Status = "restored"
-		item.Results, item.Reason = s.reinstallBackupEntry(ctx, root, installTargetsFor(doc.Installs, root))
+		item.Results, item.Reason = s.reinstallBackupEntry(ctx, root, installTargetsFor(doc.Installs, root), force)
 		result.Items = append(result.Items, item)
 	}
 	return result, nil
@@ -222,7 +223,7 @@ func installTargetsFor(installs []backupEntryInstall, root string) []string {
 // recorded targets still exist and still accept it. A target that was
 // removed or reconfigured since the backup was taken is silently dropped
 // rather than failing the whole reinstall.
-func (s *Services) reinstallBackupEntry(ctx context.Context, root string, targets []string) ([]common.InstallReport, string) {
+func (s *Services) reinstallBackupEntry(ctx context.Context, root string, targets []string, force bool) ([]common.InstallReport, string) {
 	if len(targets) == 0 {
 		return nil, ""
 	}
@@ -241,7 +242,7 @@ func (s *Services) reinstallBackupEntry(ctx context.Context, root string, target
 	if len(valid) == 0 {
 		return nil, ""
 	}
-	installed, err := s.Install(ctx, root, InstallOptions{Targets: valid})
+	installed, err := s.Install(ctx, root, InstallOptions{Targets: valid, Force: force})
 	if err != nil {
 		return nil, "restored; reinstalling to its prior targets failed: " + err.Error()
 	}

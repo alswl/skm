@@ -2,6 +2,12 @@
 
 Restore entries from a local backup file (defaults to the most recent)
 
+### Synopsis
+
+Restore entries from a local backup file (defaults to the most recent).
+
+Pass --force to reinstall over whatever occupies a target path now.
+
 ```
 skm backup restore [file] [flags]
 ```

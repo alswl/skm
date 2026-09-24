@@ -37,13 +37,14 @@ var backupCreateCmd = &cobra.Command{
 var backupRestoreCmd = &cobra.Command{
 	Use:   "restore [file]",
 	Short: "Restore entries from a local backup file (defaults to the most recent)",
+	Long:  "Restore entries from a local backup file (defaults to the most recent).\n\nPass --force to reinstall over whatever occupies a target path now.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)
 		if err != nil {
 			return err
 		}
-		result, err := svc.RestoreBackup(cmd.Context(), firstArg(args))
+		result, err := svc.RestoreBackup(cmd.Context(), firstArg(args), flagForce)
 		if err != nil {
 			return err
 		}
