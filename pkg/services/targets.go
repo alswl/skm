@@ -87,7 +87,7 @@ func (s *Services) TargetList() *TargetListResult {
 		defPath, diverged := builtinDefault(defaults, t)
 		res.Targets = append(res.Targets, TargetInfo{
 			Name: t.Name, Platform: t.Platform, Path: t.Path,
-			Accepts: t.EffectiveAccepts(), Strategies: t.Strategies, Builtin: t.Builtin,
+			Accepts: t.EffectiveAccepts(), Strategies: t.EffectiveStrategies(), Builtin: t.Builtin,
 			Valid: true, PathState: config.PathState(t.Path),
 			NameRule: t.NameRule, DefaultPath: defPath, PathDiverged: diverged,
 		})

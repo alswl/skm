@@ -75,9 +75,9 @@ plugin is one executable file speaking line-delimited JSON on stdin/stdout
 
 ```bash
 skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills  # kind read from providers/
-skm plugin add ~/bin/my-target --kind target --name codefuse # otherwise say which kind
+skm plugin add ~/bin/my-target --kind target --name acme-target # otherwise say which kind
 skm plugin list --json                                        # incl. links whose source is gone
-skm plugin remove codefuse [--kind target]
+skm plugin remove acme-target [--kind target]
 ```
 
 `add` **links** the executable into `~/.config/skm/plugins/<kind>s/`, so edits in the

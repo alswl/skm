@@ -114,3 +114,26 @@ func TestTargetListFlagsDivergedBuiltinPath(t *testing.T) {
 	require.True(t, byName["dsh"].PathDiverged, "a built-in path that diverges from the current default is flagged")
 	require.NotEqual(t, byName["dsh"].DefaultPath, byName["dsh"].Path)
 }
+
+// `target list` publishes the effective view the installer acts on: a
+// plugin-backed skill target reports the derived command kind together with the
+// command-adapter that serves it, never accepts without a matching strategy.
+func TestTargetListReportsDerivedCommandStrategyForPluginTarget(t *testing.T) {
+	target := common.InstallTarget{
+		Name: "acme", Platform: "acme", Path: t.TempDir(),
+		Accepts:    []common.EntryKind{common.KindSkill},
+		Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("acme")},
+	}
+	cfg := &config.Config{Root: t.TempDir(), ConfigDir: t.TempDir(), Targets: []common.InstallTarget{target}}
+	svc, err := New(cfg, common.NewLogger(false))
+	require.NoError(t, err)
+
+	info := svc.TargetList().Targets[0]
+	require.Equal(t, []common.EntryKind{common.KindSkill, common.KindCommand}, info.Accepts)
+	require.Equal(t, map[common.EntryKind]common.InstallStrategy{
+		common.KindSkill:   common.PluginStrategy("acme"),
+		common.KindCommand: common.StrategyCommandAdapter,
+	}, info.Strategies)
+	require.Equal(t, map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("acme")},
+		cfg.Targets[0].Strategies, "the stored record keeps only what was declared")
+}

@@ -86,10 +86,10 @@ func TestPluginAddRequiresKindWhenNotInferable(t *testing.T) {
 	_, err := runCmd(t, "plugin", "add", src, "--config", cfgDir, "--json")
 	require.ErrorContains(t, err, "--kind")
 
-	out, err := runCmd(t, "plugin", "add", src, "--kind", "target", "--name", "codefuse", "--config", cfgDir, "--json")
+	out, err := runCmd(t, "plugin", "add", src, "--kind", "target", "--name", "acme-target", "--config", cfgDir, "--json")
 	require.NoError(t, err)
 	require.Contains(t, out, `"kind":"target"`)
-	require.FileExists(t, filepath.Join(pluginDir, "targets", "codefuse"))
+	require.FileExists(t, filepath.Join(pluginDir, "targets", "acme-target"))
 }
 
 func TestPluginAddRejectsNonExecutableAndDirectory(t *testing.T) {
@@ -141,8 +141,8 @@ func writeTargetPluginFile(t *testing.T, dir, rel, id, capability string) string
 func TestPluginAddRegistersDeclaredTarget(t *testing.T) {
 	pluginHome(t)
 	cfgDir := t.TempDir()
-	installDir := filepath.Join(t.TempDir(), "codefuse-skills")
-	src := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/codefuse", "codefuse",
+	installDir := filepath.Join(t.TempDir(), "acme-target-skills")
+	src := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/acme-target", "acme-target",
 		`"kinds":["skill"],"target_path":"`+installDir+`"`)
 
 	out, err := runCmd(t, "plugin", "add", src, "--config", cfgDir, "--json")
@@ -152,19 +152,19 @@ func TestPluginAddRegistersDeclaredTarget(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(out), &addRep))
 	require.NotNil(t, addRep.Added.Target, "a declared target_path must register a target")
-	require.Equal(t, "codefuse", addRep.Added.Target.Name)
+	require.Equal(t, "acme-target", addRep.Added.Target.Name)
 	require.Equal(t, installDir, addRep.Added.Target.Path)
 	require.Empty(t, addRep.Added.Hint)
 
 	// The target is persisted, so a later invocation sees it too.
 	out, err = runCmd(t, "target", "list", "--config", cfgDir, "--json")
 	require.NoError(t, err)
-	require.Contains(t, out, `"plugin:codefuse"`)
+	require.Contains(t, out, `"plugin:acme-target"`)
 
 	// Re-linking with --force updates the stored entry to what the plugin now
 	// declares instead of failing on the existing target.
 	moved := filepath.Join(t.TempDir(), "moved")
-	src2 := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/codefuse", "codefuse",
+	src2 := writeTargetPluginFile(t, t.TempDir(), "plugins/targets/acme-target", "acme-target",
 		`"kinds":["skill"],"target_path":"`+moved+`"`)
 	_, err = runCmd(t, "plugin", "add", src2, "--config", cfgDir, "--force", "--json")
 	require.NoError(t, err)

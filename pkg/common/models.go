@@ -1,6 +1,7 @@
 package common
 
 import (
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -176,6 +177,21 @@ func (t InstallTarget) EffectiveStrategy(kind EntryKind) (strategy InstallStrate
 		return StrategyCommandAdapter, true
 	}
 	return strategy, ok
+}
+
+// EffectiveStrategies returns the strategy per kind the target actually
+// installs through: Strategies as declared, plus the command-adapter
+// EffectiveAccepts derives for a plugin-backed skill target. A reported record
+// built from both never accepts a kind it shows no strategy for.
+func (t InstallTarget) EffectiveStrategies() map[EntryKind]InstallStrategy {
+	out := make(map[EntryKind]InstallStrategy, len(t.Strategies)+1)
+	maps.Copy(out, t.Strategies)
+	for _, kind := range t.EffectiveAccepts() {
+		if strategy, ok := t.EffectiveStrategy(kind); ok {
+			out[kind] = strategy
+		}
+	}
+	return out
 }
 
 // Entry is the central asset — a managed skill or command.
