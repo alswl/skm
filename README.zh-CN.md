@@ -158,9 +158,13 @@ targets:                 # 自定义 target，以及对内置 target 的覆盖
 
 ```bash
 skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills   # kind 从 providers/ 推断
-skm plugin add ~/bin/my-target --kind target --name codefuse
-skm plugin list && skm plugin remove codefuse
+skm plugin add ~/bin/my-target --kind target --name acme-target
+skm plugin list && skm plugin remove acme-target
 ```
+
+对于常规 skill 目录，不需要 target plugin：运行
+`scripts/skm-targets-bootstrap.sh my-tool "$MY_SKILLS_DIR"`，即可注册共享该目录的 skill 和
+command target。只有安装布局或诊断需要自定义行为时才使用 target plugin。
 
 ```bash
 skm target add --name my-tool --platform mytool --path ~/.mytool/skills \

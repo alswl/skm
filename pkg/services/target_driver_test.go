@@ -93,3 +93,29 @@ esac
 	require.NoError(t, err)
 	require.Equal(t, "plugin diff", diff)
 }
+
+func TestInstallerDispatchesPluginInstallAndUninstall(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "actions")
+	path := filepath.Join(dir, "actions.sh")
+	script := "#!/bin/sh\nIFS= read -r line\ncase \"$line\" in\n" +
+		"  *'\"action\":\"id\"'*) echo '{\"id\":\"actions\"}' ;;\n" +
+		"  *'\"action\":\"install\"'*) echo install >> '" + log + "'; echo '{\"result\":true}' ;;\n" +
+		"  *'\"action\":\"uninstall\"'*) echo uninstall >> '" + log + "'; echo '{\"result\":true}' ;;\n" +
+		"  *) echo '{\"error\":{\"code\":\"protocol_error\",\"message\":\"unsupported\"}}' ;;\n esac\n"
+	require.NoError(t, os.WriteFile(path, []byte(script), 0o755))
+	plugin, err := NewTargetPlugin(path)
+	require.NoError(t, err)
+	entry := &common.Entry{Name: "demo", Kind: common.KindSkill, Path: filepath.Join(dir, "source")}
+	target := common.InstallTarget{Name: "actions", Path: filepath.Join(dir, "target"), Accepts: []common.EntryKind{common.KindSkill}, Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.PluginStrategy("actions")}}
+	inst := installer.NewInstaller([]common.InstallTarget{target}, map[string]installer.TargetDriver{"actions": externalTargetDriver{plugin}})
+	changed, err := inst.Install(&dal.FileTransaction{}, entry, target, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	changed, err = inst.Uninstall(&dal.FileTransaction{}, entry, target)
+	require.NoError(t, err)
+	require.True(t, changed)
+	data, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, "install\nuninstall\n", string(data))
+}

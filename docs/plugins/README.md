@@ -192,6 +192,24 @@ need to know the skill's actual path inside the repo.
 
 ## Target plugins
 
+For an ordinary directory layout, use built-in strategies before writing a plugin. The
+bootstrap helper creates a skill-symlink target and a command-adapter target that share
+one directory:
+
+```bash
+scripts/skm-targets-bootstrap.sh my-tool "$MY_SKILLS_DIR" --config "$MY_SKM_CONFIG_DIR"
+```
+
+It only creates the directory and configures targets. Asset installation remains the
+normal installation path and reports any later filesystem permission failure. Use a
+Target plugin when the target needs custom filesystem behavior or diagnostics.
+
+Built-in skill symlinks support the normal source/slot diff, foreign-conflict
+cleanup, and immediate-child broken-link inspection and repair. Command adapters
+use the same conflict cleanup, but do not enumerate orphan wrapper directories and
+their generic diff can include wrapper structure. A plugin may provide its own
+diagnostics, so neither direction promises semantic parity with another strategy.
+
 A **Target** is where skm installs assets to. Three built-in install strategies ship with
 skm — `skill-symlink`, `command-marker`, `command-adapter` — but a tool with a different
 on-disk convention (including a private/internal tool that has no place in skm's own
@@ -226,6 +244,25 @@ referencing it as `plugin:<id>`, linking it changes nothing you can install to �
 `plugin:<id>`), and `--force` updates an existing entry of that name to match what the
 plugin now declares. A plugin that declares no `target_path` is still linked — `plugin
 add` just prints the `skm target add` command you need to run.
+
+#### A plugin-backed skill target also receives commands
+
+One derivation applies on top of what you declared: a target whose **skill** strategy is
+`plugin:<id>` also accepts **commands**, installed through the built-in `command-adapter`.
+It saves a skill plugin from having to declare and implement the command kind, and it is
+the only place skm widens a target beyond its declared kinds — a non-plugin target refuses
+any kind it doesn't list.
+
+So the stored and the reported views of such a target differ on purpose:
+
+| View | `accepts` | `strategies` |
+|---|---|---|
+| `config.yaml` — what you declared | `[skill]` | `skill: plugin:<id>` |
+| `skm target list [--json]` — what installs happen through | `[skill, command]` | `skill: plugin:<id>`, `command: command-adapter` |
+
+Read `config.yaml` to assert what a plugin declared; read `target list --json` to assert
+what the installer will actually do. Declare `command` in your `kinds` explicitly if you
+want your plugin — rather than the command-adapter — to handle commands.
 
 ### Protocol
 

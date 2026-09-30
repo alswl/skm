@@ -121,3 +121,29 @@ func TestEntryKindMarkerFileAndTopDir(t *testing.T) {
 		t.Errorf("KindCommand marker/topdir mismatch: %q/%q", KindCommand.MarkerFile(), KindCommand.TopDir())
 	}
 }
+
+// The reported strategy map mirrors EffectiveAccepts, so a record never accepts
+// a kind it shows no strategy for.
+func TestInstallTargetEffectiveStrategiesCoverEffectiveAccepts(t *testing.T) {
+	plugin := InstallTarget{
+		Accepts:    []EntryKind{KindSkill},
+		Strategies: map[EntryKind]InstallStrategy{KindSkill: PluginStrategy("acme")},
+	}
+	got := plugin.EffectiveStrategies()
+	want := map[EntryKind]InstallStrategy{KindSkill: PluginStrategy("acme"), KindCommand: StrategyCommandAdapter}
+	if len(got) != len(want) {
+		t.Fatalf("plugin skill target strategies: got %v, want %v", got, want)
+	}
+	for kind, strategy := range want {
+		if got[kind] != strategy {
+			t.Errorf("strategy for %s: got %q, want %q", kind, got[kind], strategy)
+		}
+	}
+	builtin := InstallTarget{
+		Accepts:    []EntryKind{KindSkill},
+		Strategies: map[EntryKind]InstallStrategy{KindSkill: StrategySkillSymlink},
+	}
+	if got := builtin.EffectiveStrategies(); len(got) != 1 || got[KindSkill] != StrategySkillSymlink {
+		t.Errorf("non-plugin target strategies: got %v, want just skill=%q", got, StrategySkillSymlink)
+	}
+}

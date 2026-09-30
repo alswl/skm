@@ -168,9 +168,14 @@ checkout take effect immediately:
 
 ```bash
 skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills   # kind read from providers/
-skm plugin add ~/bin/my-target --kind target --name codefuse
-skm plugin list && skm plugin remove codefuse
+skm plugin add ~/bin/my-target --kind target --name acme-target
+skm plugin list && skm plugin remove acme-target
 ```
+
+For a conventional skill directory, no target plugin is needed: run
+`scripts/skm-targets-bootstrap.sh my-tool "$MY_SKILLS_DIR"` to register separate
+skill and command targets that share that directory. Use a target plugin only when
+the installation layout or diagnostics need custom behavior.
 
 ```bash
 skm target add --name my-tool --platform mytool --path ~/.mytool/skills \

@@ -27,7 +27,7 @@ capability answer, the matching target is registered in config.yaml here (and
 updated with --force); otherwise the ` + "`skm target add`" + ` command to run is
 printed.`,
 	Example: `  skm plugin add ~/ws/skills/skm/plugins/providers/ali-skills
-  skm plugin add ~/bin/my-target --kind target --name codefuse`,
+  skm plugin add ~/bin/my-target --kind target --name acme-target`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := deployServicesFor(cmd)
