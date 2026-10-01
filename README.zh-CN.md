@@ -59,7 +59,7 @@ provider 决定资产从哪里来，target 决定它们装到哪里。两者都�
 
 ## 🏁 快速上手
 
-下载对应平台的发布二进制、校验 checksum，并安装到 `PATH` 中第一个可写的目录：
+下载对应平台的发布二进制、校验 checksum，安装到 `~/.local/bin`（可用 `SKM_INSTALL_DIR` 覆盖），并报告 `PATH` 上其它会冲突的 `skm`：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh

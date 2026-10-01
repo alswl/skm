@@ -63,6 +63,9 @@ all: fmt test build
 
 include hack/makefile-go/_git.mk
 include hack/makefile-go/build.mk
+# Same per-user default as install.sh; the shared install.mk would pick
+# /opt/homebrew/bin first.
+INSTALL_DIR ?= $(HOME)/.local/bin
 include hack/makefile-go/install.mk
 include hack/makefile-go/test.mk
 include hack/makefile-go/general.mk

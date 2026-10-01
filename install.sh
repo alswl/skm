@@ -5,8 +5,7 @@
 #
 # Optional environment variables:
 #   SKM_VERSION      install a specific released version instead of the latest (e.g. v0.1.1)
-#   SKM_INSTALL_DIR  install directory (default: first writable dir in /opt/homebrew/bin,
-#                    ~/.local/bin, /usr/local/bin, ~/bin)
+#   SKM_INSTALL_DIR  install directory (default: $XDG_BIN_HOME, else ~/.local/bin)
 #
 # Supported platforms match the release matrix: macOS/Linux on amd64/arm64.
 set -eu
@@ -108,40 +107,56 @@ verify_checksum
 # The tarball holds the binary as skm-<os>-<arch> (see .github/workflows/release.yml).
 tar -xzf "$tmpdir/$asset" -C "$tmpdir" "${PROJECT}-${OS}-${ARCH}" || die "Failed to extract ${asset}."
 
-# Pick the install directory.
-if [ -n "${SKM_INSTALL_DIR:-}" ]; then
-	INSTALL_DIR="$SKM_INSTALL_DIR"
-else
-	INSTALL_DIR=""
-	for d in /opt/homebrew/bin "$HOME/.local/bin" /usr/local/bin "$HOME/bin"; do
-		if [ -d "$d" ] && [ -w "$d" ]; then
-			INSTALL_DIR="$d"
-			break
-		fi
-	done
-fi
-if [ -z "$INSTALL_DIR" ]; then
-	die "No writable install directory found. Pick one explicitly, e.g.
-    SKM_INSTALL_DIR=\"\$HOME/.local/bin\" sh -c 'curl -fsSL ${INSTALL_SCRIPT_URL} | sh'
-  or, for a system-wide install:
+# Pick the install directory: a per-user bin dir, like uv, pipx and mise.
+# Package-manager prefixes (/opt/homebrew/bin, /usr/local/bin) belong to
+# their owners; an unmanaged binary there collides with brew link and needs
+# sudo to replace.
+INSTALL_DIR="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
+mkdir -p "$INSTALL_DIR" || die "Cannot create install directory: ${INSTALL_DIR}. Set SKM_INSTALL_DIR to a writable directory."
+[ -w "$INSTALL_DIR" ] || die "Install directory is not writable: ${INSTALL_DIR}. Set SKM_INSTALL_DIR to a writable directory, or for a system-wide install:
     curl -fsSL ${INSTALL_SCRIPT_URL} -o /tmp/skm-install.sh && sudo SKM_INSTALL_DIR=/usr/local/bin sh /tmp/skm-install.sh"
-fi
-mkdir -p "$INSTALL_DIR"
-[ -w "$INSTALL_DIR" ] || die "Install directory is not writable: ${INSTALL_DIR}. Set SKM_INSTALL_DIR to a writable directory."
 
-install -m 0755 "$tmpdir/${PROJECT}-${OS}-${ARCH}" "$INSTALL_DIR/$PROJECT"
-log "Installed ${PROJECT} ${VERSION} -> ${INSTALL_DIR}/${PROJECT}"
+installed="$INSTALL_DIR/$PROJECT"
+install -m 0755 "$tmpdir/${PROJECT}-${OS}-${ARCH}" "$installed"
+log "Installed ${PROJECT} ${VERSION} -> ${installed}"
+"$installed" version
 
-if [ -x "$INSTALL_DIR/$PROJECT" ]; then
-	"$INSTALL_DIR/$PROJECT" version
-fi
+# Report every other skm on PATH: a copy left by an older install (earlier
+# versions of this script preferred /opt/homebrew/bin and /usr/local/bin), or
+# an unrelated program of the same name (Homebrew's "skm" formula is an SSH
+# key manager). Foreign binaries are identified by our module path rather than
+# executed. Conflicts are only reported, never removed.
+first=""
+conflicts=0
+seen=":"
+old_ifs=$IFS
+IFS=:
+for d in $PATH; do
+	[ -n "$d" ] || continue
+	case "$seen" in *":$d:"*) continue ;; esac
+	seen="$seen$d:"
+	f="$d/$PROJECT"
+	[ -f "$f" ] && [ -x "$f" ] || continue
+	[ -n "$first" ] || first="$f"
+	[ "$f" -ef "$installed" ] && continue
+	conflicts=$((conflicts + 1))
+	if LC_ALL=C grep -aq 'github.com/alswl/skm/skm' "$f" 2>/dev/null; then
+		what="skm $("$f" version 2>/dev/null | awk '{print $2}')"
+	else
+		what="a different program named ${PROJECT}"
+	fi
+	case "$(readlink "$f" 2>/dev/null || true)" in
+		*/Cellar/*) fix="brew uninstall ${PROJECT}" ;;
+		*) fix="rm \"$f\"" ;;
+	esac
+	warn "Conflict: ${f} is ${what}. Remove it with: ${fix}"
+done
+IFS=$old_ifs
 
-case ":${PATH}:" in
-	*":${INSTALL_DIR}:"*) ;;
-	*) warn "${INSTALL_DIR} is not on your PATH. Add: export PATH=\"${INSTALL_DIR}:\$PATH\"";;
-esac
-
-existing="$(command -v "$PROJECT" 2>/dev/null || true)"
-if [ -n "$existing" ] && [ "$existing" != "$INSTALL_DIR/$PROJECT" ]; then
-	warn "'${PROJECT}' currently resolves to '${existing}', which shadows the newly installed binary."
+if [ -z "$first" ]; then
+	warn "${INSTALL_DIR} is not on your PATH. Add to your shell profile: export PATH=\"${INSTALL_DIR}:\$PATH\""
+elif ! [ "$first" -ef "$installed" ]; then
+	warn "'${PROJECT}' resolves to ${first}, which shadows ${installed}. Remove the conflict above, then run 'hash -r'."
+elif [ "$conflicts" -gt 0 ]; then
+	warn "${installed} comes first on PATH; the conflicts above are shadowed but may confuse other shells or tools."
 fi

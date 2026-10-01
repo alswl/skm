@@ -62,8 +62,9 @@ built-ins, and both are pluggable with plain executables — no Go, no rebuildin
 
 ## 🏁 Quick start
 
-Downloads the release binary for your platform, verifies its checksum, and installs it to
-the first writable directory on your `PATH`:
+Downloads the release binary for your platform, verifies its checksum, installs it to
+`~/.local/bin` (override with `SKM_INSTALL_DIR`), and reports any other `skm` on your `PATH`
+that would conflict:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
