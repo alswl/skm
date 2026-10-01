@@ -1,3 +1,12 @@
+## [0.4.4] - 2026-10-01
+
+### 🐛 Bug Fixes
+
+- *(install)* Default to ~/.local/bin and report conflicting skm on PATH
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.4.3-dev
 ## [0.4.3] - 2026-10-01
 
 ### 🚀 Features
@@ -7,6 +16,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.4.2-dev
+- Bump version to v0.4.3
 ## [0.4.2] - 2026-09-24
 
 ### ⚙️ Miscellaneous Tasks
