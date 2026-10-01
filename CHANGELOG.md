@@ -1,3 +1,12 @@
+## [0.4.3] - 2026-10-01
+
+### 🚀 Features
+
+- Plugin upgrade
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.4.2-dev
 ## [0.4.2] - 2026-09-24
 
 ### ⚙️ Miscellaneous Tasks
@@ -5,6 +14,7 @@
 - Prepare next version v0.4.1-dev
 - Use the CHANGELOG section as the release description
 - Span the release notes from the last published release
+- Bump version to v0.4.2
 ## [0.4.1] - 2026-09-24
 
 ### 🚀 Features
