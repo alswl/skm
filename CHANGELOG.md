@@ -1,3 +1,13 @@
+## [0.5.0] - 2026-10-07
+
+### 🚀 Features
+
+- Add local-first deploy workflow
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.4.4-dev
+- Gitignore
 ## [0.4.4] - 2026-10-01
 
 ### 🐛 Bug Fixes
@@ -7,6 +17,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.4.3-dev
+- Bump version to v0.4.4
 ## [0.4.3] - 2026-10-01
 
 ### 🚀 Features
