@@ -1,6 +1,6 @@
 # skm
 
-**本地优先的 AI 编程技能管理：一个个人 Git 仓库，处处同步安装。**
+**本地优先的 AI 编程技能管理：一个个人技能库，按需安装到各个工具。**
 
 [English](README.md) | 简体中文
 
@@ -13,9 +13,9 @@ Claude Code 有 `~/.claude/skills`，Codex 有 `~/.codex/skills`，Pi 又是自�
 AI 编程工具,就多一个技能目录，你精心写好的技能最后被复制粘贴进每一个目录——彼此不同步，重复堆积，
 悄悄腐烂。
 
-`skm` 用**你自己的、本地优先的 Git 仓库**统一管理技能（skills）和命令（commands），并把它们安装到
+`skm` 用**你自己的、本地优先的技能库**统一管理技能（skills）和命令（commands），并把它们安装到
 你用的每一个工具里。已有本地技能可以直接收编；GitHub、GitLab、Skills.sh 和本地文件也都能导入。之后
-一键自动化批量更新，或在 TUI 中浏览、在 CI 里脚本化。
+一键自动化批量更新，或在 TUI 中浏览、在 CI 里脚本化。需要版本管理或同步时，再选择用 Git 管理技能库。
 
 ![skm TUI 演示：初始化、从 skills.sh 和 GitHub 导入、发现并收编未托管的 skill、安装、查看详情](docs/assets/demo.gif)
 
@@ -59,11 +59,13 @@ provider 决定资产从哪里来，target 决定它们装到哪里。两者都�
 
 ## 🏁 快速上手
 
-下载对应平台的发布二进制、校验 checksum，安装到 `~/.local/bin`（可用 `SKM_INSTALL_DIR` 覆盖），并报告 `PATH` 上其它会冲突的 `skm`：
+尚未发布的 deploy 流程上线后，一条命令即可安装 skm、刷新当前 shell 的命令查找，并将 Matt Pocock 的全部 skills 安装到你选择的工具：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh && export PATH="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH" && hash -r && skm deploy --repo https://github.com/mattpocock/skills.git --target codex,claude-skills
 ```
+
+skm 默认安装到 `~/.local/bin`（可用 `SKM_INSTALL_DIR` 覆盖）。deploy 会先创建本地 `./skm/` 技能库，再链接到指定 targets。详见 [deploy 文档](docs/cli/skm_deploy.md)。
 
 ## 🚀 首次运行
 

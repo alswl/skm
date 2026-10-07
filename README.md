@@ -1,6 +1,6 @@
 # skm
 
-**Local-first AI coding-skill management: one personal Git repo, installed everywhere.**
+**Local-first AI coding-skill management: one personal skill library, installed where you choose.**
 
 English | [简体中文](README.zh-CN.md)
 
@@ -13,10 +13,10 @@ Claude Code has `~/.claude/skills`. Codex has `~/.codex/skills`. Pi has its own.
 brings another directory, and your carefully written skills end up copy-pasted into all of them —
 drifting, duplicating, and quietly rotting.
 
-`skm` keeps **your own, local-first Git repository** of skills and commands and installs them into
+`skm` keeps **your own, local-first skill library** of skills and commands and installs them into
 every tool you use. Adopt skills you already have locally, or import from GitHub, GitLab, Skills.sh,
 and local files. Then batch-update them with one automated command, browse them in a TUI, or script
-them in CI.
+them in CI. Git is optional for the library; use it when you want versioning or synchronization.
 
 ![skm TUI demo: init, import from skills.sh and GitHub, discover and adopt an unmanaged skill, install, and inspect it](docs/assets/demo.gif)
 
@@ -62,13 +62,17 @@ built-ins, and both are pluggable with plain executables — no Go, no rebuildin
 
 ## 🏁 Quick start
 
-Downloads the release binary for your platform, verifies its checksum, installs it to
-`~/.local/bin` (override with `SKM_INSTALL_DIR`), and reports any other `skm` on your `PATH`
-that would conflict:
+When the unreleased deploy flow ships, install skm, refresh the current shell's
+command lookup, and install all of Matt Pocock's skills into your selected tools
+with one command:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh && export PATH="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH" && hash -r && skm deploy --repo https://github.com/mattpocock/skills.git --target codex,claude-skills
 ```
+
+skm installs to `~/.local/bin` by default (override with `SKM_INSTALL_DIR`). Deploy
+creates a local `./skm/` library first, then links the selected targets. See the
+[deploy reference](docs/cli/skm_deploy.md) for details.
 
 ## 🚀 First run
 

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
@@ -122,7 +123,32 @@ func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry) (st
 	if err != nil {
 		return "", func() {}, common.WithExitCode(err, common.ExitError)
 	}
-	return tmp, fetchCleanup(p, tmp), nil
+	cleanup := fetchCleanup(p, tmp)
+	if entry.Origin.Subpath != "" {
+		rel := entry.Origin.Subpath
+		if !filepath.IsLocal(rel) {
+			cleanup()
+			return "", func() {}, fmt.Errorf("origin subpath must stay inside fetched source")
+		}
+		root, err := filepath.EvalSymlinks(tmp)
+		var child string
+		if err == nil {
+			child, err = filepath.EvalSymlinks(filepath.Join(root, rel))
+		}
+		if err == nil {
+			var relative string
+			relative, err = filepath.Rel(root, child)
+			if err == nil && !filepath.IsLocal(relative) {
+				err = fmt.Errorf("origin subpath escapes fetched source")
+			}
+		}
+		if err != nil {
+			cleanup()
+			return "", func() {}, err
+		}
+		return child, cleanup, nil
+	}
+	return tmp, cleanup, nil
 }
 
 // FailedUpdate is one batch-update failure: which entry, and why (the error

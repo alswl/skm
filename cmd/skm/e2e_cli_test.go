@@ -257,3 +257,77 @@ func TestE2ECLISingleFileCommandFullLifecycle(t *testing.T) {
 	out, _, code = e2eRun(t, "delete", "flatcmd", "--root", root, "--config", cfgDir, "--force", "--json")
 	require.Equal(t, 0, code, "delete must not crash: %s", out)
 }
+
+func TestE2ECLIDeployDualMode(t *testing.T) {
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "SKM_PLUGINS_DIR", "DSH_HOME", "DSH_AGENTS_HOME"} {
+		dir := filepath.Join(home, key)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		t.Setenv(key, dir)
+	}
+	t.Setenv("SKM_ROOT", "")
+	source := filepath.Join(base, "source with spaces")
+	require.NoError(t, copyTestTree(t, "../../testdata/e2e/repo/skills", source))
+	work := filepath.Join(base, "work")
+	require.NoError(t, os.Mkdir(work, 0o755))
+	cfg := filepath.Join(base, "config")
+	a, b := filepath.Join(base, "a"), filepath.Join(base, "b")
+	writeTestFile(t, cfg, "config.yaml", "targets:\n  - name: test-a\n    path: "+a+"\n    accepts: [skill]\n    strategies: {skill: skill-symlink}\n  - name: test-b\n    path: "+b+"\n    accepts: [skill]\n    strategies: {skill: skill-symlink}\n")
+	binary := e2eBinary(t)
+	run := func(args ...string) (map[string]any, int) {
+		t.Helper()
+		cmd := exec.Command(binary, append([]string{"deploy", "--repo", source, "--config", cfg, "--json"}, args...)...)
+		cmd.Dir = work
+		var out, stderr bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		code := 0
+		if err != nil {
+			var ok bool
+			var ee *exec.ExitError
+			ee, ok = err.(*exec.ExitError)
+			require.True(t, ok, err)
+			code = ee.ExitCode()
+		}
+		return e2eJSON(t, out.String()), code
+	}
+	r, code := run()
+	require.Equal(t, 2, code)
+	require.Equal(t, false, r["success"])
+	require.NoDirExists(t, filepath.Join(work, "skm"))
+	r, code = run("--target", "test-a,test-b", "--dry-run")
+	require.Zero(t, code)
+	require.Equal(t, "planned", r["phase"])
+	require.NoDirExists(t, a)
+	r, code = run("--target", "test-a", "--target", "test-b")
+	require.Zero(t, code)
+	require.Equal(t, true, r["success"])
+	names := r["skills"].([]any)
+	require.Len(t, names, 3)
+	library := filepath.Join(work, "skm")
+	for _, name := range names {
+		for _, target := range []string{a, b} {
+			link, err := filepath.EvalSymlinks(filepath.Join(target, name.(string)))
+			require.NoError(t, err)
+			expected, err := filepath.EvalSymlinks(filepath.Join(library, "skills/local", name.(string)))
+			require.NoError(t, err)
+			require.Equal(t, expected, link)
+		}
+	}
+	_, code = run("--target", "test-a", "--force")
+	require.Equal(t, 1, code)
+	// Direct mode replaces only explicitly selected slots and produces independent directories.
+	r, code = run("--target", "test-a", "--no-repo", "--force")
+	require.Zero(t, code)
+	require.Nil(t, r["destination"])
+	require.NoError(t, os.RemoveAll(source))
+	require.NoError(t, os.RemoveAll(library))
+	for _, name := range names {
+		fi, err := os.Lstat(filepath.Join(a, name.(string)))
+		require.NoError(t, err)
+		require.True(t, fi.IsDir())
+		require.FileExists(t, filepath.Join(a, name.(string), "SKILL.md"))
+	}
+}

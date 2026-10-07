@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -49,6 +50,11 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	installTargets = nil
+	deployFlags.repo, deployFlags.into = "", ""
+	deployFlags.noRepo = false
+	deployFlags.targets, deployFlags.only = nil, nil
+	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+	deployCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	flagRoot, flagConfig = "", ""
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false
 	flagNoStrict = false

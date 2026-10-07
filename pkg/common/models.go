@@ -71,6 +71,7 @@ const (
 // and Path the entry's location relative to the repository root. InstallSlot
 // preserves a source directory name when it differs from the skill name.
 type Origin struct {
+	Subpath     string  `json:"subpath,omitempty"`
 	Address     string  `json:"address"`
 	ProviderID  *string `json:"mode_id,omitempty"`
 	Path        string  `json:"path,omitempty"`

@@ -119,14 +119,11 @@ func (r *Repository) importStaged(ctx context.Context, staged, providerID, group
 		return nil, common.WithExitCode(fmt.Errorf("import: invalid entry id %q", entryID), common.ExitError)
 	}
 	// Normalize to a temp staged tree (copy for dirs, build for single .md).
-	tmp, err := r.stageCopy(staged)
+	tmp, err := r.prepareImport(staged, name)
 	if err != nil {
 		return nil, common.WithExitCode(err, common.ExitError)
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
-	if err := normalizeStagedSkill(tmp, name); err != nil {
-		return nil, common.WithExitCode(err, common.ExitError)
-	}
 
 	// Importing non-standard entries is an explicit claim into standard layout.
 	sourceEntry := r.findByPath(staged)
@@ -213,9 +210,7 @@ func normalizeStagedSkill(staged, fallbackName string) error {
 		body = data
 		fm = &dal.Frontmatter{}
 	}
-	if fm.Name == "" {
-		fm.Name = fallbackName
-	}
+	fm.Name = fallbackName
 	if fm.Description == "" {
 		fm.Description = "Imported and normalized skill"
 	}

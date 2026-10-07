@@ -7,6 +7,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
+	"github.com/alswl/skm/skm/pkg/engines"
 )
 
 // Installer manages installs into kind-matching targets, dispatching on each
@@ -216,4 +217,17 @@ func (i *Installer) RemoveForeign(tx *dal.FileTransaction, entry *common.Entry, 
 		return false, err
 	}
 	return driver.RemoveForeign(tx, entry, target)
+}
+
+// CopySkill explicitly materializes content without changing the target's
+// configured strategy or registering an install against a personal repository.
+func (i *Installer) CopySkill(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget, force bool) (bool, error) {
+	strategy, ok := target.EffectiveStrategy(common.KindSkill)
+	if entry.Kind != common.KindSkill || !target.AcceptsKind(common.KindSkill) || !ok || strategy != common.StrategySkillSymlink {
+		return false, fmt.Errorf("target %q does not support independent skill copies", target.Name)
+	}
+	if nameRuleRejects(entry, target) {
+		return false, fmt.Errorf("skill %q violates target %q name rule", entry.Name, target.Name)
+	}
+	return engines.CopySkill(tx, entry, target, force)
 }

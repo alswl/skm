@@ -74,18 +74,40 @@ func (t *FileTransaction) MoveStage(src, dst string) error {
 	}
 	if err := os.Rename(src, dst); err != nil {
 		if crossDevice(err) {
-			if cErr := copyTreeFallback(src, dst); cErr == nil {
+			if copyErr := copyTreeFallback(src, dst); copyErr == nil {
 				_ = os.RemoveAll(src)
 				t.ops = append(t.ops, txOp{kind: txMove, dst: dst, backup: backup})
 				return nil
+			} else {
+				err = copyErr
+				// A failed fallback may have left a nonempty destination;
+				// remove that partial copy before restoring the original slot.
+				if cleanupErr := os.RemoveAll(dst); cleanupErr != nil {
+					return fmt.Errorf("transaction: copy failed: %w; cleanup %s: %v (backup %s)", err, dst, cleanupErr, backup)
+				}
 			}
 		}
 		if backup != "" {
-			_ = os.Rename(backup, dst)
+			if restoreErr := os.Rename(backup, dst); restoreErr != nil {
+				return fmt.Errorf("transaction: move failed: %w; restore %s: %v", err, backup, restoreErr)
+			}
 		}
 		return fmt.Errorf("transaction: move %s -> %s: %w", src, dst, err)
 	}
 	t.ops = append(t.ops, txOp{kind: txMove, dst: dst, backup: backup})
+	return nil
+}
+
+// ReserveDirectory claims a new slot exclusively. Rollback removes the empty
+// reservation after undoing a subsequent MoveStage into it.
+func (t *FileTransaction) ReserveDirectory(dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(dst, 0o755); err != nil {
+		return err
+	}
+	t.ops = append(t.ops, txOp{kind: txWrite, dst: dst})
 	return nil
 }
 
@@ -160,7 +182,12 @@ func (t *FileTransaction) Rollback() error {
 		case txMove:
 			// Restore backup if we had one; otherwise remove the moved dst.
 			if op.backup != "" {
-				_ = os.Rename(op.backup, op.dst)
+				if err := os.RemoveAll(op.dst); err != nil && firstErr == nil {
+					firstErr = err
+				}
+				if err := os.Rename(op.backup, op.dst); err != nil && firstErr == nil {
+					firstErr = err
+				}
 			} else {
 				_ = os.RemoveAll(op.dst)
 			}
