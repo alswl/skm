@@ -72,6 +72,7 @@ func (m *model) globalActions() []entryAction {
 		{Key: "m", Label: "import", Enabled: true, Run: func() {
 			m.importing = true
 			m.importAddr = ""
+			m.importCursor = 0
 		}},
 		{Key: "P", Label: "batch update", Enabled: true, Run: m.batchUpdate},
 		{Key: "t", Label: "targets", Enabled: true, Run: func() {

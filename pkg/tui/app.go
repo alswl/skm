@@ -71,6 +71,7 @@ type model struct {
 	showArchived       bool // archived entries are hidden until toggled with `.`
 	importing          bool
 	importAddr         string
+	importCursor       int       // rune offset in importAddr
 	status             string    // last action status line
 	statusSetAt        time.Time // when status was last set to a non-empty value; drives statusAutoHide
 	width              int

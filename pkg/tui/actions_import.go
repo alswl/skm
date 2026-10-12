@@ -13,15 +13,14 @@ import (
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
-// handleImportKey processes keys while the import dialog is active: printable
-// characters append to the address, Enter runs the import, Esc cancels
-// (tui-contract.md key "i").
+// Local paths need spaces and in-place corrections, not just URL-like input.
 func (m *model) handleImportKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, m.keys.Enter):
 		m.importing = false
 		addr := m.importAddr
 		m.importAddr = ""
+		m.importCursor = 0
 		if addr == "" {
 			return nil
 		}
@@ -30,15 +29,38 @@ func (m *model) handleImportKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Esc):
 		m.importing = false
 		m.importAddr = ""
+		m.importCursor = 0
 		return nil
 	case key.Matches(msg, m.keys.Backspace):
-		if len(m.importAddr) > 0 {
-			m.importAddr = m.importAddr[:len(m.importAddr)-1]
+		if m.importCursor > 0 {
+			runes := []rune(m.importAddr)
+			m.importAddr = string(append(runes[:m.importCursor-1], runes[m.importCursor:]...))
+			m.importCursor--
+		}
+		return nil
+	case msg.Type == tea.KeyLeft:
+		if m.importCursor > 0 {
+			m.importCursor--
+		}
+		return nil
+	case msg.Type == tea.KeyRight:
+		if m.importCursor < len([]rune(m.importAddr)) {
+			m.importCursor++
 		}
 		return nil
 	default:
-		if msg.Type == tea.KeyRunes {
-			m.importAddr += string(msg.Runes)
+		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
+			input := msg.Runes
+			if msg.Type == tea.KeySpace {
+				input = []rune{' '}
+			}
+			runes := []rune(m.importAddr)
+			edited := make([]rune, 0, len(runes)+len(input))
+			edited = append(edited, runes[:m.importCursor]...)
+			edited = append(edited, input...)
+			edited = append(edited, runes[m.importCursor:]...)
+			m.importAddr = string(edited)
+			m.importCursor += len(input)
 		}
 		return nil
 	}

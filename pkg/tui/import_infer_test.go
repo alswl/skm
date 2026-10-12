@@ -26,6 +26,27 @@ func typeImport(t *testing.T, m *model, addr string) {
 	m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 }
 
+// Bubble Tea sends spaces and arrows as dedicated messages, not KeyRunes.
+func TestImportPromptAcceptsSpacesAndEditsAtTheCursor(t *testing.T) {
+	m := newTestModel(t)
+
+	m.handleKey(runeKey('m'))
+	m.handleKey(runeKey('a'))
+	m.handleKey(tea.KeyMsg{Type: tea.KeySpace})
+	m.handleKey(runeKey('c'))
+	m.handleKey(tea.KeyMsg{Type: tea.KeyLeft})
+	m.handleKey(runeKey('b'))
+	require.Equal(t, "a bc", m.importAddr)
+	require.Equal(t, 3, m.importCursor)
+	require.Contains(t, m.statusContent(), "a b▏c", "the cursor is rendered at its editing position")
+
+	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
+	m.handleKey(runeKey('d'))
+
+	require.Equal(t, "a bcd", m.importAddr)
+	require.Equal(t, 5, m.importCursor)
+}
+
 // currentLabel is the label the picker's cursor is sitting on.
 func currentLabel(t *testing.T, m *model) string {
 	t.Helper()
