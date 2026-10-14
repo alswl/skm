@@ -6,21 +6,53 @@ import (
 	"path"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alswl/skm/skm/pkg/services"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
+
+func newImportInput() textinput.Model {
+	input := textinput.New()
+	input.Prompt = ""
+	input.Cursor.SetMode(cursor.CursorStatic)
+	input.Focus()
+	return input
+}
+
+func (m model) importInputWidth() int {
+	inner := maxInt(20, m.width) - 2
+	// textinput renders one extra cell for its cursor. Reserve that cell so
+	// the cursor remains inside the frame when the viewport is full.
+	return maxInt(1, inner-lipgloss.Width("Import address: ")-1)
+}
+
+func (m *model) resizeImportInput() {
+	m.importInput.Width = m.importInputWidth()
+	m.importInput.SetCursor(m.importInput.Position())
+}
+
+func (m *model) openImportPrompt() {
+	m.importing = true
+	m.importAddr = ""
+	m.importCursor = 0
+	m.importInput = newImportInput()
+	m.resizeImportInput()
+}
 
 // Local paths need spaces and in-place corrections, not just URL-like input.
 func (m *model) handleImportKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, m.keys.Enter):
 		m.importing = false
-		addr := m.importAddr
+		addr := m.importInput.Value()
 		m.importAddr = ""
 		m.importCursor = 0
+		m.importInput.Reset()
 		if addr == "" {
 			return nil
 		}
@@ -30,39 +62,18 @@ func (m *model) handleImportKey(msg tea.KeyMsg) tea.Cmd {
 		m.importing = false
 		m.importAddr = ""
 		m.importCursor = 0
-		return nil
-	case key.Matches(msg, m.keys.Backspace):
-		if m.importCursor > 0 {
-			runes := []rune(m.importAddr)
-			m.importAddr = string(append(runes[:m.importCursor-1], runes[m.importCursor:]...))
-			m.importCursor--
-		}
-		return nil
-	case msg.Type == tea.KeyLeft:
-		if m.importCursor > 0 {
-			m.importCursor--
-		}
-		return nil
-	case msg.Type == tea.KeyRight:
-		if m.importCursor < len([]rune(m.importAddr)) {
-			m.importCursor++
-		}
+		m.importInput.Reset()
 		return nil
 	default:
-		if msg.Type == tea.KeyRunes || msg.Type == tea.KeySpace {
-			input := msg.Runes
-			if msg.Type == tea.KeySpace {
-				input = []rune{' '}
-			}
-			runes := []rune(m.importAddr)
-			edited := make([]rune, 0, len(runes)+len(input))
-			edited = append(edited, runes[:m.importCursor]...)
-			edited = append(edited, input...)
-			edited = append(edited, runes[m.importCursor:]...)
-			m.importAddr = string(edited)
-			m.importCursor += len(input)
+		var cmd tea.Cmd
+		m.resizeImportInput()
+		if msg.Type == tea.KeySpace {
+			msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
 		}
-		return nil
+		m.importInput, cmd = m.importInput.Update(msg)
+		m.importAddr = m.importInput.Value()
+		m.importCursor = m.importInput.Position()
+		return cmd
 	}
 }
 
@@ -168,6 +179,7 @@ func (m *model) runImport(addr, provider, kind string) {
 			return selectionJobResult{
 				status: fmt.Sprintf("imported %s (%s) via %s", result.Name, result.Type, result.Provider),
 				path:   m.svc.Repo.RelPath(result.Path),
+				reveal: true,
 			}, nil
 		}
 	}

@@ -692,7 +692,8 @@ func TestImportSelectsNewEntryAfterRescanAndMakesItVisible(t *testing.T) {
 func TestPendingSelectionIsOneShotAndRespectsFilters(t *testing.T) {
 	m := newTestModel(t)
 	m.pendingSelect = "skills/local/skill-a"
-	m.applyScan(m.svc.Scan())
+	m.pendingJobID = 1
+	m.applyEntriesForJob(m.svc.Scan(), scanInstallStates(m.svc, m.svc.Scan()), 1)
 	require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
 	require.Empty(t, m.pendingSelect)
 
@@ -703,9 +704,85 @@ func TestPendingSelectionIsOneShotAndRespectsFilters(t *testing.T) {
 	m.search = "skill-a"
 	m.refreshFiltered()
 	m.pendingSelect = "skills/local/skill-b"
-	m.applyScan(m.svc.Scan())
+	m.pendingJobID = 2
+	m.applyEntriesForJob(m.svc.Scan(), scanInstallStates(m.svc, m.svc.Scan()), 2)
 	require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
 	require.Equal(t, "skill-a", m.search, "selection never changes a user filter")
+}
+
+// The job result and its rescan arrive on separate Bubble Tea messages. A
+// resize or navigation message in between must not consume the import's
+// selection request against the old catalog.
+func TestImportSelectionWaitsForItsPostJobScan(t *testing.T) {
+	m := newTestModel(t)
+	writeFileT(t, m.svc.Cfg.Root, "skills/local/imported/SKILL.md", "---\nname: imported\ndescription: imported\n---\nbody\n")
+	m.search = "skill-a"
+	m.refreshFiltered()
+
+	cmd := m.handleJobDone(jobs.Result{ID: 41, Value: selectionJobResult{
+		status: "imported imported",
+		path:   "skills/local/imported",
+		reveal: true,
+	}})
+	require.NotNil(t, cmd)
+	require.Equal(t, "skills/local/imported", m.pendingSelect)
+
+	_, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	require.Equal(t, "skills/local/imported", m.pendingSelect, "an unrelated refresh keeps the request for the post-job scan")
+
+	msg, ok := cmd().(scanDoneMsg)
+	require.True(t, ok)
+	_, _ = m.Update(msg)
+	require.Empty(t, m.search, "the corresponding post-job scan reveals the import")
+	require.Equal(t, "imported", m.filtered[m.cursor].Name)
+}
+
+func TestPostJobSelectionPreservesMatchingFiltersAndUpdateSemantics(t *testing.T) {
+	t.Run("import keeps filters that already show it", func(t *testing.T) {
+		m := newTestModel(t)
+		writeFileT(t, m.svc.Cfg.Root, "skills/local/imported/SKILL.md", "---\nname: imported\ndescription: imported\n---\nbody\n")
+		m.search = "imported"
+		localTab := -1
+		for i, tab := range m.providerTabs {
+			if tab == "local" {
+				localTab = i
+				break
+			}
+		}
+		require.Greater(t, localTab, 0)
+		m.jumpToProviderTab(localTab)
+		m.refreshFiltered()
+
+		cmd := m.handleJobDone(jobs.Result{ID: 42, Value: selectionJobResult{
+			status: "imported imported",
+			path:   "skills/local/imported",
+			reveal: true,
+		}})
+		msg, ok := cmd().(scanDoneMsg)
+		require.True(t, ok)
+		_, _ = m.Update(msg)
+
+		require.Equal(t, "imported", m.search, "a matching search stays active")
+		require.Equal(t, "local", m.activeProviderTab(), "a matching provider filter stays active")
+		require.Equal(t, "imported", m.filtered[m.cursor].Name)
+	})
+
+	t.Run("single-entry update leaves an obstructing filter unchanged", func(t *testing.T) {
+		m := newTestModel(t)
+		m.search = "skill-a"
+		m.refreshFiltered()
+
+		cmd := m.handleJobDone(jobs.Result{ID: 43, Value: selectionJobResult{
+			status: "skill-b is current",
+			path:   "skills/local/skill-b",
+		}})
+		msg, ok := cmd().(scanDoneMsg)
+		require.True(t, ok)
+		_, _ = m.Update(msg)
+
+		require.Equal(t, "skill-a", m.search, "updates retain the user's filter")
+		require.Equal(t, "skill-a", m.filtered[m.cursor].Name)
+	})
 }
 
 func TestFailedImportDoesNotMoveSelection(t *testing.T) {

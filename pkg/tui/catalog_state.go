@@ -12,10 +12,20 @@ import (
 // applyEntries installs a freshly scanned catalog and recomputes the in-memory
 // catalog state used by the list page.
 func (m *model) applyEntries(entries []*common.Entry, states installStates) {
+	m.applyEntriesForJob(entries, states, 0)
+}
+
+func (m *model) applyEntriesForJob(entries []*common.Entry, states installStates, jobID int64) {
 	m.entries = entries
 	m.installs = states
 	m.computeProviderTabs()
+	want, reveal := m.takePendingSelect(jobID)
+	if reveal {
+		m.revealPendingSelect(want)
+	}
 	m.refreshFiltered()
+	m.selectPendingEntry(want)
+	m.clampView()
 }
 
 func (m *model) computeProviderTabs() {
@@ -95,7 +105,7 @@ func (m *model) refreshFiltered() {
 		if !matchesProviderTab(e, tab) {
 			continue
 		}
-		if q != "" && !containsFold(e.Name, q) && !containsFold(e.Description, q) {
+		if !matchesSearch(e, q) {
 			continue
 		}
 		m.filtered = append(m.filtered, e)
@@ -108,19 +118,50 @@ func (m *model) refreshFiltered() {
 		}
 	}
 	m.buildRows()
-	m.consumePendingSelect()
 	m.clampView()
 }
 
-// consumePendingSelect follows an affected entry through the post-job scan
-// and re-sort. Filters stay intact: when the entry is hidden, the ordinary
-// clamped selection remains. In either case the request is one-shot.
-func (m *model) consumePendingSelect() {
-	if m.pendingSelect == "" {
+func (m *model) takePendingSelect(jobID int64) (string, bool) {
+	if m.pendingSelect == "" || m.pendingJobID == 0 || m.pendingJobID != jobID {
+		return "", false
+	}
+	want, reveal := m.pendingSelect, m.pendingReveal
+	m.pendingSelect = ""
+	m.pendingReveal = false
+	m.pendingJobID = 0
+	return want, reveal
+}
+
+// revealPendingSelect clears only a successful import's filters that hide its
+// target. It resolves the provider tab by ID after each scan, never by index.
+func (m *model) revealPendingSelect(want string) {
+	for _, e := range m.entries {
+		if m.svc.Repo.RelPath(e.Path) != want {
+			continue
+		}
+		if !matchesSearch(e, m.search) {
+			m.search = ""
+		}
+		if !matchesProviderTab(e, m.activeProviderTab()) {
+			for i, tab := range m.providerTabs {
+				if tab == providerDisplayID(e.ProviderIDValue()) {
+					m.providerTabIdx = i
+					break
+				}
+			}
+		}
 		return
 	}
-	want := m.pendingSelect
-	m.pendingSelect = ""
+}
+
+func matchesSearch(e *common.Entry, query string) bool {
+	return query == "" || containsFold(e.Name, query) || containsFold(e.Description, query)
+}
+
+func (m *model) selectPendingEntry(want string) {
+	if want == "" {
+		return
+	}
 	for i, e := range m.filtered {
 		if m.svc.Repo.RelPath(e.Path) == want {
 			m.cursor = i

@@ -5,10 +5,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alswl/skm/skm/pkg/common"
@@ -140,6 +142,71 @@ func (pp *programProbe) wait(pred func(model) bool, failMsg string) model {
 }
 
 func keyRunes(r rune) tea.Msg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}} }
+
+// TestE2ETUIImportAddressEditsAsOneLineInput drives the real Program loop,
+// rather than calling the model directly. The import address accepts paths, so
+// moving inside a slash-containing Unicode path and deleting forward must work
+// like an ordinary one-line input before Enter submits it.
+func TestE2ETUIImportAddressEditsAsOneLineInput(t *testing.T) {
+	m := fixtureProgramModel(t)
+	pp := startProgram(t, m)
+
+	s := pp.send(keyRunes('m'))
+	require.True(t, s.importing, "m opens the import address input")
+	for _, r := range "a/中/c" {
+		s = pp.send(keyRunes(r))
+	}
+	s = pp.send(tea.KeyMsg{Type: tea.KeyLeft})
+	s = pp.send(tea.KeyMsg{Type: tea.KeyLeft})
+	s = pp.send(keyRunes('文'))
+	s = pp.send(tea.KeyMsg{Type: tea.KeyDelete})
+
+	require.Equal(t, "a/中文c", s.importAddr, "Delete removes the rune after the cursor")
+	require.Equal(t, 4, s.importCursor, "cursor stays between the inserted path segment and c")
+	rendered := ansi.Strip(s.View())
+	require.Contains(t, rendered, "Import address: a/中文c", "the rendered prompt does not insert a cursor glyph into the address")
+
+	s = pp.send(tea.KeyMsg{Type: tea.KeyEnter})
+	require.False(t, s.importing, "Enter submits the one-line input")
+	require.NotNil(t, s.picker, "Enter opens the provider picker")
+}
+
+func TestE2ETUIImportAddressKeepsCursorVisibleInNarrowScreen(t *testing.T) {
+	m := fixtureProgramModel(t)
+	pp := startProgram(t, m)
+
+	s := pp.send(keyRunes('m'))
+	for _, r := range "/very/long/路径/with/tail" {
+		s = pp.send(keyRunes(r))
+	}
+	s = pp.send(tea.WindowSizeMsg{Width: 40, Height: 24})
+
+	rendered := ansi.Strip(s.View())
+	require.Contains(t, rendered, "Import address: ")
+	require.Contains(t, rendered, "tail", "the cursor reaches the visible end of a long path")
+	require.NotContains(t, rendered, "Import address: /very/long/路径/with/tail", "the input uses a one-line viewport instead of overflowing the status bar")
+}
+
+func TestE2ETUIImportAddressEndCursorFitsAtViewportBoundary(t *testing.T) {
+	m := fixtureProgramModel(t)
+	pp := startProgram(t, m)
+
+	pp.send(tea.WindowSizeMsg{Width: 40, Height: 16})
+	s := pp.send(keyRunes('m'))
+	address := "eee/ffffffff/gggg-tail-123456789012345678901234"
+	for _, r := range address {
+		s = pp.send(keyRunes(r))
+	}
+	s = pp.send(tea.KeyMsg{Type: tea.KeyEnd})
+
+	require.Equal(t, address, s.importAddr)
+	require.Equal(t, len([]rune(address)), s.importCursor)
+	require.Equal(t, 21, s.importInput.Width, "the narrow viewport reserves one cell for the end cursor")
+	visible := ansi.Strip(s.importInput.View())
+	require.True(t, strings.HasSuffix(address, visible[:len(visible)-1]))
+	require.True(t, strings.HasSuffix(visible, " "), "the end cursor occupies the reserved trailing cell")
+	require.Equal(t, 22, len(visible), "the cursor cell follows the viewport without shifting normal text")
+}
 
 // fixtureProgramModel copies the committed testdata/e2e/repo to a temp dir,
 // builds Services with one skill target, and returns a ready initialModel.
@@ -337,4 +404,66 @@ func TestE2ETUIDetailFooterDimsUnavailableActions(t *testing.T) {
 	require.True(t, avail["a"], "archive is always offered")
 	require.True(t, avail["d"], "delete is always offered")
 	require.True(t, avail["esc/q"], "back is always offered")
+}
+
+// TestE2ETUIImportRevealsNewEntryThroughObstructingFilters follows the actual
+// program event chain. An import must take priority over only the filters that
+// hide its new entry, then select and render that entry after the async rescan.
+func TestE2ETUIImportRevealsNewEntryThroughObstructingFilters(t *testing.T) {
+	m := fixtureProgramModel(t)
+	pp := startProgram(t, m)
+
+	// Start from the unresolved-provider tab and a search which both exclude a
+	// locally imported skill. Resolve the tab index from the live catalog: a
+	// scan can add/reorder tabs, so a hard-coded index is not a stable event.
+	s := pp.send(keyRunes('z'))
+	noneTab := -1
+	for i, tab := range s.providerTabs {
+		if tab == tabNone {
+			noneTab = i
+			break
+		}
+	}
+	require.Greater(t, noneTab, 0, "fixture exposes an unresolved-provider tab")
+	pp.p.Send(keyRunes(rune('0' + noneTab)))
+	s = pp.wait(func(s model) bool { return s.activeProviderTab() == tabNone }, "unresolved provider tab is active")
+	require.Equal(t, tabNone, s.activeProviderTab())
+
+	pp.p.Send(keyRunes('/'))
+	for _, r := range "d2" {
+		pp.p.Send(keyRunes(r))
+	}
+	pp.p.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	s = pp.wait(func(s model) bool { return s.search == "d2" && !s.searching }, "search is confirmed")
+	require.Equal(t, "d2", s.search)
+
+	src := filepath.Join(t.TempDir(), "program-import")
+	writeFileT(t, src, "SKILL.md", "---\nname: program-import\ndescription: program import fixture\n---\nbody\n")
+
+	// Program.Send routes each key through Bubble Tea, including the address
+	// prompt, provider picker, kind picker, worker result and rescan.
+	pp.p.Send(keyRunes('m'))
+	s = pp.wait(func(s model) bool { return s.importing }, "import prompt opens")
+	require.True(t, s.importing)
+	for _, r := range src {
+		pp.p.Send(keyRunes(r))
+	}
+	pp.p.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	s = pp.wait(func(s model) bool { return s.picker != nil && s.picker.Title == "import provider" }, "address opens the provider picker")
+	require.NotNil(t, s.picker, "address opens the provider picker")
+	pp.p.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	s = pp.wait(func(s model) bool { return s.picker != nil && s.picker.Title == "import kind" }, "provider opens the kind picker")
+	require.NotNil(t, s.picker, "provider opens the kind picker")
+	pp.p.Send(tea.KeyMsg{Type: tea.KeyEnter})
+	s = pp.wait(func(s model) bool { return s.picker == nil && s.queue.Busy() }, "kind queues the real import")
+	require.Nil(t, s.picker, "kind queues the real import")
+
+	done := pp.wait(func(s model) bool {
+		return strings.Contains(s.status, "imported program-import") && s.pendingSelect == ""
+	}, "import finishes and its post-job scan applies")
+	require.Empty(t, done.search, "the obstructing search is cleared")
+	require.Equal(t, "local", done.activeProviderTab(), "the obstructing provider tab changes to the imported entry's provider")
+	require.Equal(t, "program-import", done.filtered[done.cursor].Name, "the imported entry is selected after the rescan")
+	requireCursorVisible(t, done)
+	require.Contains(t, done.View(), "program-import", "the selected imported entry is visible without manual navigation")
 }

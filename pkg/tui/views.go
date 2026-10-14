@@ -52,7 +52,7 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, k.ActionsMenu):
 		m.openActionsMenu()
 	case key.Matches(msg, k.Refresh):
-		return scanCmd(m.svc, scanManual)
+		return scanCmd(m.svc, scanManual, 0)
 	}
 	return nil
 }
@@ -115,9 +115,7 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, k.Detail):
 		m.openDetail()
 	case key.Matches(msg, k.Import):
-		m.importing = true
-		m.importAddr = ""
-		m.importCursor = 0
+		m.openImportPrompt()
 	case key.Matches(msg, k.Claim):
 		m.claimAndRepairSelected()
 	case key.Matches(msg, k.Install):
@@ -142,7 +140,7 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, k.ActionsMenu):
 		m.openActionsMenu()
 	case key.Matches(msg, k.Refresh):
-		return scanCmd(m.svc, scanManual)
+		return scanCmd(m.svc, scanManual, 0)
 	}
 	return nil
 }
@@ -501,9 +499,9 @@ func truncPad(s string, w int) string {
 func (m model) statusContent() string {
 	switch {
 	case m.importing:
-		runes := []rune(m.importAddr)
-		cursor := min(max(0, m.importCursor), len(runes))
-		return components.StylePrompt.Render("Import address: ") + string(runes[:cursor]) + "▏" + string(runes[cursor:])
+		prefix := "Import address: "
+		input := m.importInput
+		return components.StylePrompt.Render(prefix) + input.View()
 	case m.searching:
 		return components.StyleTitle.Render("Search: ") + m.search + "▏"
 	default:

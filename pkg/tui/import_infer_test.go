@@ -38,7 +38,6 @@ func TestImportPromptAcceptsSpacesAndEditsAtTheCursor(t *testing.T) {
 	m.handleKey(runeKey('b'))
 	require.Equal(t, "a bc", m.importAddr)
 	require.Equal(t, 3, m.importCursor)
-	require.Contains(t, m.statusContent(), "a b▏c", "the cursor is rendered at its editing position")
 
 	m.handleKey(tea.KeyMsg{Type: tea.KeyRight})
 	m.handleKey(runeKey('d'))

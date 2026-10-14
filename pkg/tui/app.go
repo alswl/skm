@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	isatty "github.com/mattn/go-isatty"
 
@@ -71,7 +72,8 @@ type model struct {
 	showArchived       bool // archived entries are hidden until toggled with `.`
 	importing          bool
 	importAddr         string
-	importCursor       int       // rune offset in importAddr
+	importCursor       int // rune offset in importAddr
+	importInput        textinput.Model
 	status             string    // last action status line
 	statusSetAt        time.Time // when status was last set to a non-empty value; drives statusAutoHide
 	width              int
@@ -110,9 +112,11 @@ type model struct {
 	providerTabIdx int
 
 	// pendingSelect is the repository-relative identity of an entry changed by
-	// a successful import or single update. It is consumed once after that
-	// operation's scan, so unrelated refreshes preserve later user navigation.
+	// a successful import or single update. Imports reveal their new entry by
+	// clearing only filters that hide it; other actions retain their filters.
 	pendingSelect string
+	pendingReveal bool
+	pendingJobID  int64
 
 	// providerIcons maps a provider id (entry.ProviderID) to its declared
 	// one-glyph icon, computed once at startup (the registry never changes
@@ -233,6 +237,7 @@ const (
 // derived from it.
 type scanDoneMsg struct {
 	reason  scanReason
+	jobID   int64
 	entries []*common.Entry
 	cols    installStates
 }
@@ -243,10 +248,10 @@ type scanDoneMsg struct {
 // navigation while a rescan runs (after a job, or on R). It derives the
 // install states here too, for the same reason and because they are the far
 // more expensive half.
-func scanCmd(svc *services.Services, reason scanReason) tea.Cmd {
+func scanCmd(svc *services.Services, reason scanReason, jobID int64) tea.Cmd {
 	return func() tea.Msg {
 		entries := svc.Scan()
-		return scanDoneMsg{reason: reason, entries: entries, cols: scanInstallStates(svc, entries)}
+		return scanDoneMsg{reason: reason, jobID: jobID, entries: entries, cols: scanInstallStates(svc, entries)}
 	}
 }
 
@@ -257,7 +262,7 @@ func scanCmd(svc *services.Services, reason scanReason) tea.Cmd {
 // and cheap enough for the event loop.
 func (m *model) Init() tea.Cmd {
 	if m.loading {
-		return tea.Batch(m.spinnerCmd(), scanCmd(m.svc, scanInitial), waitForResult(m.queue), statusTickCmd())
+		return tea.Batch(m.spinnerCmd(), scanCmd(m.svc, scanInitial, 0), waitForResult(m.queue), statusTickCmd())
 	}
 	return waitForResult(m.queue)
 }
@@ -295,6 +300,9 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.help.Width = maxInt(1, msg.Width-4) // frame inner width
 		m.pageSize = maxInt(1, m.height-8)    // list area: top, tabbar, install-header, [list], sep, status, sep, help, bottom (must match listView's rows)
+		if m.importing {
+			m.resizeImportInput()
+		}
 		m.refreshFiltered()
 		return m, nil
 	case tea.KeyMsg:
@@ -310,7 +318,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.reason == scanInitial {
 			m.loading = false
 		}
-		m.applyEntries(msg.entries, msg.cols)
+		m.applyEntriesForJob(msg.entries, msg.cols, msg.jobID)
 		if m.showDetail && m.cursor < len(m.filtered) {
 			m.refreshDetail() // the entry may have moved/installed; show the new state
 		}

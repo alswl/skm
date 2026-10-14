@@ -27,6 +27,7 @@ type forceRetry struct {
 type selectionJobResult struct {
 	status string
 	path   string
+	reveal bool
 }
 
 // submitJob enqueues a long operation onto the FIFO single-concurrency queue.
@@ -85,13 +86,15 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 		m.setStatus(result.status)
 		if result.path != "" {
 			m.pendingSelect = result.path
+			m.pendingReveal = result.reveal
+			m.pendingJobID = r.ID
 		}
 	} else if s, ok := r.Value.(string); ok {
 		m.setStatus(s)
 	} else {
 		m.setStatus("task completed")
 	}
-	return scanCmd(m.svc, scanAfterJob)
+	return scanCmd(m.svc, scanAfterJob, r.ID)
 }
 
 // cancelRunningTask marks the running job stale and cancels it cooperatively
