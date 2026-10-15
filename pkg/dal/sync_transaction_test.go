@@ -36,7 +36,7 @@ func TestSyncCommitDoesNotKeepSuccessfulRollback(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(path, "data"), []byte("old"), 0600))
 	old, err := TreeFingerprint(path)
 	require.NoError(t, err)
-	require.NoError(t, CommitSync(root, "skills/foo", []SyncReplacement{{Path: "skills/foo", Source: src, Expected: old}}, false))
+	require.NoError(t, CommitSync(root, "skills/foo", []SyncReplacement{{Path: "skills/foo", Source: src, Expected: old}}))
 	_, err = RollbackReplacements(root, "skills/foo")
 	require.ErrorContains(t, err, "rollback_unavailable")
 	got, err := TreeFingerprint(path)
@@ -59,7 +59,7 @@ func TestCommitSyncReplacesAndAddsTreesWithModes(t *testing.T) {
 	require.NoError(t, CommitSync(root, "skills/old", []SyncReplacement{
 		{Path: "skills/old", Source: replacement, Expected: oldDigest},
 		{Path: "skills/new", Source: added, Expected: "absent"},
-	}, false))
+	}))
 	info, err := os.Stat(filepath.Join(root, "skills", "old", "script"))
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0751), info.Mode().Perm())
@@ -80,6 +80,28 @@ func TestSyncRecoveryRefusesExternalChanges(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(path, "x"))
 	require.NoError(t, err)
 	require.Equal(t, "edited", string(b))
+}
+
+func TestRollbackSyncRestoresInterruptedFileReplacement(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, InitSyncStore(root))
+	ignore := filepath.Join(root, ".gitignore")
+	require.NoError(t, os.WriteFile(ignore, []byte("/.skm-sync/\n"), 0600))
+	before, err := TreeFingerprint(ignore)
+	require.NoError(t, err)
+	dir := filepath.Join(root, ".skm", "work", "transactions", "migration")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, CopySyncTree(ignore, filepath.Join(dir, "old-0")))
+	require.NoError(t, os.Rename(ignore, filepath.Join(dir, "removed-0")))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{
+		Schema: 2, Entry: "migration", BackupComplete: true, State: "accepting",
+		Moves: []syncMove{{Path: ".gitignore", Before: before, After: "absent"}},
+	}))
+	require.NoError(t, RollbackSync(root, "migration", false))
+	data, err := os.ReadFile(ignore)
+	require.NoError(t, err)
+	require.Equal(t, "/.skm-sync/\n", string(data))
+	require.NoDirExists(t, dir)
 }
 
 func TestRollbackSyncRestoresInterruptedTransactionAndProtectsEdits(t *testing.T) {

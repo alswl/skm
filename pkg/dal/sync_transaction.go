@@ -51,7 +51,7 @@ func TreeFingerprint(path string) (string, error) {
 
 // CommitSync requires the repository lock. Recovery uses fingerprints, not a
 // phase counter, because a process can die between a rename and journal write.
-func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback bool) (retErr error) {
+func CommitSync(root, entry string, replacements []SyncReplacement) (retErr error) {
 	if err := initSyncStore(root, entry != "migration"); err != nil {
 		return err
 	}
@@ -67,8 +67,6 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 		return err
 	}
 	// Successful updates deliberately do not create a history rollback point.
-	// keepRollback is retained in this signature only while callers migrate.
-	_ = keepRollback
 	j := syncJournal{Schema: 2, Entry: entry, State: "preparing"}
 	published := false
 	committed := false
@@ -623,6 +621,7 @@ func validateSyncJournal(j syncJournal) error {
 		if v == "absent" {
 			return true
 		}
+		v = strings.TrimPrefix(v, "file:")
 		if len(v) != 64 {
 			return false
 		}

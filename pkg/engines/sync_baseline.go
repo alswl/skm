@@ -109,5 +109,5 @@ func (r *Repository) AssociateBaseline(e *common.Entry, source string, origin *c
 	} else if snapshot != nil {
 		replacements = append(replacements, *snapshot)
 	}
-	return dal.CommitSync(r.root, rel, replacements, false)
+	return dal.CommitSync(r.root, rel, replacements)
 }

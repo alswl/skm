@@ -239,6 +239,17 @@ func replaceTree(src, dst string) error {
 
 // ForkEntry and the update methods require the caller's repository lock.
 func (r *Repository) ForkEntry(e *common.Entry, opts SyncOptions) (*UpdateResult, error) {
+	return r.forkEntry(e, "", opts)
+}
+
+// ForkEntryFromBase accepts the services-resolved immutable upstream raw tree.
+// New v2 records store snapshots centrally and Git bases in the shared cache,
+// so migration must not depend on a retired entry-sidecar baseline.
+func (r *Repository) ForkEntryFromBase(e *common.Entry, base string, opts SyncOptions) (*UpdateResult, error) {
+	return r.forkEntry(e, base, opts)
+}
+
+func (r *Repository) forkEntry(e *common.Entry, resolvedBase string, opts SyncOptions) (*UpdateResult, error) {
 	rec, rel, err := r.SyncRecord(e)
 	if err != nil {
 		return nil, fmt.Errorf("missing_baseline: restore a baseline before forking: %w", err)
@@ -270,7 +281,10 @@ func (r *Repository) ForkEntry(e *common.Entry, opts SyncOptions) (*UpdateResult
 	if opts.Upstream {
 		rec.Active = "upstream"
 	} else {
-		base := filepath.Join(state, "upstream-baseline")
+		base := resolvedBase
+		if base == "" {
+			base = filepath.Join(state, "upstream-baseline")
+		}
 		m, err := dal.SyncTree(base)
 		if err != nil {
 			return nil, err
@@ -301,7 +315,7 @@ func (r *Repository) ForkEntry(e *common.Entry, opts SyncOptions) (*UpdateResult
 	if opts.DryRun {
 		return result, nil
 	}
-	if err = dal.CommitSync(r.root, rel, replacements, false); err != nil {
+	if err = dal.CommitSync(r.root, rel, replacements); err != nil {
 		result.Accepted = dal.IsSyncAccepted(err)
 		return result, err
 	}
@@ -582,7 +596,7 @@ func (r *Repository) acceptAttempt(e *common.Entry, work string, a SyncAttempt, 
 	if result.Outcome == "current" {
 		return result, nil
 	}
-	if err = dal.CommitSync(r.root, rel, replacements, false); err != nil {
+	if err = dal.CommitSync(r.root, rel, replacements); err != nil {
 		result.Accepted = dal.IsSyncAccepted(err)
 		return result, err
 	}

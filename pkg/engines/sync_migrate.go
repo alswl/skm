@@ -61,7 +61,16 @@ func verifiedLegacyGitBaseline(stage string, origin common.Origin, revision, dig
 	if err != nil || !strings.EqualFold(strings.TrimSpace(string(resolved)), revision) {
 		return common.BaselineRef{}, false
 	}
-	archive, err := exec.Command("git", "-C", repository, "archive", "--format=tar", revision).Output()
+	archiveArgs := []string{"-C", repository, "archive", "--format=tar", revision}
+	selected := ""
+	if origin.Subpath != "" && origin.Subpath != "." {
+		if !filepath.IsLocal(origin.Subpath) {
+			return common.BaselineRef{}, false
+		}
+		selected = filepath.Clean(origin.Subpath)
+		archiveArgs = append(archiveArgs, "--", filepath.ToSlash(selected))
+	}
+	archive, err := exec.Command("git", archiveArgs...).Output()
 	if err != nil {
 		return common.BaselineRef{}, false
 	}
@@ -110,6 +119,9 @@ func verifiedLegacyGitBaseline(stage string, origin common.Origin, revision, dig
 			return common.BaselineRef{}, false
 		}
 	}
+	if selected != "" {
+		dir = filepath.Join(dir, selected)
+	}
 	got, err := dal.TreeFingerprint(dir)
 	if err != nil || got != digest {
 		return common.BaselineRef{}, false
@@ -137,7 +149,6 @@ func (r *Repository) legacyRecords() ([]legacyRecord, string, error) {
 		return nil, "", fmt.Errorf("migration_conflict: unsupported legacy format")
 	}
 	items := make([]legacyRecord, 0, len(dirs))
-	state := sha256.New()
 	for _, d := range dirs {
 		if !d.IsDir() {
 			return nil, "", fmt.Errorf("migration_conflict: invalid legacy entry %s", d.Name())
@@ -155,12 +166,26 @@ func (r *Repository) legacyRecords() ([]legacyRecord, string, error) {
 		if _, err := dal.SyncPath(r.root, rec.EntryPath); err != nil {
 			return nil, "", err
 		}
-		if _, err := fmt.Fprintf(state, "%s:%s:%s:%d", d.Name(), rec.UpstreamDigest, rec.ForkDigest, rec.Generation); err != nil {
-			return nil, "", err
-		}
 		items = append(items, legacyRecord{rel: rec.EntryPath, rec: rec})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].rel < items[j].rel })
+	// expected_state authorizes the complete migration scene, not only record
+	// metadata. A preview must become stale if a user edits legacy content,
+	// ignore rules, or creates a target fork before accepting it.
+	state := sha256.New()
+	paths := []string{".skm-sync", ".skm-local", "forks", ".gitignore", ".skm"}
+	for _, item := range items {
+		paths = append(paths, item.rel, dal.SyncForkRel(item.rel))
+	}
+	for _, path := range paths {
+		fingerprint, err := dal.TreeFingerprint(filepath.Join(r.root, path))
+		if err != nil {
+			return nil, "", err
+		}
+		if _, err := fmt.Fprintf(state, "%s:%s\n", path, fingerprint); err != nil {
+			return nil, "", err
+		}
+	}
 	return items, hex.EncodeToString(state.Sum(nil)), nil
 }
 
@@ -388,10 +413,9 @@ func (r *Repository) MigrateLegacy(accept bool, expected string, dryRun bool) (*
 		}
 		replacements = append(replacements, dal.SyncReplacement{Path: ".skm-local", Expected: hash})
 	}
-	// CommitSync can initialise the ignore entries only after the old roots have
-	// moved. Pre-create the v2 root in the replacement source, then append the
-	// exact rules after commit below.
-	if err = dal.CommitSync(r.root, "migration", replacements, false); err != nil {
+	// Migration leaves .gitignore to its transaction replacement so rollback
+	// restores the v1 roots and their matching ignore rules together.
+	if err = dal.CommitSync(r.root, "migration", replacements); err != nil {
 		return res, err
 	}
 	accepted = true

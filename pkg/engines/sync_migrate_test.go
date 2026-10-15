@@ -84,3 +84,46 @@ func TestMigrateLegacyRejectsInvalidFormatBeforeWriting(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported legacy format")
 	require.NoDirExists(t, filepath.Join(root, ".skm"))
 }
+
+func TestMigrateLegacyRejectsStateChangedAfterPreview(t *testing.T) {
+	root := t.TempDir()
+	rel := "skills/local/demo"
+	require.NoError(t, os.MkdirAll(filepath.Join(root, rel), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, rel, "SKILL.md"), []byte("---\nname: demo\ndescription: demo\n---\n"), 0600))
+	legacy := filepath.Join(root, ".skm-sync")
+	base := filepath.Join(legacy, "entries", dal.SyncKey(rel), "upstream-baseline")
+	require.NoError(t, dal.CopySyncTree(filepath.Join(root, rel), base))
+	digest, err := dal.TreeFingerprint(base)
+	require.NoError(t, err)
+	require.NoError(t, dal.WriteSyncJSON(filepath.Join(legacy, "format.json"), map[string]int{"schema_version": 1}))
+	require.NoError(t, dal.WriteSyncJSON(filepath.Join(legacy, "entries", dal.SyncKey(rel), "record.json"), common.SyncRecord{Schema: 1, EntryPath: rel, Name: "demo", Generation: 1, Active: "upstream", UpstreamDigest: digest}))
+	preview, err := NewRepository(root).MigrateLegacy(false, "", false)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("notes/\n"), 0600))
+	_, err = NewRepository(root).MigrateLegacy(true, preview.ExpectedState, false)
+	require.ErrorContains(t, err, "stale_input")
+	require.DirExists(t, legacy)
+	require.NoDirExists(t, filepath.Join(root, ".skm"))
+}
+
+func TestVerifiedLegacyGitBaselineSupportsSubpath(t *testing.T) {
+	source := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "skills", "demo"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "skills", "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: demo\n---\n"), 0600))
+	run := func(args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", source}, args...)...).CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "-q")
+	run("add", ".")
+	run("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
+	revision := run("rev-parse", "HEAD")
+	baseline := filepath.Join(t.TempDir(), "baseline")
+	require.NoError(t, dal.CopySyncTree(filepath.Join(source, "skills", "demo"), baseline))
+	digest, err := dal.TreeFingerprint(baseline)
+	require.NoError(t, err)
+	provider := "git"
+	_, verified := verifiedLegacyGitBaseline(t.TempDir(), common.Origin{Address: source, RepositoryAddress: source, ProviderID: &provider, Subpath: "skills/demo"}, revision, digest)
+	require.True(t, verified)
+}

@@ -172,5 +172,5 @@ func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *commo
 	} else if snapshot != nil {
 		replacements = append(replacements, *snapshot)
 	}
-	return dal.CommitSync(r.root, rel, replacements, false)
+	return dal.CommitSync(r.root, rel, replacements)
 }

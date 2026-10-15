@@ -34,7 +34,21 @@ func (s *Services) syncEntry(name string) (*common.Entry, error) {
 	return e, nil
 }
 func (s *Services) Fork(ctx context.Context, name string, opts engines.SyncOptions) (*engines.UpdateResult, error) {
-	return s.syncWrite(ctx, name, opts, func(e *common.Entry) (*engines.UpdateResult, error) { return s.Repo.ForkEntry(e, opts) })
+	return s.syncWrite(ctx, name, opts, func(e *common.Entry) (*engines.UpdateResult, error) {
+		if opts.Upstream {
+			return s.Repo.ForkEntry(e, opts)
+		}
+		rec, rel, err := s.Repo.SyncRecord(e)
+		if err != nil {
+			return nil, err
+		}
+		base, cleanup, err := s.resolveBaselineTree(ctx, rec, rec.UpstreamBase, filepath.Join(s.Cfg.Root, dal.SyncStateRel(rel), "upstream-baseline"))
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		return s.Repo.ForkEntryFromBase(e, base, opts)
+	})
 }
 func (s *Services) UseUpstream(ctx context.Context, name string, dryRun bool) (*engines.UpdateResult, error) {
 	return s.Fork(ctx, name, engines.SyncOptions{Upstream: true, DryRun: dryRun})

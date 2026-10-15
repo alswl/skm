@@ -541,6 +541,20 @@ func TestMigrateVerifiedGitBaselineUsesReconstructibleReference(t *testing.T) {
 	require.Equal(t, "fetch_required", status.BaselineState)
 }
 
+func TestMigrateUpstreamEntryCanForkFromCentralBaseline(t *testing.T) {
+	s, _, _ := legacySyncFixture(t, "none", false)
+	preview, err := s.MigrateSync(context.Background(), false, "", false, false)
+	require.NoError(t, err)
+	_, err = s.MigrateSync(context.Background(), true, preview.ExpectedState, false, false)
+	require.NoError(t, err)
+	result, err := s.Fork(context.Background(), "review", engines.SyncOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	status, err := s.SyncStatus("review")
+	require.NoError(t, err)
+	require.Equal(t, "fork", status.Mode)
+}
+
 func TestMigrateRefusesLegacyPendingState(t *testing.T) {
 	s, _, _ := legacySyncFixture(t, "retained", false)
 	writeFile(t, s.Cfg.Root, ".skm-local/pending/interrupted/attempt.json", `{}`)

@@ -117,7 +117,7 @@ func (r *Repository) SyncLifecycle(e *common.Entry, action, provider string, new
 		}
 		moves = append(moves, dal.SyncReplacement{Path: newRel, Source: tmp, Expected: "absent"})
 	}
-	if err = dal.CommitSync(r.root, rel, moves, false); err != nil {
+	if err = dal.CommitSync(r.root, rel, moves); err != nil {
 		return "", err
 	}
 	return dest, nil
