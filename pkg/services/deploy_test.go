@@ -50,7 +50,7 @@ func TestDeployLibraryAndLocalUpdate(t *testing.T) {
 	svc, opts, src, targets := deployFixture(t)
 	// A local .git directory must not invoke git pull, even without a remote.
 	writeSvcFile(t, src, ".git/config", "invalid git config; must not be read")
-	writeSvcFile(t, src, "nested/alpha/meta.json", `{"address":"/untrusted","mode_id":"wrong"}`)
+	// Reserved upstream meta.json rejection is covered separately.
 	r, err := svc.Deploy(context.Background(), opts)
 	require.NoError(t, err)
 	require.True(t, r.Success)

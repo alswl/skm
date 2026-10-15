@@ -13,12 +13,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/alswl/skm/skm/pkg/services"
+	"github.com/alswl/skm/skm/pkg/tui/components"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
 func newImportInput() textinput.Model {
 	input := textinput.New()
 	input.Prompt = ""
+	input.Cursor.Style = components.StyleInputCursor
 	input.Cursor.SetMode(cursor.CursorStatic)
 	input.Focus()
 	return input

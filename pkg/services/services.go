@@ -116,7 +116,7 @@ func (s *Services) ResolveEntry(ref string) (*common.Entry, error) {
 	entries := s.Repo.Scan()
 	if strings.ContainsAny(ref, `/\`) {
 		for _, e := range entries {
-			if s.Repo.RelPath(e.Path) == want {
+			if s.Repo.RelPath(e.Path) == want || (e.RepositoryPath != "" && s.Repo.RelPath(e.RepositoryPath) == want) || (e.AlternatePath != "" && s.Repo.RelPath(e.AlternatePath) == want) {
 				return e, nil
 			}
 		}

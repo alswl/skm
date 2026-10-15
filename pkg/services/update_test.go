@@ -8,6 +8,7 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
+	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,6 +61,17 @@ func TestBatchUpdateClassifiesResults(t *testing.T) {
 	writeSvcFile(t, root, "skills/local/e/meta.json", `{"address":"/does/not/exist/anywhere","mode_id":"local"}`)
 
 	svc := newUpdateSvc(t, root)
+	for _, item := range []struct{ name, source string }{{"a", srcUpdated}, {"b", srcSame}} {
+		oldSource := t.TempDir()
+		data, err := os.ReadFile(filepath.Join(root, "skills/local", item.name, "SKILL.md"))
+		require.NoError(t, err)
+		writeSvcFile(t, oldSource, "SKILL.md", string(data))
+		require.NoError(t, os.RemoveAll(filepath.Join(root, "skills/local", item.name)))
+		provider := "local"
+		_, err = svc.Repo.ImportStaged(context.Background(), oldSource, provider, "", false, &common.Origin{Address: item.source, ProviderID: &provider})
+		require.NoError(t, err)
+	}
+
 	res := svc.BatchUpdate(context.Background(), false)
 
 	require.Contains(t, res.Updated, "a")
@@ -115,6 +127,12 @@ func TestUpdateUsesTheRecordedOriginProvider(t *testing.T) {
 	require.NoError(t, svc.Registry.Register(fakeGroupingProvider{id: "competing", staged: t.TempDir()}))
 	require.NoError(t, svc.Registry.Register(fakeGroupingProvider{id: "recorded", staged: staged}))
 
+	oldSource := t.TempDir()
+	writeSvcFile(t, oldSource, "SKILL.md", "---\nname: demo\ndescription: demo\n---\nold\n")
+	require.NoError(t, os.RemoveAll(filepath.Join(root, "skills/recorded/demo")))
+	provider := "recorded"
+	_, err := engines.NewRepository(root).ImportStaged(context.Background(), oldSource, provider, "", false, &common.Origin{Address: "shared-source", ProviderID: &provider})
+	require.NoError(t, err)
 	res, err := svc.Update(context.Background(), "demo", UpdateOptions{})
 	require.NoError(t, err)
 	require.True(t, res.Changed)

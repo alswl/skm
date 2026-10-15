@@ -52,6 +52,7 @@ func (m *model) entryActions() []entryAction {
 		entryAction{Key: "a", Label: archiveLabel, Enabled: true, Run: m.archiveSelected},
 		entryAction{Key: "d", Label: "delete", Enabled: true, Run: m.deleteSelected},
 	)
+	out = append(out, m.forkActions(e)...)
 	return out
 }
 

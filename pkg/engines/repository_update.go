@@ -12,6 +12,21 @@ import (
 // UpdateResult reports a single-entry update (contract/cli-json.md). before
 // and after are content hashes excluding meta.json.
 type UpdateResult struct {
+	Entry       string   `json:"entry,omitempty"`
+	Preview     bool     `json:"preview"`
+	ReasonCode  string   `json:"reason_code,omitempty"`
+	NextActions []string `json:"next_actions,omitempty"`
+
+	Outcome         string          `json:"outcome,omitempty"`
+	Accepted        bool            `json:"accepted"`
+	ActivePath      string          `json:"active_path,omitempty"`
+	BaselineVersion string          `json:"baseline_version,omitempty"`
+	UpstreamVersion string          `json:"upstream_version,omitempty"`
+	AttemptPath     string          `json:"attempt_path,omitempty"`
+	Failures        []SyncChange    `json:"failure_paths,omitempty"`
+	Refresh         []RefreshResult `json:"refresh,omitempty"`
+	Reason          string          `json:"reason,omitempty"`
+
 	Before  string `json:"before"`
 	After   string `json:"after"`
 	Changed bool   `json:"changed"`
@@ -24,6 +39,10 @@ func excludeMeta(rel string) bool { return rel == "meta.json" }
 // first and preserving the old content on failure (FR-023). The comparison
 // excludes meta.json; byte-identical content classifies as current.
 func (r *Repository) UpdateEntry(ctx context.Context, entry *common.Entry, newCopy string) (*UpdateResult, error) {
+	if entry.RepositoryPath != "" {
+		return nil, fmt.Errorf("tracked Skill requires the safe update service")
+	}
+
 	kind, name, err := r.ProbeStaged(newCopy)
 	if err != nil {
 		return nil, common.WithExitCode(err, common.ExitError)
@@ -78,6 +97,10 @@ func (r *Repository) UpdateEntry(ctx context.Context, entry *common.Entry, newCo
 // CompareUpdate computes before/after hashes for an entry and a fetched copy
 // without writing anything (dry-run / batch preview).
 func (r *Repository) CompareUpdate(entry *common.Entry, newCopy string) (before, after string, changed bool, err error) {
+	if entry.RepositoryPath != "" {
+		return "", "", false, fmt.Errorf("tracked Skill requires the safe update service")
+	}
+
 	if _, _, err := r.ProbeStaged(newCopy); err != nil {
 		return "", "", false, err
 	}
@@ -95,4 +118,10 @@ func (r *Repository) CompareUpdate(entry *common.Entry, newCopy string) (before,
 		return "", "", false, err
 	}
 	return before, after, before != after, nil
+}
+
+type RefreshResult struct {
+	Target  string `json:"target"`
+	Success bool   `json:"success"`
+	Reason  string `json:"reason,omitempty"`
 }

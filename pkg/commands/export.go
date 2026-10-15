@@ -26,6 +26,9 @@ var exportCmd = &cobra.Command{
 		if result.Command == "" {
 			return nil // nothing installed: no unscoped command (SC-008)
 		}
+		for _, warning := range result.Warnings {
+			fmt.Fprintln(cmd.ErrOrStderr(), warning)
+		}
 		fmt.Fprintln(cmd.OutOrStdout(), result.Command)
 		return nil
 	},

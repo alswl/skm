@@ -6,7 +6,6 @@ import (
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/engines"
-	"github.com/alswl/skm/skm/pkg/services"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
@@ -32,11 +31,7 @@ func (m *model) archiveSelected() {
 		Prompt: fmt.Sprintf("Archive %q? It will be uninstalled from all targets first.", name),
 		OnYes: func() {
 			m.submitJob("archive "+name, func(ctx context.Context) (any, error) {
-				// Uninstall first (managed installs only), then archive (FR-013).
-				if _, err := m.svc.Uninstall(ctx, ref, services.InstallOptions{}); err != nil {
-					return nil, err
-				}
-				if _, err := m.svc.Archive(ctx, ref, engines.LifecycleOptions{}); err != nil {
+				if _, err := m.svc.ArchiveWithUninstall(ctx, ref, engines.LifecycleOptions{}); err != nil {
 					return nil, err
 				}
 				return "archived " + name, nil

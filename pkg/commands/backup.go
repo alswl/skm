@@ -9,13 +9,13 @@ import (
 
 var backupCmd = &cobra.Command{
 	Use:   "backup",
-	Short: "Back up and restore local repository state (not for sharing)",
+	Short: "Save and restore the local installation list (no Skill content)",
 }
 
 var backupCreateCmd = &cobra.Command{
 	Use:   "create [file]",
-	Short: "Create a local snapshot of the current repository state",
-	Long:  "Create a local snapshot of the current repository state.\n\nWrites to the given file, or to a timestamped file under the config directory when none is given.",
+	Short: "Create a local snapshot of the current installation list (no file contents)",
+	Long:  "Create a local snapshot of the current installation list (no file contents).\n\nWrites to the given file, or to a timestamped file under the config directory when none is given.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)

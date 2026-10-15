@@ -12,7 +12,9 @@ import (
 // ExportResult carries the emitted deploy command (contract/cli-json.md). The
 // command is empty when nothing is installed (SC-008).
 type ExportResult struct {
-	Command string `json:"command"`
+	Warnings    []string `json:"warnings,omitempty"`
+	ContentMode string   `json:"content_mode,omitempty"`
+	Command     string   `json:"command"`
 }
 
 // Export emits a quote-safe `skm deploy ...` command scoped to the actually
@@ -55,7 +57,7 @@ func (s *Services) Export() (*ExportResult, error) {
 		" --repo " + shellQuote(repo) +
 		" --target " + shellQuote(strings.Join(targets, ",")) +
 		" --only " + shellQuote(strings.Join(names, ","))
-	return &ExportResult{Command: cmd}, nil
+	return &ExportResult{Command: cmd, ContentMode: "remote-reference", Warnings: []string{"References the maintained repository remote; does not embed local/unpushed content or prove the remote contains the current fork."}}, nil
 }
 
 // repoOrigin returns the git remote origin URL of the repository, or "".

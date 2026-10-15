@@ -31,7 +31,7 @@ func InstallDirectory(tx *dal.FileTransaction, entry *common.Entry, target commo
 	case common.InstallInstalled:
 		return false, nil
 	case common.InstallConflict, common.InstallDangling:
-		if !force {
+		if !force && (entry.AlternatePath == "" || !IsManagedLink(linkPath, entry.AlternatePath)) {
 			return false, common.WithExitCode(
 				common.WithNeedsForce(fmt.Errorf("install %q into %s: a same-named non-managed object exists; use --force", entry.Name, target.Name)),
 				common.ExitObject)
@@ -174,7 +174,7 @@ func EntryResources(entry *common.Entry) ([]string, error) {
 // non-managed same-named object untouched (FR-017).
 func UninstallSkill(tx *dal.FileTransaction, entry *common.Entry, target common.InstallTarget) (bool, error) {
 	linkPath := filepath.Join(target.Path, installSlot(entry))
-	if !IsManagedLink(linkPath, entry.Path) && !IsLegacySelfBuildLink(linkPath, entry) {
+	if !IsManagedLink(linkPath, entry.Path) && (entry.AlternatePath == "" || !IsManagedLink(linkPath, entry.AlternatePath)) && !IsLegacySelfBuildLink(linkPath, entry) {
 		return false, nil
 	}
 	if err := tx.RemoveManaged(linkPath); err != nil {

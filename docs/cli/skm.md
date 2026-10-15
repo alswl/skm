@@ -31,13 +31,14 @@ skm [flags]
 
 * [skm adopt](skm_adopt.md)	 - Import external skills and replace them with managed installs
 * [skm archive](skm_archive.md)	 - Move an active entry into the archive
-* [skm backup](skm_backup.md)	 - Back up and restore local repository state (not for sharing)
+* [skm backup](skm_backup.md)	 - Save and restore the local installation list (no Skill content)
 * [skm batch-update](skm_batch-update.md)	 - Refresh all active entries that have an origin
 * [skm delete](skm_delete.md)	 - Permanently remove an entry (requires --force)
 * [skm delete-external](skm_delete-external.md)	 - Permanently remove external unmanaged skills (requires --force)
 * [skm deploy](skm_deploy.md)	 - Create a personal skill library and link it to selected targets, or copy with --no-repo
 * [skm discover](skm_discover.md)	 - List external unmanaged skills in install targets
 * [skm export](skm_export.md)	 - Emit a quote-safe skm deploy command for installed assets
+* [skm fork](skm_fork.md)	 - Create a complete local customization and switch existing installs
 * [skm import](skm_import.md)	 - Import a skill or command from a local path or provider address
 * [skm info](skm_info.md)	 - Show entry metadata, files and marker frontmatter
 * [skm init](skm_init.md)	 - Initialize an empty skills repository
@@ -48,6 +49,7 @@ skm [flags]
 * [skm provider](skm_provider.md)	 - Manage acquisition providers (built-in and plugin)
 * [skm share](skm_share.md)	 - Share selected local skill/command entries as a source-address PAYLOAD (never raw content)
 * [skm status](skm_status.md)	 - Show the health of a single entry across targets
+* [skm sync](skm_sync.md)	 - Inspect customization and restore upstream tracking
 * [skm target](skm_target.md)	 - Manage install targets (platform, path, accepted kinds, install strategy)
 * [skm to-command](skm_to-command.md)	 - Convert a directory skill into a command
 * [skm to-skill](skm_to-skill.md)	 - Convert a directory command into a skill

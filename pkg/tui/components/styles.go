@@ -1,7 +1,10 @@
 package components
 
 import (
+	"io"
+
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/alswl/skm/skm/pkg/common"
 )
@@ -11,7 +14,9 @@ import (
 // AdaptiveColor so they read on both light and dark terminals and degrade to
 // plain text under NO_COLOR / non-TTY.
 var (
-	StyleDim = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})
+	// Editing must remain visible with NO_COLOR; reverse video uses no colors.
+	StyleInputCursor = inputCursorStyle()
+	StyleDim         = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "245"})
 	// StyleGroup is the dim, bold section header dividing the list by source.
 	StyleGroup  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "24", Dark: "38"})
 	StyleTitle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "27", Dark: "39"})
@@ -26,6 +31,12 @@ var (
 			Foreground(lipgloss.AdaptiveColor{Light: "235", Dark: "252"}).
 			Background(lipgloss.AdaptiveColor{Light: "250", Dark: "236"})
 )
+
+func inputCursorStyle() lipgloss.Style {
+	renderer := lipgloss.NewRenderer(io.Discard)
+	renderer.SetColorProfile(termenv.ANSI)
+	return renderer.NewStyle()
+}
 
 // nnn-inspired zone colors for the flat list: kind colors distinguish skill vs
 // command (blue like nnn dirs, green like nnn executables), and status colors

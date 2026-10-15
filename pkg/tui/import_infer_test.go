@@ -7,8 +7,31 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 	"github.com/stretchr/testify/require"
 )
+
+func TestImportCursorRemainsVisibleWithoutColor(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+	for _, address := range []string{"/v/sk/foo-bar", "/tmp/中文 路径/skill"} {
+		t.Run(address, func(t *testing.T) {
+			m := newTestModel(t)
+			m.width = 120
+			m.openImportPrompt()
+			m.handleImportKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(address)})
+			end := m.statusContent()
+			require.Contains(t, end, "\x1b[7m \x1b[0m", "the insertion point must remain visible with NO_COLOR")
+			m.handleImportKey(tea.KeyMsg{Type: tea.KeyLeft})
+			middle := m.statusContent()
+			require.Contains(t, middle, "\x1b[7m")
+			require.Equal(t, ansi.Strip(end), ansi.Strip(middle), "moving the cursor must not move the text")
+		})
+	}
+}
 
 // The address the user just typed usually settles both questions the import
 // flow asks. A GitHub blob URL ending in SKILL.md can only be handled by the

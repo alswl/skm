@@ -70,7 +70,13 @@ type ShareProgressFunc func(done, total int, name string)
 // address of its own — no upstream origin, and (for a local/self-build entry)
 // no shareable repository location — cannot be shared at all; there is no
 // content fallback.
-func (s *Services) CreateShare(_ context.Context, names []string, onProgress ShareProgressFunc) (*ShareCreateResult, error) {
+func (s *Services) CreateShare(ctx context.Context, names []string, onProgress ShareProgressFunc) (*ShareCreateResult, error) {
+	return s.createShare(ctx, names, onProgress, false)
+}
+func (s *Services) CreateOriginalSourceShare(ctx context.Context, names []string, onProgress ShareProgressFunc) (*ShareCreateResult, error) {
+	return s.createShare(ctx, names, onProgress, true)
+}
+func (s *Services) createShare(_ context.Context, names []string, onProgress ShareProgressFunc, original bool) (*ShareCreateResult, error) {
 	entries, err := s.shareEntries(names)
 	if err != nil {
 		return nil, err
@@ -93,6 +99,21 @@ func (s *Services) CreateShare(_ context.Context, names []string, onProgress Sha
 		key := string(entry.Kind) + "\x00" + entry.Name
 		if seen[key] {
 			continue
+		}
+		if entry.Kind == common.KindSkill && entry.Origin != nil {
+			st, stateErr := s.SyncStatus(entry.Path)
+			unsafe := stateErr != nil || st == nil || st.Customization != "clean" || st.AttemptPath != ""
+			if unsafe && !original {
+				reason := fmt.Sprintf("%s: source-only share does not contain the maintained content; use --original-source explicitly", entry.Name)
+				if explicit {
+					return nil, common.WithExitCode(fmt.Errorf("%s", reason), common.ExitObject)
+				}
+				warnings = append(warnings, reason)
+				continue
+			}
+			if original {
+				warnings = append(warnings, entry.Name+": original source only; no fork contents or fixed revision")
+			}
 		}
 		source, ok := s.shareSource(entry)
 		if !ok {

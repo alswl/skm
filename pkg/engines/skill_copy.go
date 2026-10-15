@@ -84,7 +84,16 @@ func CopySkill(tx *dal.FileTransaction, entry *common.Entry, target common.Insta
 		return false, err
 	}
 	repo := NewRepository("")
-	tmp, err := repo.prepareImport(entry.Path, entry.Name)
+	var tmp string
+	var err error
+	if entry.RepositoryPath != "" {
+		tmp, err = os.MkdirTemp("", "skm-copy-*")
+		if err == nil {
+			err = dal.CopySyncTree(entry.Path, tmp)
+		}
+	} else {
+		tmp, err = repo.prepareImport(entry.Path, entry.Name)
+	}
 	if err != nil {
 		return false, err
 	}

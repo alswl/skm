@@ -13,6 +13,7 @@ import (
 )
 
 type deploySource struct {
+	sourceOrigin                          *common.Origin
 	path, provider, group, address, clone string
 	cleanup                               func()
 }
@@ -20,12 +21,16 @@ type deploySource struct {
 func (d *deploySource) origin(path string) *common.Origin {
 	id := d.provider
 	origin := &common.Origin{Address: d.address, ProviderID: &id}
+	if d.sourceOrigin != nil {
+		copy := *d.sourceOrigin
+		origin = &copy
+	}
 	if id == "local" {
 		origin.Address = path
 	} else {
 		rel, _ := filepath.Rel(d.path, path)
 		if rel != "." {
-			origin.Subpath = filepath.ToSlash(rel)
+			origin.Subpath = filepath.ToSlash(filepath.Join(origin.Subpath, rel))
 		}
 	}
 	return origin
@@ -87,18 +92,34 @@ func (s *Services) acquireDeploySource(ctx context.Context, opts DeployOptions) 
 		cleanup()
 		return nil, fmt.Errorf("deploy: unsafe provider group %q", group)
 	}
-	return &deploySource{path: canonical, provider: id, group: group, address: origin.Address, clone: "cloned", cleanup: cleanup}, nil
+	return &deploySource{path: canonical, provider: id, group: group, address: origin.Address, sourceOrigin: origin, clone: "cloned", cleanup: cleanup}, nil
 }
 
 func discoverDeploySkills(root string, only []string) ([]*common.Entry, error) {
 	var all []*common.Entry
 	names := map[string]bool{}
 	repo := engines.NewRepository(root)
+	if err := repo.SyncReadCheck(); err != nil {
+		return nil, err
+	}
+	maintained := map[string]*common.Entry{}
+	for _, e := range repo.Scan() {
+		if e.Kind == common.KindSkill && e.Status == common.StatusError {
+			return nil, fmt.Errorf("deploy: invalid source skill %s; inspect its source metadata before deploying", e.Name)
+		}
+		if e.RepositoryPath != "" {
+			if e.Status == common.StatusError {
+				return nil, fmt.Errorf("deploy: invalid maintained entry %s", e.Name)
+			}
+			maintained[e.RepositoryPath] = e
+		}
+	}
+
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if path != root && d.IsDir() && (strings.HasPrefix(d.Name(), ".") || (filepath.Dir(path) == root && (d.Name() == "archived" || d.Name() == "commands"))) {
+		if path != root && d.IsDir() && (strings.HasPrefix(d.Name(), ".") || (filepath.Dir(path) == root && (d.Name() == "archived" || d.Name() == "commands" || d.Name() == "forks"))) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {
@@ -130,7 +151,15 @@ func discoverDeploySkills(root string, only []string) ([]*common.Entry, error) {
 			return common.WithExitCode(fmt.Errorf("deploy: duplicate skill name %q", name), common.ExitObject)
 		}
 		names[name] = true
-		all = append(all, &common.Entry{Name: name, Kind: kind, Path: path, Status: common.StatusActive})
+		contentPath := path
+		if tracked := maintained[path]; tracked != nil {
+			contentPath = tracked.Path
+		}
+		selected := &common.Entry{Name: name, Kind: kind, Path: contentPath, Status: common.StatusActive}
+		if tracked := maintained[path]; tracked != nil {
+			selected.RepositoryPath = tracked.RepositoryPath
+		}
+		all = append(all, selected)
 		return filepath.SkipDir
 	})
 	if err != nil {

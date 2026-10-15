@@ -50,8 +50,27 @@ skm discover --json && skm adopt ~/.codex/skills/review   # take over an unmanag
 skm update <name> / skm batch-update        # refresh from the recorded origin
 ```
 
-Entries are plain directories with `SKILL.md`; editing files in the repo is normal
-and expected. Never edit an *installed* copy in a target — it is a symlink or a
+For community skills, run `skm fork <name>` before customizing, then edit the
+complete fork directory shown by `skm info`. `update` recomputes the patch and
+refreshes existing installs. On failure, inspect the preserved workspace, edit
+`candidate/`, and explicitly `update --accept` or `--abort`; repeated updates must
+not overwrite that work. `update --rollback` restores the last accepted version
+and its baseline only if no later edits would be overwritten. `fork --upstream`
+switches back while retaining the inactive fork; `fork --replace` explicitly
+removes and recreates it, so get authorization before discarding existing work.
+Ordinary `--force` must not bypass customization protection.
+
+Commit complete fork content and `.skm-sync` provenance/baselines with the library;
+`.skm-local` patches, scenes and rollback points are machine-local and ignored.
+Never treat Git's presence as proof uncommitted content is backed up. Missing
+baselines block updates but do not block direct installation; use the explicit
+`sync baseline` preview/accept flow rather than guessing an upstream base.
+Source-only sharing needs `--original-source` for customized/unknown entries and
+cannot reproduce their fork. Export is a remote reference; backup is an install
+list. Always inspect `accepted`, `outcome`, and per-target `refresh` in JSON;
+repository acceptance can succeed while installation refresh fails.
+
+Entries are plain directories with `SKILL.md`; self-built entries can be edited directly. Never edit an *installed* copy in a target — it is a symlink or a
 generated adapter, and drift is what `skm status` will report.
 
 ## Targets

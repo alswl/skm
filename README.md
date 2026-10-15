@@ -22,13 +22,68 @@ them in CI. Git is optional for the library; use it when you want versioning or 
 
 One column per tool. A `✓` means installed there. That's the whole idea.
 
+## Customize community skills
+
+```sh
+skm import owner/repo/path/to/skill
+skm fork review                  # create a full fork and switch existing installs
+skm info review                  # find its editable fork directory
+# Edit files directly in that directory.
+skm sync diff review             # inspect customization against its baseline
+skm update review                # migrate changes, then refresh existing installs
+skm install review               # install the active version into new targets
+```
+
+`update` generates a fresh patch from the saved upstream baseline and your current
+fork, then applies it in an isolated copy of the new upstream. Compatible text
+changes are automatic. Incompatible text or complex files can require manual
+intervention: the current version stays usable, and `info`/`status` show the saved
+workspace. Edit `candidate/` there, then use `skm update review --accept`, or
+`--abort` to discard that attempt. A repeated update preserves the workspace.
+
+`skm update review --rollback` restores the content **and baseline** before the
+most recent successful update. Later edits block rollback; preserve them yourself
+before choosing a version from Git history. Rollback snapshots are local to this
+working copy. Installation failures are reported separately; retry `install` for
+any target that did not refresh.
+
+`skm fork review --upstream` switches installs back to the current community
+version and retains the inactive fork. Future updates leave that fork alone.
+Creating another fork at the same location is refused; handle the old directory
+manually or explicitly authorize deletion and recreation with `--replace`.
+Ordinary `--force` never discards customization or a failed update workspace.
+
+Commit `skills/`, `forks/`, `.skm-sync/`, and the ignore rule to your own Git
+repository to preserve content, source associations, and complete baselines.
+`.skm-local/` contains temporary patches, failed attempts, transactions, and the
+single rollback point; skm adds an exact ignore rule for it. skm never commits for
+you. Management directories are excluded from installation and discovery.
+
+Older imported skills without a baseline remain installable but cannot update
+safely. `skm sync baseline --help` describes historical restoration and an explicit
+new comparison point. Source-only sharing does not include fork content: opting
+into `share create --original-source` shares the community address with a warning.
+An export references the maintained repository remote, including only what has
+actually been published there; `backup` saves an installation list, not contents.
+
+In the TUI, use the actions menu (`x`) to create or leave a fork, accept or cancel
+an attempt, or roll back. `p` updates one item; `P` updates the visible items. The
+installation repair action (`F`) keeps its existing meaning. Use `--dry-run` for
+previews and `--json` for structured results. Text patch operations require Git.
+
+While editing an import address, a static reverse-video cell marks the insertion
+point, including with `NO_COLOR`. It does not depend on the terminal's native
+cursor or window focus; arrow keys move it without shifting fully visible text.
+
+Git does not track empty directories; retain a placeholder file when a directory must survive a clone.
+
 ## ✨ What you get
 
 - 📦 **Local first, fully yours.** Skills live in your personal Git repo: plain directories and
   Markdown, usable offline and easy to commit, branch, review, and back up like any other code.
 - 📥 **Import from the platforms you use.** Bring in skills from GitHub, GitLab, Skills.sh, local
   paths, or files — and discover and adopt skills already installed for Claude Code, Codex, and more.
-- 🔄 **Automated batch updates in one command.** `skm update --all` (or `P` in the TUI) updates every
+- 🔄 **Automated batch updates in one command.** `skm batch-update` (or `P` in the TUI) updates every
   eligible entry and keeps the result for each one, so there is no repetitive manual cleanup.
 - 🔁 **Write once, install everywhere.** `skm install code-review` puts it in every tool that accepts
   skills. No more three copies drifting apart.

@@ -33,7 +33,12 @@ var shareCreateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := svc.CreateShare(cmd.Context(), args, shareProgress(cmd))
+		original, _ := cmd.Flags().GetBool("original-source")
+		create := svc.CreateShare
+		if original {
+			create = svc.CreateOriginalSourceShare
+		}
+		result, err := create(cmd.Context(), args, shareProgress(cmd))
 		if err != nil {
 			return err
 		}
@@ -92,6 +97,7 @@ func printShareApplyResult(cmd *cobra.Command, result *services.ShareApplyResult
 }
 
 func init() {
+	shareCreateCmd.Flags().Bool("original-source", false, "share only the original source, excluding local customization")
 	shareCmd.AddCommand(shareCreateCmd, shareApplyCmd)
 	rootCmd.AddCommand(shareCmd)
 }

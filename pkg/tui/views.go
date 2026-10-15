@@ -668,6 +668,10 @@ func (m model) buildDetail() string {
 	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ProviderIDValue()), providerDisplayLabel(e.ProviderIDValue())))
 	fmt.Fprintf(&sb, "%-10s %s\n", "group:", orDash(e.GroupValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "version:", orDash(e.VersionValue()))
+	if st := e.SyncView; st != nil {
+		fmt.Fprintf(&sb, "mode: %s (%s)\nbaseline: %s\nupstream: %s\nfork: %s\nattempt: %s\nrollback available: %v\n", st.Mode, st.Customization, st.BaselineVersion, st.UpstreamPath, st.ForkPath, st.AttemptPath, st.RollbackAvailable)
+	}
+
 	if e.Origin != nil {
 		fmt.Fprintf(&sb, "%-10s %s\n", "origin:", e.Origin.Address)
 	} else {
