@@ -2,6 +2,8 @@ package engines
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,6 +45,18 @@ func (r *Repository) SyncStatus(e *common.Entry) (*SyncStatus, error) {
 		st.ForkState = "active"
 	}
 	base := filepath.Join(r.root, dal.SyncStateRel(rel), baseName)
+	ref := rec.UpstreamBase
+	if rec.Active == "fork" && rec.ForkBase != nil {
+		ref = *rec.ForkBase
+	}
+	if ref.Kind == "snapshot" && ref.SnapshotDigest != "" {
+		if snapshotRel, pathErr := dal.SyncBaselineRel(ref.SnapshotDigest); pathErr == nil {
+			candidate := filepath.Join(r.root, snapshotRel)
+			if m, treeErr := dal.SyncTree(candidate); treeErr == nil && m.Digest == digest {
+				base = candidate
+			}
+		}
+	}
 	bm, err := dal.SyncTree(base)
 	if err != nil || bm.Digest != digest {
 		st.BaselineState = "corrupt"
@@ -74,38 +88,92 @@ func (r *Repository) SyncStatus(e *common.Entry) (*SyncStatus, error) {
 		st.Changes = append(st.Changes, SyncChange{Path: path, Kind: "deleted"})
 	}
 	slices.SortFunc(st.Changes, func(a, b SyncChange) int { return strings.Compare(a.Path, b.Path) })
-	pending := filepath.Join(r.root, dal.SyncLocalRel("pending", rel))
-	if _, err := os.Lstat(pending); err == nil {
+	pending, attempt, err := r.operationAttempt(rel)
+	if err != nil {
+		return st, err
+	}
+	if pending != "" {
 		st.AttemptPath = pending
-		var attempt SyncAttempt
-		if err := dal.ReadSyncJSON(filepath.Join(pending, "attempt.json"), &attempt); err != nil || attempt.Schema != 1 || attempt.Entry != rel {
+		if attempt.Schema != 2 || attempt.Entry != rel || attempt.OperationID == "" {
 			st.AttemptState = "corrupt"
+			st.OperationState = "blocked"
+			st.RecoveryRequired = true
 		} else {
 			st.AttemptState = "failed"
 			st.AttemptVersion = attempt.Version
 			st.Failures = attempt.Failures
+			st.OperationID = attempt.OperationID
+			st.OperationState = "failed_candidate"
 		}
 		st.NextActions = []string{"skm update " + e.Name + " --accept", "skm update " + e.Name + " --abort"}
 
-	} else if !os.IsNotExist(err) {
-		return st, err
 	}
-	_, err = dal.RollbackReplacements(r.root, rel)
-	st.RollbackAvailable = err == nil
+	// Rollback is intentionally limited to the current unfinished candidate.
+	// A successfully accepted update leaves no history snapshot behind.
+	st.RollbackAvailable = st.AttemptPath != ""
 	return st, nil
 }
 
 func (r *Repository) noAttempt(rel string) error {
-	path, err := dal.SyncPath(r.root, dal.SyncLocalRel("pending", rel))
+	path, _, err := r.operationAttempt(rel)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Lstat(path); err == nil {
+	if path != "" {
 		return fmt.Errorf("pending_attempt: inspect %s; use update --accept or --abort", path)
-	} else if !os.IsNotExist(err) {
-		return err
 	}
 	return nil
+}
+
+// operationAttempt finds one operation by its immutable logical entry. The
+// old pending path is read only for an upgrade-safe cancellation path.
+func (r *Repository) operationAttempt(rel string) (string, SyncAttempt, error) {
+	operations, err := dal.SyncPath(r.root, filepath.Join(".skm", "work", "operations"))
+	if err != nil {
+		return "", SyncAttempt{}, err
+	}
+	dirs, err := os.ReadDir(operations)
+	if err == nil {
+		var found string
+		var attempt SyncAttempt
+		for _, dir := range dirs {
+			if !dir.IsDir() {
+				continue
+			}
+			var candidate SyncAttempt
+			if err := dal.ReadSyncJSON(filepath.Join(operations, dir.Name(), "attempt.json"), &candidate); err != nil {
+				return "", SyncAttempt{}, fmt.Errorf("recovery_required: invalid operation %s", dir.Name())
+			}
+			if candidate.Entry != rel {
+				continue
+			}
+			if found != "" {
+				return "", SyncAttempt{}, fmt.Errorf("recovery_required: multiple operations for %s", rel)
+			}
+			found, attempt = filepath.Join(operations, dir.Name()), candidate
+		}
+		if found != "" {
+			return found, attempt, nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", SyncAttempt{}, err
+	}
+	legacy := filepath.Join(r.root, dal.SyncLocalRel("pending", rel))
+	var attempt SyncAttempt
+	if err := dal.ReadSyncJSON(filepath.Join(legacy, "attempt.json"), &attempt); err == nil {
+		return legacy, attempt, nil
+	} else if !os.IsNotExist(err) {
+		return "", SyncAttempt{}, err
+	}
+	return "", SyncAttempt{}, nil
+}
+
+func newOperationID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 func (r *Repository) recordStage(rel string) (string, string, error) {
 	path := filepath.Join(r.root, dal.SyncStateRel(rel))
@@ -142,7 +210,7 @@ func (r *Repository) ForkEntry(e *common.Entry, opts SyncOptions) (*UpdateResult
 	if opts.Upstream && rec.Active == "upstream" {
 		return &UpdateResult{Outcome: "current"}, nil
 	}
-	forkRel := filepath.Join("forks", dal.SyncKey(rel))
+	forkRel := dal.SyncForkRel(rel)
 	forkPath, err := dal.SyncPath(r.root, forkRel)
 	if err != nil {
 		return nil, err
@@ -177,6 +245,8 @@ func (r *Repository) ForkEntry(e *common.Entry, opts SyncOptions) (*UpdateResult
 		rec.ForkPath = forkRel
 		rec.ForkVersion = rec.UpstreamVersion
 		rec.ForkDigest = rec.UpstreamDigest
+		forkBase := rec.UpstreamBase
+		rec.ForkBase = &forkBase
 		rec.Active = "fork"
 		replacements = append(replacements, dal.SyncReplacement{Path: forkRel, Source: filepath.Join(r.root, rel), Expected: oldFork})
 	}
@@ -202,12 +272,24 @@ func (r *Repository) ForkEntry(e *common.Entry, opts SyncOptions) (*UpdateResult
 }
 
 func (r *Repository) PrepareSyncUpdate(ctx context.Context, e *common.Entry, upstream, version string, dryRun bool) (*UpdateResult, error) {
+	return r.prepareSyncUpdate(ctx, e, "", upstream, version, dryRun)
+}
+
+// PrepareSyncUpdateFromBase accepts a services-resolved immutable raw B.
+// Engines intentionally do not fetch: network/cache ownership stays above
+// the domain layer and candidates are built only from fixed inputs.
+func (r *Repository) PrepareSyncUpdateFromBase(ctx context.Context, e *common.Entry, base, upstream, version string, dryRun bool) (*UpdateResult, error) {
+	return r.prepareSyncUpdate(ctx, e, base, upstream, version, dryRun)
+}
+
+func (r *Repository) prepareSyncUpdate(ctx context.Context, e *common.Entry, resolvedBase, upstream, version string, dryRun bool) (*UpdateResult, error) {
 	rec, rel, err := r.SyncRecord(e)
 	if err != nil {
 		return nil, fmt.Errorf("missing_baseline: use sync baseline: %w", err)
 	}
 	if err = r.noAttempt(rel); err != nil {
-		return &UpdateResult{Outcome: "manual_required", AttemptPath: filepath.Join(r.root, dal.SyncLocalRel("pending", rel))}, err
+		path, _, _ := r.operationAttempt(rel)
+		return &UpdateResult{Outcome: "manual_required", AttemptPath: path}, err
 	}
 	state := filepath.Join(r.root, dal.SyncStateRel(rel))
 	baseName := "upstream-baseline"
@@ -225,6 +307,9 @@ func (r *Repository) PrepareSyncUpdate(ctx context.Context, e *common.Entry, ups
 		return nil, err
 	}
 	base := filepath.Join(state, baseName)
+	if resolvedBase != "" {
+		base = resolvedBase
+	}
 	bm, err := dal.SyncTree(base)
 	if err != nil {
 		return nil, err
@@ -286,7 +371,11 @@ func (r *Repository) PrepareSyncUpdate(ctx context.Context, e *common.Entry, ups
 	if err = dal.WriteSyncJSON(filepath.Join(work, "local-manifest.json"), lm); err != nil {
 		return nil, err
 	}
-	attempt := SyncAttempt{Schema: 1, Entry: rel, RecordDigest: recordHash, UpstreamDigest: upHash, LocalDigest: lm.Digest, Version: version, BaseDigest: bm.Digest, NewDigest: um.Digest, Failures: pr.Failures}
+	operationID, err := newOperationID()
+	if err != nil {
+		return nil, err
+	}
+	attempt := SyncAttempt{Schema: 2, OperationID: operationID, Entry: rel, Generation: rec.Generation, RecordDigest: recordHash, UpstreamDigest: upHash, LocalDigest: lm.Digest, Version: version, BaseDigest: bm.Digest, NewDigest: um.Digest, Failures: pr.Failures}
 	if err = dal.WriteSyncJSON(filepath.Join(work, "attempt.json"), attempt); err != nil {
 		return nil, err
 	}
@@ -304,7 +393,7 @@ func (r *Repository) PrepareSyncUpdate(ctx context.Context, e *common.Entry, ups
 			if err = dal.InitSyncStore(r.root); err != nil {
 				return result, err
 			}
-			path := filepath.Join(r.root, dal.SyncLocalRel("pending", rel))
+			path := filepath.Join(r.root, ".skm", "work", "operations", attempt.OperationID)
 			if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 				return result, err
 			}
@@ -347,7 +436,7 @@ func (r *Repository) acceptAttempt(e *common.Entry, work string, a SyncAttempt, 
 	if err != nil {
 		return result, err
 	}
-	if a.Schema != 1 || a.Entry != rel {
+	if a.Schema != 2 || a.Entry != rel || a.Generation == 0 {
 		return result, fmt.Errorf("invalid attempt")
 	}
 	for _, item := range []struct{ path, digest string }{{"base", a.BaseDigest}, {"local", a.LocalDigest}, {"upstream", a.NewDigest}} {
@@ -372,7 +461,7 @@ func (r *Repository) acceptAttempt(e *common.Entry, work string, a SyncAttempt, 
 	if err != nil {
 		return result, err
 	}
-	if current != a.LocalDigest || oldState != a.RecordDigest || up != a.UpstreamDigest {
+	if current != a.LocalDigest || oldState != a.RecordDigest || up != a.UpstreamDigest || rec.Generation != a.Generation {
 		return result, fmt.Errorf("stale_input: official content or association changed")
 	}
 	candidate := filepath.Join(work, "candidate")
@@ -410,6 +499,7 @@ func (r *Repository) acceptAttempt(e *common.Entry, work string, a SyncAttempt, 
 	rec.UpstreamDigest = a.NewDigest
 	rec.UpstreamVersion = a.Version
 	rec.Origin.Revision = a.Version
+	rec.UpstreamBase = baselineRef(rec.Origin, a.NewDigest)
 	rec.Generation++
 	community := candidate
 	var replacements []dal.SyncReplacement
@@ -429,6 +519,8 @@ func (r *Repository) acceptAttempt(e *common.Entry, work string, a SyncAttempt, 
 		}
 		rec.ForkDigest = a.NewDigest
 		rec.ForkVersion = a.Version
+		forkBase := baselineRef(rec.Origin, a.NewDigest)
+		rec.ForkBase = &forkBase
 		replacements = append(replacements, dal.SyncReplacement{Path: rec.ForkPath, Source: candidate, Expected: a.LocalDigest})
 	}
 	if err = dal.WriteSyncJSON(filepath.Join(state, "record.json"), rec); err != nil {
@@ -451,7 +543,7 @@ func (r *Repository) acceptAttempt(e *common.Entry, work string, a SyncAttempt, 
 	if result.Outcome == "current" {
 		return result, nil
 	}
-	if err = dal.CommitSync(r.root, rel, replacements, true); err != nil {
+	if err = dal.CommitSync(r.root, rel, replacements, false); err != nil {
 		result.Accepted = dal.IsSyncAccepted(err)
 		return result, err
 	}
@@ -465,31 +557,32 @@ func (r *Repository) FinishSyncUpdate(e *common.Entry, opts SyncOptions) (*Updat
 		return nil, err
 	}
 	result := &UpdateResult{Outcome: "cancelled"}
-	if opts.Rollback {
-		if err = r.noAttempt(rel); err != nil {
-			return result, err
-		}
-		moves, err := dal.RollbackReplacements(r.root, rel)
-		if err != nil {
-			return result, err
-		}
-		result.Outcome = "rolled_back"
-		result.Changed = true
-		if opts.DryRun {
-			return result, nil
-		}
-		if err = dal.CommitSync(r.root, rel, moves, false); err != nil {
-			result.Accepted = dal.IsSyncAccepted(err)
-			return result, err
-		}
-		result.Accepted = true
-		return result, os.RemoveAll(filepath.Join(r.root, dal.SyncLocalRel("rollback", rel)))
-	}
-	path, err := dal.SyncPath(r.root, dal.SyncLocalRel("pending", rel))
+	path, _, err := r.operationAttempt(rel)
 	if err != nil {
 		return result, err
 	}
-	if opts.Abort {
+	if path == "" {
+		return result, fmt.Errorf("rollback_unavailable: no unfinished update attempt")
+	}
+	if opts.Abort || opts.Rollback {
+		var attempt SyncAttempt
+		if err = dal.ReadSyncJSON(filepath.Join(path, "attempt.json"), &attempt); err != nil {
+			if opts.Rollback {
+				if err = dal.RollbackSync(r.root, rel, opts.DryRun); err == nil {
+					result.Outcome = "rolled_back"
+					return result, nil
+				}
+			}
+			return result, fmt.Errorf("rollback_unavailable: %w", err)
+		}
+		current, hashErr := dal.TreeFingerprint(e.Path)
+		if hashErr != nil {
+			return result, hashErr
+		}
+		if current != attempt.LocalDigest {
+			return result, fmt.Errorf("stale_input: official content changed after update attempt")
+		}
+		result.Outcome = "rolled_back"
 		if opts.DryRun {
 			return result, nil
 		}

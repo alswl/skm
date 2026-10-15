@@ -37,8 +37,8 @@ var updateCmd = &cobra.Command{
 
 func init() {
 	updateCmd.Flags().Bool("accept", false, "accept the manually prepared candidate")
-	updateCmd.Flags().Bool("abort", false, "discard the failed attempt, preserving the current version")
-	updateCmd.Flags().Bool("rollback", false, "restore the version and baseline before the last successful update")
+	updateCmd.Flags().Bool("abort", false, "compatibility alias for --rollback")
+	updateCmd.Flags().Bool("rollback", false, "discard the current unfinished update attempt")
 	updateCmd.MarkFlagsMutuallyExclusive("accept", "abort", "rollback")
 	rootCmd.AddCommand(updateCmd)
 }

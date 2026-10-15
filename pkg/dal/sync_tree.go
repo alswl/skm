@@ -12,9 +12,12 @@ import (
 )
 
 type SyncNode struct {
-	Path       string `json:"path"`
-	Kind       string `json:"kind"`
-	Hash       string `json:"hash,omitempty"`
+	Path string `json:"path"`
+	Kind string `json:"kind"`
+	Hash string `json:"hash,omitempty"`
+	// Mode is deliberately outside the content manifest digest: sync conflict
+	// detection is content based, while transaction backups still preserve it.
+	Mode       uint32 `json:"-"`
 	Executable bool   `json:"executable,omitempty"`
 }
 type SyncManifest struct {
@@ -71,7 +74,7 @@ func SyncTree(root string) (SyncManifest, error) {
 		if err != nil {
 			return err
 		}
-		n := SyncNode{Path: filepath.ToSlash(rel)}
+		n := SyncNode{Path: filepath.ToSlash(rel), Mode: uint32(info.Mode().Perm())}
 		switch {
 		case d.IsDir():
 			n.Kind = "directory"
@@ -116,16 +119,15 @@ func CopySyncTree(src, dst string) error {
 			return err
 		}
 		if n.Kind == "directory" {
-			err = os.MkdirAll(to, 0755)
+			err = os.MkdirAll(to, fs.FileMode(n.Mode))
+			if err == nil {
+				err = os.Chmod(to, fs.FileMode(n.Mode))
+			}
 		} else {
 			var data []byte
 			data, err = os.ReadFile(filepath.Join(src, filepath.FromSlash(n.Path)))
 			if err == nil {
-				mode := fs.FileMode(0644)
-				if n.Executable {
-					mode = 0755
-				}
-				err = os.WriteFile(to, data, mode)
+				err = os.WriteFile(to, data, fs.FileMode(n.Mode))
 			}
 		}
 		if err != nil {

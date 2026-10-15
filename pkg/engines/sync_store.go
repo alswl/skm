@@ -9,6 +9,41 @@ import (
 	"github.com/alswl/skm/skm/pkg/dal"
 )
 
+func baselineRef(origin common.Origin, digest string) common.BaselineRef {
+	ref := common.BaselineRef{Kind: "snapshot", Revision: "sha256:" + digest, RawDigest: digest, SnapshotDigest: digest}
+	provider := ""
+	if origin.ProviderID != nil {
+		provider = *origin.ProviderID
+	}
+	if origin.Revision != "" && (origin.RepositoryAddress != "" || provider == "git") {
+		ref = common.BaselineRef{Kind: "git", Revision: origin.Revision, RawDigest: digest}
+	}
+	return ref
+}
+
+// snapshotReplacement stores non-reconstructible raw inputs once by content
+// digest. A valid existing snapshot is immutable and is deliberately reused.
+func (r *Repository) snapshotReplacement(ref common.BaselineRef, source string) (*dal.SyncReplacement, error) {
+	if ref.Kind != "snapshot" {
+		return nil, nil
+	}
+	rel, err := dal.SyncBaselineRel(ref.SnapshotDigest)
+	if err != nil {
+		return nil, err
+	}
+	expected, err := dal.TreeFingerprint(filepath.Join(r.root, rel))
+	if err != nil {
+		return nil, err
+	}
+	if expected == ref.RawDigest {
+		return nil, nil
+	}
+	if expected != "absent" {
+		return nil, fmt.Errorf("corrupt_baseline: snapshot %s", rel)
+	}
+	return &dal.SyncReplacement{Path: rel, Source: source, Expected: "absent"}, nil
+}
+
 func (r *Repository) SyncRecord(e *common.Entry) (*common.SyncRecord, string, error) {
 	path := e.RepositoryPath
 	if path == "" {
@@ -69,7 +104,7 @@ func (r *Repository) attachSync(e *common.Entry) *common.Entry {
 		e.Version = fm.Version
 	}
 	if st, err := r.SyncStatus(e); err == nil {
-		e.SyncView = &common.SyncView{Mode: st.Mode, ForkState: st.ForkState, ForkPath: st.ForkPath, UpstreamPath: st.UpstreamPath, BaselineVersion: st.BaselineVersion, Customization: st.Customization, AttemptPath: st.AttemptPath, RollbackAvailable: st.RollbackAvailable}
+		e.SyncView = &common.SyncView{Mode: st.Mode, ForkState: st.ForkState, ForkPath: st.ForkPath, UpstreamPath: st.UpstreamPath, BaselineVersion: st.BaselineVersion, BaselineState: st.BaselineState, Customization: st.Customization, AttemptPath: st.AttemptPath, OperationID: st.OperationID, OperationState: st.OperationState, NextActions: st.NextActions, RollbackAvailable: st.RollbackAvailable, RecoveryRequired: st.RecoveryRequired, CleanupPending: st.CleanupPending}
 	}
 	return e
 }
@@ -110,12 +145,16 @@ func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *commo
 	if err != nil {
 		return err
 	}
+	content, err := dal.SyncTree(tmp)
+	if err != nil {
+		return err
+	}
 	origin.Path = rel
 	version := origin.Revision
 	if version == "" {
 		version = "sha256:" + raw.Digest
 	}
-	rec := common.SyncRecord{Schema: 1, EntryPath: rel, Name: name, Generation: 1, Origin: *origin, Active: "upstream", UpstreamVersion: version, UpstreamDigest: raw.Digest}
+	rec := common.SyncRecord{Schema: 2, EntryPath: rel, Name: name, Generation: 1, Origin: *origin, Active: "upstream", UpstreamVersion: version, UpstreamDigest: raw.Digest, UpstreamBase: baselineRef(*origin, raw.Digest), UpstreamContentDigest: content.Digest}
 	if err = dal.WriteSyncJSON(filepath.Join(state, "record.json"), rec); err != nil {
 		return err
 	}
@@ -127,5 +166,11 @@ func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *commo
 	if expected != "absent" {
 		return fmt.Errorf("orphan sync state exists; recover before importing")
 	}
-	return dal.CommitSync(r.root, rel, []dal.SyncReplacement{{Path: rel, Source: tmp, Expected: expectedContent}, {Path: stateRel, Source: state, Expected: "absent"}}, false)
+	replacements := []dal.SyncReplacement{{Path: rel, Source: tmp, Expected: expectedContent}, {Path: stateRel, Source: state, Expected: "absent"}}
+	if snapshot, err := r.snapshotReplacement(rec.UpstreamBase, filepath.Join(state, "upstream-baseline")); err != nil {
+		return err
+	} else if snapshot != nil {
+		replacements = append(replacements, *snapshot)
+	}
+	return dal.CommitSync(r.root, rel, replacements, false)
 }

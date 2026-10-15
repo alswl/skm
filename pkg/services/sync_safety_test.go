@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,10 +39,48 @@ func TestSyncPreviewStaleAndCancelledScene(t *testing.T) {
 	_, err = s.UseUpstream(ctx, "review", false)
 	require.ErrorContains(t, err, "pending_attempt")
 	_, err = s.CancelUpdate(ctx, "review", false)
+	require.ErrorContains(t, err, "stale_input")
+	require.DirExists(t, res.AttemptPath)
+}
+
+func TestAcceptUpdateRejectsChangedRecordGeneration(t *testing.T) {
+	s, source, _ := syncFixture(t)
+	ctx := context.Background()
+	_, err := s.Fork(ctx, "review", engines.SyncOptions{})
 	require.NoError(t, err)
-	require.NoDirExists(t, res.AttemptPath)
-	_, err = s.CancelUpdate(ctx, "review", false)
+	writeFile(t, filepath.Dir(currentSyncPath(t, s)), "guide.txt", "local\n")
+	writeFile(t, source, "guide.txt", "upstream\n")
+	res, err := s.Update(ctx, "review", UpdateOptions{})
+	require.Error(t, err)
+	writeFile(t, filepath.Join(res.AttemptPath, "candidate"), "guide.txt", "resolved\n")
+	e := s.FindEntry("review")
+	rec, rel, err := s.Repo.SyncRecord(e)
 	require.NoError(t, err)
+	rec.Generation++
+	require.NoError(t, dal.WriteSyncJSON(filepath.Join(s.Cfg.Root, dal.SyncStateRel(rel), "record.json"), rec))
+	_, err = s.AcceptUpdate(ctx, "review", false)
+	require.ErrorContains(t, err, "stale_input")
+	require.DirExists(t, res.AttemptPath)
+}
+
+func TestBaselineResolverUsesVerifiedGitCacheOffline(t *testing.T) {
+	root, source := t.TempDir(), t.TempDir()
+	writeFile(t, source, "SKILL.md", frontmatter("review", "Review"))
+	digest, err := dal.TreeFingerprint(source)
+	require.NoError(t, err)
+	revision := "0123456789abcdef0123456789abcdef01234567"
+	repository := "https://example.invalid/owner/review.git"
+	_, err = dal.StoreGitCache(root, repository, revision, source)
+	require.NoError(t, err)
+	s := newUpdateSvc(t, root)
+	provider := "missing"
+	rec := &common.SyncRecord{Origin: common.Origin{ProviderID: &provider, RepositoryAddress: repository}, UpstreamBase: common.BaselineRef{Kind: "git", Revision: revision, RawDigest: digest}}
+	base, cleanup, err := s.resolveBaselineTree(context.Background(), rec, rec.UpstreamBase, filepath.Join(root, "missing-snapshot"))
+	require.NoError(t, err)
+	defer cleanup()
+	got, err := dal.TreeFingerprint(base)
+	require.NoError(t, err)
+	require.Equal(t, digest, got)
 }
 func TestRollbackRefusesLaterEdits(t *testing.T) {
 	s, source, _ := syncFixture(t)
@@ -53,7 +92,7 @@ func TestRollbackRefusesLaterEdits(t *testing.T) {
 	require.NoError(t, err)
 	writeFile(t, filepath.Dir(currentSyncPath(t, s)), "guide.txt", "later\n")
 	_, err = s.RollbackUpdate(ctx, "review", false)
-	require.ErrorContains(t, err, "stale_input")
+	require.ErrorContains(t, err, "rollback_unavailable")
 	require.Equal(t, "later\n", readSyncFile(t, currentSyncPath(t, s)))
 }
 func TestSyncArchiveProtectsInstallsAndMovesAssociation(t *testing.T) {
@@ -100,9 +139,9 @@ func TestGitCloneKeepsForkAndBaseline(t *testing.T) {
 	run("-C", s.Cfg.Root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
 	out, err := exec.Command("git", "-C", s.Cfg.Root, "ls-files").Output()
 	require.NoError(t, err)
-	require.NotContains(t, string(out), ".skm-local/")
-	require.Contains(t, string(out), "forks/")
-	require.Contains(t, string(out), ".skm-sync/")
+	require.NotContains(t, string(out), ".skm/work/")
+	require.Contains(t, string(out), "skills-fork/")
+	require.Contains(t, string(out), ".skm/")
 	clone := filepath.Join(t.TempDir(), "clone")
 	run("clone", "-q", s.Cfg.Root, clone)
 	copySvc := newUpdateSvc(t, clone)
@@ -382,9 +421,118 @@ func TestTrackedCopyInstallsExactMaintainedResources(t *testing.T) {
 
 func TestDeployRefusesInterruptedSourceRepository(t *testing.T) {
 	s, _, _ := syncFixture(t)
-	writeFile(t, s.Cfg.Root, ".skm-local/transactions/interrupted/journal.json", `{"Schema":1,"Entry":"skills/local/review","Moves":[{"Path":"skills/local/review","Before":"absent","After":"absent"}]}`)
+	writeFile(t, s.Cfg.Root, ".skm/work/transactions/interrupted/journal.json", `{"Schema":2,"Entry":"skills/local/review","Moves":[{"Path":"skills/local/review","Before":"absent","After":"absent"}]}`)
 	_, err := discoverDeploySkills(s.Cfg.Root, nil)
 	require.ErrorContains(t, err, "recovery_required")
+}
+
+func TestOrdinarySyncWriteIsBlockedByInterruptedTransaction(t *testing.T) {
+	s, source, _ := syncFixture(t)
+	writeFile(t, s.Cfg.Root, ".skm/work/transactions/interrupted/journal.json", `{"Schema":2,"Entry":"skills/local/review","Moves":[{"Path":"skills/local/review","Before":"absent","After":"absent"}]}`)
+	writeFile(t, source, "guide.txt", "upstream\n")
+	_, err := s.Update(context.Background(), "review", UpdateOptions{})
+	require.ErrorContains(t, err, "recovery_required")
+}
+
+func TestShareIsBlockedByInterruptedTransaction(t *testing.T) {
+	s, _, _ := syncFixture(t)
+	writeFile(t, s.Cfg.Root, ".skm/work/transactions/interrupted/journal.json", `{"Schema":2,"Entry":"skills/local/review","Moves":[{"Path":"skills/local/review","Before":"absent","After":"absent"}]}`)
+	_, err := s.CreateShare(context.Background(), []string{"review"}, nil)
+	require.ErrorContains(t, err, "recovery_required")
+}
+
+func TestTrackedLifecycleIsBlockedByInterruptedTransaction(t *testing.T) {
+	s, _, _ := syncFixture(t)
+	writeFile(t, s.Cfg.Root, ".skm/work/transactions/interrupted/journal.json", `{"Schema":2,"Entry":"skills/local/review","Moves":[{"Path":"skills/local/review","Before":"absent","After":"absent"}]}`)
+	_, err := s.Archive(context.Background(), "review", engines.LifecycleOptions{})
+	require.ErrorContains(t, err, "recovery_required")
+}
+
+func TestSyncReasonCodeKeepsRecoveryAndMigrationActions(t *testing.T) {
+	for _, code := range []string{"recovery_blocked", "migration_required", "migration_conflict"} {
+		t.Run(code, func(t *testing.T) {
+			require.Equal(t, code, syncReasonCode(fmt.Errorf("%s: detail", code)))
+		})
+	}
+}
+
+func TestRollbackLocatesPartiallyMissingEntryFromTransaction(t *testing.T) {
+	s, _, _ := syncFixture(t)
+	entry := s.FindEntry("review")
+	require.NotNil(t, entry)
+	rel := s.Repo.RelPath(entry.RepositoryPath)
+	before, err := dal.TreeFingerprint(entry.RepositoryPath)
+	require.NoError(t, err)
+	dir := filepath.Join(s.Cfg.Root, ".skm", "work", "transactions", "interrupted")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, dal.CopySyncTree(entry.RepositoryPath, filepath.Join(dir, "old-0")))
+	require.NoError(t, os.Rename(entry.RepositoryPath, filepath.Join(dir, "removed-0")))
+	require.NoError(t, dal.WriteSyncJSON(filepath.Join(dir, "journal.json"), map[string]any{
+		"Schema": 2, "Entry": rel, "BackupComplete": true, "State": "accepting",
+		"Moves": []map[string]string{{"Path": rel, "Before": before, "After": "absent"}},
+	}))
+
+	result, err := s.RollbackUpdate(context.Background(), "review", false)
+	require.NoError(t, err)
+	require.Equal(t, "rolled_back", result.Outcome)
+	require.Equal(t, rel, result.Entry)
+	require.DirExists(t, entry.RepositoryPath)
+	require.NoDirExists(t, dir)
+}
+
+func TestMigrateRollbackRestoresInterruptedMigration(t *testing.T) {
+	root := t.TempDir()
+	s := newUpdateSvc(t, root)
+	path := filepath.Join(root, "skills", "local", "review")
+	require.NoError(t, os.MkdirAll(path, 0700))
+	writeFile(t, path, "SKILL.md", frontmatter("review", "Review"))
+	before, err := dal.TreeFingerprint(path)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".skm"), 0700))
+	require.NoError(t, dal.WriteSyncJSON(filepath.Join(root, ".skm", "format.json"), map[string]int{"schema_version": 2}))
+	dir := filepath.Join(root, ".skm", "work", "transactions", "migration")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, dal.CopySyncTree(path, filepath.Join(dir, "old-0")))
+	require.NoError(t, os.Rename(path, filepath.Join(dir, "removed-0")))
+	require.NoError(t, dal.WriteSyncJSON(filepath.Join(dir, "journal.json"), map[string]any{
+		"Schema": 2, "Entry": "migration", "BackupComplete": true, "State": "accepting",
+		"Moves": []map[string]string{{"Path": "skills/local/review", "Before": before, "After": "absent"}},
+	}))
+
+	result, err := s.MigrateSync(context.Background(), false, "", true, false)
+	require.NoError(t, err)
+	require.Equal(t, "rolled_back", result.Outcome)
+	require.True(t, result.Accepted)
+	require.DirExists(t, path)
+	require.NoDirExists(t, dir)
+	require.NoDirExists(t, filepath.Join(root, ".skm"))
+}
+
+func TestMigrateRefreshesManagedLinkToMovedFork(t *testing.T) {
+	s, _, target := legacySyncFixture(t, "active", false)
+	oldFork := filepath.Join(s.Cfg.Root, "forks", dal.SyncKey("skills/local/review"))
+	require.NoError(t, os.Symlink(oldFork, filepath.Join(target, "review")))
+	preview, err := s.MigrateSync(context.Background(), false, "", false, false)
+	require.NoError(t, err)
+	result, err := s.MigrateSync(context.Background(), true, preview.ExpectedState, false, false)
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	require.Len(t, result.Refresh, 1)
+	require.True(t, result.Refresh[0].Success)
+	link, err := os.Readlink(filepath.Join(target, "review"))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(s.Cfg.Root, dal.SyncForkRel("skills/local/review")), link)
+}
+
+func TestMigrateRefusesLegacyPendingState(t *testing.T) {
+	s, _, _ := legacySyncFixture(t, "retained", false)
+	writeFile(t, s.Cfg.Root, ".skm-local/pending/interrupted/attempt.json", `{}`)
+	preview, err := s.MigrateSync(context.Background(), false, "", false, false)
+	require.NoError(t, err)
+	_, err = s.MigrateSync(context.Background(), true, preview.ExpectedState, false, false)
+	require.ErrorContains(t, err, "resolve legacy pending")
+	require.DirExists(t, filepath.Join(s.Cfg.Root, ".skm-sync"))
+	require.NoDirExists(t, filepath.Join(s.Cfg.Root, ".skm"))
 }
 
 func TestStructureConflictKeepsAttemptAndSupportsManualAcceptance(t *testing.T) {

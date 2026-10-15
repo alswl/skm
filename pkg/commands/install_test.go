@@ -54,9 +54,14 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	deployFlags.repo, deployFlags.into = "", ""
 	deployFlags.noRepo = false
 	deployFlags.targets, deployFlags.only = nil, nil
-	for _, cmd := range []*cobra.Command{forkCmd, updateCmd, shareCreateCmd} {
+	var resetCommand func(*cobra.Command)
+	resetCommand = func(cmd *cobra.Command) {
 		cmd.Flags().VisitAll(func(f *pflag.Flag) { _ = f.Value.Set(f.DefValue); f.Changed = false })
+		for _, child := range cmd.Commands() {
+			resetCommand(child)
+		}
 	}
+	resetCommand(rootCmd)
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	deployCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	flagRoot, flagConfig = "", ""

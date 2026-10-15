@@ -22,6 +22,12 @@ func (s *Services) syncEntry(name string) (*common.Entry, error) {
 	if e == nil {
 		return nil, common.WithExitCode(fmt.Errorf("entry %q not found", name), common.ExitObject)
 	}
+	// Scanning deliberately marks entries behind an interrupted transaction as
+	// errors. Rollback still needs their stable upstream path to locate the
+	// journal, so permit that narrow recovery-only representation here.
+	if e.Kind == common.KindSkill && e.Status == common.StatusError && e.Error != nil && strings.Contains(*e.Error, "recovery_required:") {
+		e.Status = common.StatusActive
+	}
 	if e.Kind != common.KindSkill || e.Status != common.StatusActive {
 		return nil, common.WithExitCode(fmt.Errorf("sync requires an active skill: %s", name), common.ExitObject)
 	}
@@ -52,7 +58,14 @@ func (s *Services) syncWrite(ctx context.Context, name string, opts engines.Sync
 		return nil, err
 	}
 	defer lock.Release()
-	if opts.DryRun {
+	if opts.Rollback || opts.Abort {
+		// A rollback is the user's explicit recovery choice. Do not run the
+		// normal auto-recovery gate, which intentionally refuses to choose it.
+		err = s.Repo.SyncReadCheck()
+		if err != nil && strings.Contains(err.Error(), "recovery_required:") {
+			err = nil
+		}
+	} else if opts.DryRun {
 		err = s.Repo.SyncReadCheck()
 	} else {
 		err = s.Repo.SyncRecover()
@@ -62,6 +75,11 @@ func (s *Services) syncWrite(ctx context.Context, name string, opts engines.Sync
 	}
 	e, err := s.syncEntry(name)
 	if err != nil {
+		if opts.Rollback || opts.Abort {
+			if result, found, rollbackErr := s.rollbackMissingSyncEntry(name, opts.DryRun); found || rollbackErr != nil {
+				return result, rollbackErr
+			}
+		}
 		return nil, err
 	}
 	beforeTargets := s.Installer.RefreshTargets(e)
@@ -116,6 +134,32 @@ func (s *Services) syncWrite(ctx context.Context, name string, opts engines.Sync
 		return res, err
 	}
 	return res, s.refreshSyncInstalls(next, res, beforeTargets...)
+}
+
+func (s *Services) rollbackMissingSyncEntry(name string, dryRun bool) (*engines.UpdateResult, bool, error) {
+	entries, err := dal.InterruptedSyncEntries(s.Cfg.Root)
+	if err != nil {
+		return nil, false, err
+	}
+	var match string
+	for _, entry := range entries {
+		if entry != name && filepath.Base(entry) != name {
+			continue
+		}
+		if match != "" {
+			return nil, true, fmt.Errorf("recovery_blocked: multiple interrupted entries match %q", name)
+		}
+		match = entry
+	}
+	if match == "" {
+		return nil, false, nil
+	}
+	result := &engines.UpdateResult{Entry: match, Outcome: "rolled_back", Preview: dryRun}
+	if err := dal.RollbackSync(s.Cfg.Root, match, dryRun); err != nil {
+		result.Reason, result.ReasonCode = err.Error(), syncReasonCode(err)
+		return result, true, err
+	}
+	return result, true, nil
 }
 func (s *Services) refreshSyncInstalls(e *common.Entry, result *engines.UpdateResult, previous ...common.InstallTarget) error {
 	targets := s.Installer.RefreshTargets(e)
@@ -187,15 +231,50 @@ func (s *Services) SyncStatus(name string) (*engines.SyncStatus, error) {
 	return s.Repo.SyncStatus(e)
 }
 func (s *Services) SyncRecover(ctx context.Context, dryRun bool) error {
+	_, err := s.SyncRecoverReport(ctx, dryRun)
+	return err
+}
+
+type SyncRecoveryOperation struct {
+	ID, Entry, State, Outcome, Reason string
+}
+
+type SyncRecoveryResult struct {
+	Success    bool                    `json:"success"`
+	Operations []SyncRecoveryOperation `json:"operations"`
+}
+
+func (s *Services) SyncRecoverReport(ctx context.Context, dryRun bool) (*SyncRecoveryResult, error) {
 	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer lock.Release()
-	if dryRun {
-		return s.Repo.SyncReadCheck()
+	transactions, err := dal.SyncTransactions(s.Cfg.Root)
+	if err != nil {
+		return nil, err
 	}
-	return s.Repo.SyncRecover()
+	result := &SyncRecoveryResult{Operations: make([]SyncRecoveryOperation, 0, len(transactions))}
+	if dryRun {
+		err = s.Repo.SyncReadCheck()
+	} else {
+		err = s.Repo.SyncRecover()
+	}
+	for _, transaction := range transactions {
+		operation := SyncRecoveryOperation{ID: transaction.ID, Entry: transaction.Entry, State: transaction.State, Outcome: "recovery_required"}
+		switch transaction.State {
+		case "rolling_back":
+			operation.Outcome = "rolled_back"
+		case "committed", "rolled_back":
+			operation.Outcome = "cleaned"
+		}
+		if err != nil {
+			operation.Outcome, operation.Reason = "blocked", err.Error()
+		}
+		result.Operations = append(result.Operations, operation)
+	}
+	result.Success = err == nil
+	return result, err
 }
 func (s *Services) updateSkill(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
 	return s.syncWrite(ctx, name, engines.SyncOptions{DryRun: opts.DryRun}, func(e *common.Entry) (*engines.UpdateResult, error) {
@@ -209,23 +288,39 @@ func (s *Services) updateSkill(ctx context.Context, name string, opts UpdateOpti
 		if st.AttemptPath != "" {
 			return &engines.UpdateResult{Outcome: "manual_required", AttemptPath: st.AttemptPath}, fmt.Errorf("pending_attempt: use update --accept or --abort")
 		}
-		staged, cleanup, err := s.fetchFromOrigin(ctx, e)
+		fetched, err := s.fetchFromOrigin(ctx, e, !opts.DryRun)
 		if err != nil {
 			return nil, err
 		}
-		defer cleanup()
-		if _, err = os.Lstat(filepath.Join(staged, "meta.json")); err == nil {
+		defer fetched.Cleanup()
+		if _, err = os.Lstat(filepath.Join(fetched.Path, "meta.json")); err == nil {
 			return nil, fmt.Errorf("reserved upstream root meta.json")
 		} else if !os.IsNotExist(err) {
 			return nil, err
 		}
-		return s.Repo.PrepareSyncUpdate(ctx, e, staged, e.Origin.Revision, opts.DryRun)
+		rec, rel, err := s.Repo.SyncRecord(e)
+		if err != nil {
+			return nil, err
+		}
+		kind, ref := "upstream-baseline", rec.UpstreamBase
+		if rec.Active == "fork" {
+			kind = "fork-baseline"
+			if rec.ForkBase != nil {
+				ref = *rec.ForkBase
+			}
+		}
+		base, release, err := s.resolveBaselineTree(ctx, rec, ref, filepath.Join(s.Cfg.Root, dal.SyncStateRel(rel), kind))
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		return s.Repo.PrepareSyncUpdateFromBase(ctx, e, base, fetched.Path, fetched.Version, opts.DryRun)
 	})
 }
 
 func syncReasonCode(err error) string {
 	text := err.Error()
-	for _, code := range []string{"customization_requires_fork", "missing_baseline", "corrupt_baseline", "existing_fork", "pending_attempt", "stale_input", "patch_failed", "unsupported_content", "invalid_candidate", "rollback_unavailable", "recovery_required", "refresh_failed"} {
+	for _, code := range []string{"customization_requires_fork", "missing_baseline", "corrupt_baseline", "existing_fork", "pending_attempt", "stale_input", "patch_failed", "unsupported_content", "invalid_candidate", "rollback_unavailable", "recovery_required", "recovery_blocked", "migration_required", "migration_conflict", "refresh_failed"} {
 		if strings.Contains(text, code+":") || text == code {
 			return code
 		}

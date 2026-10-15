@@ -119,7 +119,7 @@ func discoverDeploySkills(root string, only []string) ([]*common.Entry, error) {
 		if err != nil {
 			return err
 		}
-		if path != root && d.IsDir() && (strings.HasPrefix(d.Name(), ".") || (filepath.Dir(path) == root && (d.Name() == "archived" || d.Name() == "commands" || d.Name() == "forks"))) {
+		if path != root && d.IsDir() && (strings.HasPrefix(d.Name(), ".") || (filepath.Dir(path) == root && (d.Name() == "archived" || d.Name() == "commands" || d.Name() == "skills-fork"))) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {

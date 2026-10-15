@@ -17,11 +17,12 @@ type syncMove struct {
 	After  string
 }
 type syncJournal struct {
-	Schema       int
-	Entry        string
-	Moves        []syncMove
-	Committed    bool
-	KeepRollback bool
+	Schema         int
+	Entry          string
+	Moves          []syncMove
+	State          string
+	BackupComplete bool
+	Committed      bool
 }
 
 func TreeFingerprint(path string) (string, error) {
@@ -41,7 +42,7 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 	if err := RecoverSync(root, false); err != nil {
 		return err
 	}
-	parent := filepath.Join(root, ".skm-local", "transactions")
+	parent := filepath.Join(root, ".skm", "work", "transactions")
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return err
 	}
@@ -49,15 +50,13 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 	if err != nil {
 		return err
 	}
-	j := syncJournal{Schema: 1, Entry: entry, KeepRollback: keepRollback}
+	// Successful updates deliberately do not create a history rollback point.
+	// keepRollback is retained in this signature only while callers migrate.
+	_ = keepRollback
+	j := syncJournal{Schema: 2, Entry: entry, State: "preparing"}
 	published := false
 	committed := false
 	defer func() {
-		if published && retErr != nil {
-			if recoveryErr := RecoverSync(root, false); recoveryErr != nil {
-				retErr = fmt.Errorf("%w; recovery required: %v", retErr, recoveryErr)
-			}
-		}
 		if committed && retErr != nil {
 			retErr = &SyncAcceptedError{Err: retErr}
 		}
@@ -69,7 +68,7 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 		}
 	}()
 	for i, a := range replacements {
-		if a.Path == ".git" || strings.HasPrefix(a.Path, ".git/") || a.Path == ".skm-local" || strings.HasPrefix(a.Path, ".skm-local/") {
+		if a.Path == ".git" || strings.HasPrefix(a.Path, ".git/") || a.Path == ".skm" || strings.HasPrefix(a.Path, ".skm/cache/") || strings.HasPrefix(a.Path, ".skm/work/") {
 			return fmt.Errorf("reserved transaction target")
 		}
 		for _, b := range replacements[:i] {
@@ -106,6 +105,34 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 		}
 		j.Moves = append(j.Moves, syncMove{Path: r.Path, Before: before, After: after})
 	}
+	// Every original tree is copied and verified before a single formal path is
+	// renamed.  A killed process can therefore always be rolled back without
+	// relying on which replacement happened to be first.
+	for i, m := range j.Moves {
+		if m.Before == "absent" {
+			continue
+		}
+		path, err := SyncPath(root, m.Path)
+		if err != nil {
+			return err
+		}
+		backup := filepath.Join(dir, fmt.Sprintf("old-%d", i))
+		if err := CopySyncTree(path, backup); err != nil {
+			return err
+		}
+		if err := syncTreeFiles(backup); err != nil {
+			return err
+		}
+		got, err := TreeFingerprint(backup)
+		if err != nil || got != m.Before {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("backup verification failed for %s", m.Path)
+		}
+	}
+	j.BackupComplete = true
+	j.State = "prepared"
 	if err = WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
 		return err
 	}
@@ -113,6 +140,10 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 		return err
 	}
 	published = true
+	j.State = "accepting"
+	if err = WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
+		return err
+	}
 	for i, m := range j.Moves {
 		path, err := SyncPath(root, m.Path)
 		if err != nil {
@@ -126,7 +157,7 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 			return fmt.Errorf("stale_input: %s changed", m.Path)
 		}
 		if m.Before != "absent" {
-			if err = os.Rename(path, filepath.Join(dir, fmt.Sprintf("old-%d", i))); err != nil {
+			if err = os.Rename(path, filepath.Join(dir, fmt.Sprintf("removed-%d", i))); err != nil {
 				return err
 			}
 		}
@@ -146,6 +177,7 @@ func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback
 		}
 	}
 	j.Committed = true
+	j.State = "committed"
 	if err = WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
 		return err
 	}
@@ -221,7 +253,7 @@ func syncFile(path string) error {
 }
 
 func RecoverSync(root string, checkOnly bool) error {
-	parent, err := SyncPath(root, filepath.Join(".skm-local", "transactions"))
+	parent, err := SyncPath(root, filepath.Join(".skm", "work", "transactions"))
 	if err != nil {
 		return err
 	}
@@ -242,7 +274,7 @@ func RecoverSync(root string, checkOnly bool) error {
 		if os.IsNotExist(err) {
 			continue
 		} // staging never published: no official mutation
-		if err != nil || j.Schema != 1 || len(j.Moves) == 0 {
+		if err != nil || j.Schema != 2 || !j.BackupComplete || len(j.Moves) == 0 {
 			return fmt.Errorf("recovery_required: invalid journal %s", dir)
 		}
 		if err = validateSyncJournal(j); err != nil {
@@ -250,6 +282,37 @@ func RecoverSync(root string, checkOnly bool) error {
 		}
 		if checkOnly {
 			return fmt.Errorf("recovery_required: run skm sync recover (%s)", dir)
+		}
+		if !j.Committed && j.State == "rolling_back" {
+			if checkOnly {
+				return fmt.Errorf("recovery_required: run skm sync recover (%s)", dir)
+			}
+			if err := RollbackSync(root, j.Entry, false); err != nil {
+				return err
+			}
+			continue
+		}
+		if !j.Committed && j.State == "rolled_back" {
+			for _, m := range j.Moves {
+				path, err := SyncPath(root, m.Path)
+				if err != nil {
+					return err
+				}
+				got, err := TreeFingerprint(path)
+				if err != nil {
+					return err
+				}
+				if got != m.Before {
+					return fmt.Errorf("recovery_required: externally changed %s", m.Path)
+				}
+			}
+			if err := finishSync(root, dir, j); err != nil {
+				return err
+			}
+			continue
+		}
+		if !j.Committed {
+			return fmt.Errorf("recovery_required: transaction %s needs explicit rollback", dir)
 		}
 		// Validate the entire scene before changing any slot.
 		for i, m := range j.Moves {
@@ -281,59 +344,216 @@ func RecoverSync(root string, checkOnly bool) error {
 				}
 			}
 		}
-		if !j.Committed {
-			for i := len(j.Moves) - 1; i >= 0; i-- {
-				m := j.Moves[i]
-				path, _ := SyncPath(root, m.Path)
-				old := filepath.Join(dir, fmt.Sprintf("old-%d", i))
-				backup, err := TreeFingerprint(old)
-				if err != nil {
-					return err
-				}
-				if backup == m.Before && m.Before != "absent" {
-					if err = os.RemoveAll(path); err != nil {
-						return err
-					}
-					if err = os.Rename(old, path); err != nil {
-						return err
-					}
-				} else if m.Before == "absent" {
-					if err = os.RemoveAll(path); err != nil {
-						return err
-					}
-				}
-				if err = SyncDirectory(filepath.Dir(path)); err != nil {
-					return err
-				}
-			}
-			if err = os.RemoveAll(dir); err != nil {
-				return err
-			}
-		} else if err = finishSync(root, dir, j); err != nil {
+		if err = finishSync(root, dir, j); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func finishSync(root, dir string, j syncJournal) error {
-	if j.KeepRollback {
-		dest, err := SyncPath(root, SyncLocalRel("rollback", j.Entry))
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
-			return err
-		}
-		// A committed journal remains authoritative until its old group is moved.
-		if err := os.RemoveAll(dest); err != nil {
-			return err
-		}
-		if err := os.Rename(dir, dest); err != nil {
-			return err
-		}
-		return SyncDirectory(filepath.Dir(dest))
+// RollbackSync explicitly restores an interrupted, uncommitted transaction.
+// It never guesses at an external edit: every slot must still be at its
+// recorded before/after state (or at the documented rename gap) before the
+// first path is changed. The durable journal remains until every slot is back
+// at before, so a second interruption is safe to retry.
+func RollbackSync(root, entry string, dryRun bool) error {
+	parent, err := SyncPath(root, filepath.Join(".skm", "work", "transactions"))
+	if err != nil {
+		return err
 	}
+	dirs, err := os.ReadDir(parent)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("rollback_unavailable: no interrupted transaction")
+		}
+		return err
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		dir := filepath.Join(parent, d.Name())
+		var j syncJournal
+		if err := ReadSyncJSON(filepath.Join(dir, "journal.json"), &j); err != nil || j.Schema != 2 || !j.BackupComplete || j.Entry != entry || j.Committed || validateSyncJournal(j) != nil {
+			continue
+		}
+		for i, m := range j.Moves {
+			path, err := SyncPath(root, m.Path)
+			if err != nil {
+				return err
+			}
+			current, err := TreeFingerprint(path)
+			if err != nil {
+				return err
+			}
+			backup := filepath.Join(dir, fmt.Sprintf("old-%d", i))
+			if m.Before != "absent" {
+				got, err := TreeFingerprint(backup)
+				if err != nil || got != m.Before {
+					return fmt.Errorf("recovery_blocked: missing or corrupt backup for %s", m.Path)
+				}
+			}
+			if current == m.Before || current == m.After {
+				continue
+			}
+			// After moving a formal tree aside, the path is briefly absent. It
+			// is safe only when the isolated original still verifies.
+			removed, removedErr := TreeFingerprint(filepath.Join(dir, fmt.Sprintf("removed-%d", i)))
+			if current == "absent" && m.Before != "absent" && removedErr == nil && removed == m.Before {
+				continue
+			}
+			return fmt.Errorf("stale_input: %s changed after interrupted update", m.Path)
+		}
+		if dryRun {
+			return nil
+		}
+		j.State = "rolling_back"
+		if err := WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
+			return err
+		}
+		if err := SyncDirectory(dir); err != nil {
+			return err
+		}
+		for i, m := range j.Moves {
+			path, err := SyncPath(root, m.Path)
+			if err != nil {
+				return err
+			}
+			current, err := TreeFingerprint(path)
+			if err != nil {
+				return err
+			}
+			if current == m.Before {
+				continue
+			}
+			if m.Before == "absent" {
+				if err := os.RemoveAll(path); err != nil {
+					return err
+				}
+				continue
+			}
+			restore := filepath.Join(dir, fmt.Sprintf("restore-%d", i))
+			if err := os.RemoveAll(restore); err != nil {
+				return err
+			}
+			if err := CopySyncTree(filepath.Join(dir, fmt.Sprintf("old-%d", i)), restore); err != nil {
+				return err
+			}
+			if current != "absent" {
+				if err := os.Rename(path, filepath.Join(dir, fmt.Sprintf("discarded-%d", i))); err != nil {
+					return err
+				}
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return err
+			}
+			if err := os.Rename(restore, path); err != nil {
+				return err
+			}
+			if err := SyncDirectory(filepath.Dir(path)); err != nil {
+				return err
+			}
+		}
+		j.State = "rolled_back"
+		if err := WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
+			return err
+		}
+		if err := SyncDirectory(dir); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+		if entry == "migration" {
+			return CleanupMigrationBootstrap(root)
+		}
+		return nil
+	}
+	return fmt.Errorf("rollback_unavailable: no interrupted transaction for %s", entry)
+}
+
+// CleanupMigrationBootstrap removes the temporary v2 root used only to host a
+// migration journal before the migration accept point. It refuses to remove a
+// root containing any versioned v2 state.
+func CleanupMigrationBootstrap(root string) error {
+	state := filepath.Join(root, ".skm")
+	for _, name := range []string{"entries", "baselines"} {
+		items, err := os.ReadDir(filepath.Join(state, name))
+		if err == nil && len(items) > 0 {
+			return fmt.Errorf("recovery_blocked: migration bootstrap contains %s", name)
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return os.RemoveAll(state)
+}
+
+// InterruptedSyncEntries exposes only validated, unfinished transaction
+// identities. Services uses it to offer an explicit rollback even when a
+// partially replaced skill is no longer discoverable by the regular scanner.
+type SyncTransactionStatus struct {
+	ID        string
+	Entry     string
+	State     string
+	Committed bool
+}
+
+// SyncTransactions returns the durable operation identities that recovery
+// will inspect. It is read-only and rejects malformed journals rather than
+// inventing an identity for a damaged transaction.
+func SyncTransactions(root string) ([]SyncTransactionStatus, error) {
+	parent, err := SyncPath(root, filepath.Join(".skm", "work", "transactions"))
+	if err != nil {
+		return nil, err
+	}
+	dirs, err := os.ReadDir(parent)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items := make([]SyncTransactionStatus, 0, len(dirs))
+	for _, d := range dirs {
+		if !d.IsDir() {
+			return nil, fmt.Errorf("recovery_required: unexpected transaction %s", d.Name())
+		}
+		var j syncJournal
+		if err := ReadSyncJSON(filepath.Join(parent, d.Name(), "journal.json"), &j); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("recovery_required: invalid journal %s", d.Name())
+		}
+		if j.Schema != 2 || !j.BackupComplete || validateSyncJournal(j) != nil {
+			return nil, fmt.Errorf("recovery_required: invalid journal %s", d.Name())
+		}
+		items = append(items, SyncTransactionStatus{ID: d.Name(), Entry: j.Entry, State: j.State, Committed: j.Committed})
+	}
+	return items, nil
+}
+
+func InterruptedSyncEntries(root string) ([]string, error) {
+	items, err := SyncTransactions(root)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Committed || item.State == "rolled_back" {
+			continue
+		}
+		if !seen[item.Entry] {
+			entries = append(entries, item.Entry)
+			seen[item.Entry] = true
+		}
+	}
+	return entries, nil
+}
+
+func finishSync(root, dir string, j syncJournal) error {
 	return os.RemoveAll(dir)
 }
 
@@ -347,7 +567,7 @@ func RollbackReplacements(root, entry string) ([]SyncReplacement, error) {
 	if err = ReadSyncJSON(filepath.Join(dir, "journal.json"), &j); err != nil {
 		return nil, fmt.Errorf("rollback_unavailable: %w", err)
 	}
-	if j.Schema != 1 || !j.Committed || j.Entry != entry || validateSyncJournal(j) != nil {
+	if j.Schema != 2 || !j.Committed || j.Entry != entry || validateSyncJournal(j) != nil {
 		return nil, fmt.Errorf("rollback_unavailable: invalid record")
 	}
 	var out []SyncReplacement
@@ -380,7 +600,7 @@ func RollbackReplacements(root, entry string) ([]SyncReplacement, error) {
 }
 
 func validateSyncJournal(j syncJournal) error {
-	if j.Schema != 1 || len(j.Moves) == 0 || !filepath.IsLocal(j.Entry) || j.Entry == "." {
+	if j.Schema != 2 || len(j.Moves) == 0 || !filepath.IsLocal(j.Entry) || j.Entry == "." {
 		return fmt.Errorf("invalid transaction identity")
 	}
 	validHash := func(v string) bool {
@@ -398,7 +618,7 @@ func validateSyncJournal(j syncJournal) error {
 			return fmt.Errorf("invalid transaction path")
 		}
 		top := strings.Split(m.Path, string(filepath.Separator))[0]
-		if top == ".git" || top == ".skm-local" || m.Path == ".skm-sync" {
+		if top == ".git" || m.Path == ".skm" || strings.HasPrefix(m.Path, ".skm/cache/") || strings.HasPrefix(m.Path, ".skm/work/") {
 			return fmt.Errorf("reserved transaction path")
 		}
 		if !validHash(m.Before) || !validHash(m.After) {

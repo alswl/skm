@@ -17,15 +17,19 @@ type UpdateResult struct {
 	ReasonCode  string   `json:"reason_code,omitempty"`
 	NextActions []string `json:"next_actions,omitempty"`
 
-	Outcome         string          `json:"outcome,omitempty"`
-	Accepted        bool            `json:"accepted"`
-	ActivePath      string          `json:"active_path,omitempty"`
-	BaselineVersion string          `json:"baseline_version,omitempty"`
-	UpstreamVersion string          `json:"upstream_version,omitempty"`
-	AttemptPath     string          `json:"attempt_path,omitempty"`
-	Failures        []SyncChange    `json:"failure_paths,omitempty"`
-	Refresh         []RefreshResult `json:"refresh,omitempty"`
-	Reason          string          `json:"reason,omitempty"`
+	Outcome          string          `json:"outcome,omitempty"`
+	Accepted         bool            `json:"accepted"`
+	ActivePath       string          `json:"active_path,omitempty"`
+	BaselineVersion  string          `json:"baseline_version,omitempty"`
+	UpstreamVersion  string          `json:"upstream_version,omitempty"`
+	AttemptPath      string          `json:"attempt_path,omitempty"`
+	OperationID      string          `json:"operation_id,omitempty"`
+	OperationState   string          `json:"operation_state,omitempty"`
+	RecoveryRequired bool            `json:"recovery_required,omitempty"`
+	CleanupPending   bool            `json:"cleanup_pending,omitempty"`
+	Failures         []SyncChange    `json:"failure_paths,omitempty"`
+	Refresh          []RefreshResult `json:"refresh,omitempty"`
+	Reason           string          `json:"reason,omitempty"`
 
 	Before  string `json:"before"`
 	After   string `json:"after"`

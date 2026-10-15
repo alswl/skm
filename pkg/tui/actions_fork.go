@@ -33,10 +33,8 @@ func (m *model) forkActions(e *common.Entry) []entryAction {
 						res, err = m.svc.UseUpstream(ctx, e.Path, false)
 					case "accept update":
 						res, err = m.svc.AcceptUpdate(ctx, e.Path, false)
-					case "cancel update":
-						res, err = m.svc.CancelUpdate(ctx, e.Path, false)
 					case "rollback update":
-						res, err = m.svc.RollbackUpdate(ctx, e.Path, false)
+						res, err = m.svc.CancelUpdate(ctx, e.Path, false)
 					}
 					if err != nil {
 						return nil, err
@@ -64,7 +62,7 @@ func (m *model) forkActions(e *common.Entry) []entryAction {
 	}
 	var out []entryAction
 	if st.AttemptPath != "" {
-		out = append(out, entryAction{Key: "menu", Label: "accept manually prepared update", Enabled: true, Run: run("accept update")}, entryAction{Key: "menu", Label: "cancel failed update", Enabled: true, Run: run("cancel update")})
+		out = append(out, entryAction{Key: "menu", Label: "accept update candidate", Enabled: true, Run: run("accept update")}, entryAction{Key: "menu", Label: "rollback this update attempt", Enabled: true, Run: run("rollback update")})
 	} else {
 		if st.ForkState == "absent" {
 			out = append(out, entryAction{Key: "menu", Label: "create fork", Enabled: true, Run: run("fork")})
@@ -73,9 +71,6 @@ func (m *model) forkActions(e *common.Entry) []entryAction {
 				out = append(out, entryAction{Key: "menu", Label: "use community version (retain fork)", Enabled: true, Run: run("use upstream")})
 			}
 			out = append(out, entryAction{Key: "menu", Label: "delete and recreate existing fork", Enabled: true, Run: run("replace fork")})
-		}
-		if st.RollbackAvailable {
-			out = append(out, entryAction{Key: "menu", Label: "rollback last successful update", Enabled: true, Run: run("rollback update")})
 		}
 	}
 	return out

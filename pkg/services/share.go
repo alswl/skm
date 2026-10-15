@@ -77,6 +77,9 @@ func (s *Services) CreateOriginalSourceShare(ctx context.Context, names []string
 	return s.createShare(ctx, names, onProgress, true)
 }
 func (s *Services) createShare(_ context.Context, names []string, onProgress ShareProgressFunc, original bool) (*ShareCreateResult, error) {
+	if err := s.Repo.SyncReadCheck(); err != nil {
+		return nil, err
+	}
 	entries, err := s.shareEntries(names)
 	if err != nil {
 		return nil, err

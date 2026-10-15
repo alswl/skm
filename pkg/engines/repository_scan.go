@@ -43,7 +43,7 @@ func (r *Repository) Scan() []*common.Entry {
 	entries = append(entries, r.scanTop("commands", common.KindCommand, common.StatusActive)...)
 	entries = append(entries, r.scanTop("archived", "", common.StatusArchived)...)
 	entries = append(entries, r.scanNonStandard()...)
-	if _, err := os.Lstat(filepath.Join(r.root, ".skm-sync")); err == nil {
+	if _, err := os.Lstat(filepath.Join(r.root, ".skm")); err == nil {
 		for i, e := range entries {
 			entries[i] = r.attachSync(e)
 		}
@@ -53,7 +53,7 @@ func (r *Repository) Scan() []*common.Entry {
 
 // managedTopDirs are the only top-level names scanNonStandard does not
 // itself walk into — they already have their own dedicated scan above.
-var managedTopDirs = map[string]bool{"skills": true, "commands": true, "archived": true, "forks": true}
+var managedTopDirs = map[string]bool{"skills": true, "skills-fork": true, "commands": true, "archived": true}
 
 // scanNonStandard walks the repo root looking for skill/command markers
 // outside skills/commands/archived, so a misplaced asset is visible instead

@@ -43,7 +43,7 @@ func (r *Repository) AssociateBaseline(e *common.Entry, source string, origin *c
 	if err != nil {
 		return err
 	}
-	forkRel := filepath.Join("forks", dal.SyncKey(rel))
+	forkRel := dal.SyncForkRel(rel)
 	forkPath := filepath.Join(r.root, forkRel)
 	forkExpected, err := dal.TreeFingerprint(forkPath)
 	if err != nil {
@@ -73,7 +73,8 @@ func (r *Repository) AssociateBaseline(e *common.Entry, source string, origin *c
 		return err
 	}
 	origin.Path = rel
-	rec := common.SyncRecord{Schema: 1, EntryPath: rel, Name: e.Name, Generation: 1, Origin: *origin, Active: "fork", ForkPath: forkRel, UpstreamVersion: origin.Revision, ForkVersion: origin.Revision, UpstreamDigest: m.Digest, ForkDigest: m.Digest}
+	base := baselineRef(*origin, m.Digest)
+	rec := common.SyncRecord{Schema: 2, EntryPath: rel, Name: e.Name, Generation: 1, Origin: *origin, Active: "fork", ForkPath: forkRel, UpstreamVersion: origin.Revision, ForkVersion: origin.Revision, UpstreamDigest: m.Digest, ForkDigest: m.Digest, UpstreamBase: base, ForkBase: &base}
 	if oldRecord != nil {
 		rec.Generation = oldRecord.Generation + 1
 	}
@@ -102,5 +103,11 @@ func (r *Repository) AssociateBaseline(e *common.Entry, source string, origin *c
 	if err != nil {
 		return err
 	}
-	return dal.CommitSync(r.root, rel, []dal.SyncReplacement{{Path: rel, Source: communityDest, Expected: upstreamExpected}, {Path: forkRel, Source: localDest, Expected: forkExpected}, {Path: dal.SyncStateRel(rel), Source: state, Expected: stateExpected}}, false)
+	replacements := []dal.SyncReplacement{{Path: rel, Source: communityDest, Expected: upstreamExpected}, {Path: forkRel, Source: localDest, Expected: forkExpected}, {Path: dal.SyncStateRel(rel), Source: state, Expected: stateExpected}}
+	if snapshot, err := r.snapshotReplacement(base, filepath.Join(state, "upstream-baseline")); err != nil {
+		return err
+	} else if snapshot != nil {
+		replacements = append(replacements, *snapshot)
+	}
+	return dal.CommitSync(r.root, rel, replacements, false)
 }

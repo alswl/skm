@@ -350,16 +350,16 @@ func TestDeployProviderSubpathUpdateAndCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "new provider bytes", string(content))
 	e.Origin.Subpath = "../escape"
-	_, _, err = svc.fetchFromOrigin(context.Background(), e)
+	_, err = svc.fetchFromOrigin(context.Background(), e, false)
 	require.Error(t, err)
 	require.NoDirExists(t, p.roots[2])
 	// A single root skill and an old origin without subpath retain the old path.
 	e.Origin.Subpath = ""
-	path, cleanup, err := svc.fetchFromOrigin(context.Background(), e)
+	fetched, err := svc.fetchFromOrigin(context.Background(), e, false)
 	require.NoError(t, err)
-	require.DirExists(t, path)
-	cleanup()
-	require.NoDirExists(t, path)
+	require.DirExists(t, fetched.Path)
+	fetched.Cleanup()
+	require.NoDirExists(t, fetched.Path)
 }
 
 func TestDeployProviderFailureCleansRoot(t *testing.T) {

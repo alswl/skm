@@ -27,7 +27,7 @@ func TestSyncTreeFilesReportsWalkAndWorkerErrors(t *testing.T) {
 	}
 }
 
-func TestSyncCommitAndRollback(t *testing.T) {
+func TestSyncCommitDoesNotKeepSuccessfulRollback(t *testing.T) {
 	root := t.TempDir()
 	src := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(src, "data"), []byte("new"), 0600))
@@ -36,27 +36,149 @@ func TestSyncCommitAndRollback(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(path, "data"), []byte("old"), 0600))
 	old, err := TreeFingerprint(path)
 	require.NoError(t, err)
-	require.NoError(t, CommitSync(root, "skills/foo", []SyncReplacement{{Path: "skills/foo", Source: src, Expected: old}}, true))
-	moves, err := RollbackReplacements(root, "skills/foo")
-	require.NoError(t, err)
-	require.NoError(t, CommitSync(root, "skills/foo", moves, false))
+	require.NoError(t, CommitSync(root, "skills/foo", []SyncReplacement{{Path: "skills/foo", Source: src, Expected: old}}, false))
+	_, err = RollbackReplacements(root, "skills/foo")
+	require.ErrorContains(t, err, "rollback_unavailable")
 	got, err := TreeFingerprint(path)
 	require.NoError(t, err)
-	require.Equal(t, old, got)
+	require.NotEqual(t, old, got)
+}
+
+func TestCommitSyncReplacesAndAddsTreesWithModes(t *testing.T) {
+	root := t.TempDir()
+	old := filepath.Join(root, "skills", "old")
+	require.NoError(t, os.MkdirAll(old, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(old, "data"), []byte("old"), 0600))
+	oldDigest, err := TreeFingerprint(old)
+	require.NoError(t, err)
+	replacement, added := t.TempDir(), t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(replacement, "script"), []byte("new"), 0751))
+	require.NoError(t, os.Chmod(filepath.Join(replacement, "script"), 0751))
+	require.NoError(t, os.WriteFile(filepath.Join(added, "data"), []byte("added"), 0640))
+
+	require.NoError(t, CommitSync(root, "skills/old", []SyncReplacement{
+		{Path: "skills/old", Source: replacement, Expected: oldDigest},
+		{Path: "skills/new", Source: added, Expected: "absent"},
+	}, false))
+	info, err := os.Stat(filepath.Join(root, "skills", "old", "script"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0751), info.Mode().Perm())
+	content, err := os.ReadFile(filepath.Join(root, "skills", "new", "data"))
+	require.NoError(t, err)
+	require.Equal(t, "added", string(content))
 }
 func TestSyncRecoveryRefusesExternalChanges(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, InitSyncStore(root))
-	dir := filepath.Join(root, ".skm-local", "transactions", "test")
+	dir := filepath.Join(root, ".skm", "work", "transactions", "test")
 	require.NoError(t, os.MkdirAll(dir, 0700))
 	path := filepath.Join(root, "content")
 	require.NoError(t, os.Mkdir(path, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(path, "x"), []byte("edited"), 0600))
-	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 1, Entry: "content", Moves: []syncMove{{Path: "content", Before: "before", After: "after"}}}))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 2, Entry: "content", Moves: []syncMove{{Path: "content", Before: "before", After: "after"}}}))
 	require.Error(t, RecoverSync(root, false))
 	b, err := os.ReadFile(filepath.Join(path, "x"))
 	require.NoError(t, err)
 	require.Equal(t, "edited", string(b))
+}
+
+func TestRollbackSyncRestoresInterruptedTransactionAndProtectsEdits(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, InitSyncStore(root))
+	dir := filepath.Join(root, ".skm", "work", "transactions", "interrupted")
+	path := filepath.Join(root, "skills", "demo")
+	old := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(old, "data"), []byte("old"), 0600))
+	new := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(new, "data"), []byte("new"), 0600))
+	before, err := TreeFingerprint(old)
+	require.NoError(t, err)
+	after, err := TreeFingerprint(new)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, CopySyncTree(old, filepath.Join(dir, "old-0")))
+	require.NoError(t, CopySyncTree(new, path))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 2, Entry: "skills/demo", BackupComplete: true, State: "accepting", Moves: []syncMove{{Path: "skills/demo", Before: before, After: after}}}))
+	require.NoError(t, RollbackSync(root, "skills/demo", false))
+	got, err := TreeFingerprint(path)
+	require.NoError(t, err)
+	require.Equal(t, before, got)
+	require.NoDirExists(t, dir)
+
+	// A later editor change is not an acceptable intermediate state.
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, CopySyncTree(old, filepath.Join(dir, "old-0")))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "data"), []byte("edited"), 0600))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 2, Entry: "skills/demo", BackupComplete: true, State: "accepting", Moves: []syncMove{{Path: "skills/demo", Before: before, After: after}}}))
+	require.ErrorContains(t, RollbackSync(root, "skills/demo", false), "stale_input")
+	require.DirExists(t, dir)
+}
+
+func TestSyncRecoverContinuesAndCleansUpRollbackStates(t *testing.T) {
+	for _, state := range []string{"rolling_back", "rolled_back"} {
+		t.Run(state, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, InitSyncStore(root))
+			dir := filepath.Join(root, ".skm", "work", "transactions", "rollback")
+			old := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(old, "data"), []byte("old"), 0600))
+			before, err := TreeFingerprint(old)
+			require.NoError(t, err)
+			path := filepath.Join(root, "skills", "demo")
+			require.NoError(t, CopySyncTree(old, path))
+			require.NoError(t, os.MkdirAll(dir, 0700))
+			require.NoError(t, CopySyncTree(old, filepath.Join(dir, "old-0")))
+			require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{
+				Schema:         2,
+				Entry:          "skills/demo",
+				BackupComplete: true,
+				State:          state,
+				Moves:          []syncMove{{Path: "skills/demo", Before: before, After: "absent"}},
+			}))
+
+			require.NoError(t, RecoverSync(root, false))
+			require.DirExists(t, path)
+			require.NoDirExists(t, dir)
+		})
+	}
+}
+
+func TestRollbackSyncRejectsCorruptBackupAndPreservesModes(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, InitSyncStore(root))
+	dir := filepath.Join(root, ".skm", "work", "transactions", "interrupted")
+	old := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(old, "script"), []byte("old"), 0751))
+	require.NoError(t, os.Chmod(filepath.Join(old, "script"), 0751))
+	new := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(new, "script"), []byte("new"), 0600))
+	before, err := TreeFingerprint(old)
+	require.NoError(t, err)
+	after, err := TreeFingerprint(new)
+	require.NoError(t, err)
+	path := filepath.Join(root, "skills", "demo")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, CopySyncTree(old, filepath.Join(dir, "old-0")))
+	require.NoError(t, CopySyncTree(new, path))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 2, Entry: "skills/demo", BackupComplete: true, State: "accepting", Moves: []syncMove{{Path: "skills/demo", Before: before, After: after}}}))
+
+	require.NoError(t, RollbackSync(root, "skills/demo", false))
+	info, err := os.Stat(filepath.Join(path, "script"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0751), info.Mode().Perm())
+
+	// A damaged backup must leave the current official tree and journal intact.
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "old-0"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "old-0", "script"), []byte("corrupt"), 0600))
+	require.NoError(t, os.RemoveAll(path))
+	require.NoError(t, CopySyncTree(new, path))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 2, Entry: "skills/demo", BackupComplete: true, State: "accepting", Moves: []syncMove{{Path: "skills/demo", Before: before, After: after}}}))
+	require.ErrorContains(t, RollbackSync(root, "skills/demo", false), "corrupt backup")
+	got, err := TreeFingerprint(path)
+	require.NoError(t, err)
+	require.Equal(t, after, got)
+	require.DirExists(t, dir)
 }
 
 func TestSyncRecoveryRenameBoundaries(t *testing.T) {
@@ -64,7 +186,7 @@ func TestSyncRecoveryRenameBoundaries(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			root := t.TempDir()
 			require.NoError(t, InitSyncStore(root))
-			dir := filepath.Join(root, ".skm-local", "transactions", "interrupted")
+			dir := filepath.Join(root, ".skm", "work", "transactions", "interrupted")
 			require.NoError(t, os.MkdirAll(dir, 0700))
 			original := filepath.Join(root, "content")
 			require.NoError(t, os.Mkdir(original, 0700))
@@ -76,7 +198,10 @@ func TestSyncRecoveryRenameBoundaries(t *testing.T) {
 			require.NoError(t, err)
 			after, err := TreeFingerprint(staged)
 			require.NoError(t, err)
-			journal := syncJournal{Schema: 1, Entry: "content", KeepRollback: true, Moves: []syncMove{{Path: "content", Before: before, After: after}}, Committed: phase == "committed"}
+			journal := syncJournal{Schema: 2, Entry: "content", BackupComplete: true, State: "accepting", Moves: []syncMove{{Path: "content", Before: before, After: after}}, Committed: phase == "committed"}
+			if journal.Committed {
+				journal.State = "committed"
+			}
 			require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), journal))
 			if phase != "prepared" {
 				require.NoError(t, os.Rename(original, filepath.Join(dir, "old-0")))
@@ -85,15 +210,16 @@ func TestSyncRecoveryRenameBoundaries(t *testing.T) {
 				require.NoError(t, os.Rename(staged, original))
 			}
 			require.Error(t, RecoverSync(root, true))
-			require.NoError(t, RecoverSync(root, false))
+			if phase != "committed" {
+				require.ErrorContains(t, RecoverSync(root, false), "needs explicit rollback")
+				return
+			}
 			require.NoError(t, RecoverSync(root, false))
 			got, err := os.ReadFile(filepath.Join(original, "data"))
 			require.NoError(t, err)
 			want := "old"
 			if phase == "committed" {
 				want = "new"
-				_, err = RollbackReplacements(root, "content")
-				require.NoError(t, err)
 			}
 			require.Equal(t, want, string(got))
 		})
@@ -103,10 +229,14 @@ func TestSyncRecoveryRenameBoundaries(t *testing.T) {
 func TestSyncRecoveryAfterProcessExit(t *testing.T) {
 	if root := os.Getenv("SKM_TEST_TXN_ROOT"); root != "" {
 		phase := os.Getenv("SKM_TEST_TXN_PHASE")
-		dir := filepath.Join(root, ".skm-local", "transactions", "crash")
+		dir := filepath.Join(root, ".skm", "work", "transactions", "crash")
 		before, _ := TreeFingerprint(filepath.Join(root, "content"))
 		after, _ := TreeFingerprint(filepath.Join(dir, "new-0"))
-		if err := WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 1, Entry: "content", KeepRollback: true, Committed: phase == "committed", Moves: []syncMove{{Path: "content", Before: before, After: after}}}); err != nil {
+		journal := syncJournal{Schema: 2, Entry: "content", BackupComplete: true, State: "accepting", Committed: phase == "committed", Moves: []syncMove{{Path: "content", Before: before, After: after}}}
+		if journal.Committed {
+			journal.State = "committed"
+		}
+		if err := WriteSyncJSON(filepath.Join(dir, "journal.json"), journal); err != nil {
 			os.Exit(3)
 		}
 		if phase != "prepared" {
@@ -127,7 +257,7 @@ func TestSyncRecoveryAfterProcessExit(t *testing.T) {
 		t.Run(phase, func(t *testing.T) {
 			root := t.TempDir()
 			require.NoError(t, InitSyncStore(root))
-			dir := filepath.Join(root, ".skm-local", "transactions", "crash")
+			dir := filepath.Join(root, ".skm", "work", "transactions", "crash")
 			require.NoError(t, os.MkdirAll(filepath.Join(dir, "new-0"), 0700))
 			require.NoError(t, os.Mkdir(filepath.Join(root, "content"), 0700))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "content", "data"), []byte("old"), 0600))
@@ -136,6 +266,10 @@ func TestSyncRecoveryAfterProcessExit(t *testing.T) {
 			cmd.Env = append(os.Environ(), "SKM_TEST_TXN_ROOT="+root, "SKM_TEST_TXN_PHASE="+phase)
 			require.Error(t, cmd.Run())
 			require.False(t, cmd.ProcessState.Success())
+			if phase != "committed" {
+				require.ErrorContains(t, RecoverSync(root, false), "needs explicit rollback")
+				return
+			}
 			require.NoError(t, RecoverSync(root, false))
 			got, err := os.ReadFile(filepath.Join(root, "content", "data"))
 			require.NoError(t, err)
@@ -156,14 +290,14 @@ func TestSyncRecoveryRejectsReservedJournalAndEscapingRollback(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(gitdir, "HEAD"), []byte("protect"), 0600))
 	hash, err := TreeFingerprint(gitdir)
 	require.NoError(t, err)
-	dir := filepath.Join(root, ".skm-local", "transactions", "bad")
+	dir := filepath.Join(root, ".skm", "work", "transactions", "bad")
 	require.NoError(t, os.MkdirAll(dir, 0700))
-	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 1, Entry: "skills/local/demo", Moves: []syncMove{{Path: ".git", Before: "absent", After: hash}}}))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{Schema: 2, Entry: "skills/local/demo", Moves: []syncMove{{Path: ".git", Before: "absent", After: hash}}}))
 	require.Error(t, RecoverSync(root, false))
 	require.FileExists(t, filepath.Join(gitdir, "HEAD"))
 	require.NoError(t, os.RemoveAll(dir))
 	outside := t.TempDir()
-	require.NoError(t, os.Symlink(outside, filepath.Join(root, ".skm-local", "rollback")))
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, ".skm", "work", "rollback")))
 	_, err = RollbackReplacements(root, "skills/local/demo")
 	require.Error(t, err)
 }

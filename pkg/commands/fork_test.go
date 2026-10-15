@@ -48,3 +48,14 @@ func TestForkCLIWorkflowAndFailedJSON(t *testing.T) {
 	_, err = call("update", "review", "--accept", "--abort")
 	require.Error(t, err)
 }
+
+func TestSyncMigrateCLIFlagsAndCurrentResult(t *testing.T) {
+	root, cfg := cmdFixture(t)
+	_, err := runCmd(t, "sync", "migrate", "--accept", "--rollback", "--root", root, "--config", cfg)
+	require.Error(t, err)
+	out, err := runCmd(t, "sync", "migrate", "--json", "--root", root, "--config", cfg)
+	require.NoError(t, err)
+	var result engines.MigrationResult
+	require.NoError(t, json.Unmarshal([]byte(out), &result))
+	require.Equal(t, "current", result.Outcome)
+}

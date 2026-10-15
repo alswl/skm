@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/engines"
@@ -44,7 +45,7 @@ var statusCmd = &cobra.Command{
 		}
 		rep := buildStatusReport(svc, entry)
 		if !flagJSON && rep.Sync != nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "mode=%s customization=%s baseline=%s\nupstream=%s\nfork=%s\nattempt=%s rollback=%v\n", rep.Sync.Mode, rep.Sync.Customization, rep.Sync.BaselineVersion, rep.Sync.UpstreamPath, rep.Sync.ForkPath, rep.Sync.AttemptPath, rep.Sync.RollbackAvailable)
+			fmt.Fprintf(cmd.OutOrStdout(), "mode=%s customization=%s baseline=%s baseline_state=%s\nupstream=%s\nfork=%s\nattempt=%s operation=%s/%s rollback=%v recovery_required=%v cleanup_pending=%v next_actions=%s\n", rep.Sync.Mode, rep.Sync.Customization, rep.Sync.BaselineVersion, rep.Sync.BaselineState, rep.Sync.UpstreamPath, rep.Sync.ForkPath, rep.Sync.AttemptPath, rep.Sync.OperationID, rep.Sync.OperationState, rep.Sync.RollbackAvailable, rep.Sync.RecoveryRequired, rep.Sync.CleanupPending, strings.Join(rep.Sync.NextActions, ","))
 		}
 		if !flagJSON && rep.SyncError != "" {
 			fmt.Fprintln(cmd.OutOrStdout(), rep.SyncError)

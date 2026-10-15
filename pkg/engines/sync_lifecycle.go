@@ -103,7 +103,7 @@ func (r *Repository) SyncLifecycle(e *common.Entry, action, provider string, new
 			rec.Generation++
 			if rec.ForkPath != "" {
 				oldFork := rec.ForkPath
-				rec.ForkPath = filepath.Join("forks", dal.SyncKey(newRel))
+				rec.ForkPath = dal.SyncForkRel(newRel)
 				hash, err := dal.TreeFingerprint(filepath.Join(r.root, oldFork))
 				if err != nil {
 					return "", err

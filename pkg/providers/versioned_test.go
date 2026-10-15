@@ -43,4 +43,8 @@ func TestVersionedFetchCapturesActualCommitAndHistoricalTree(t *testing.T) {
 	require.Equal(t, old, historical.Revision)
 	_, err = provider.FetchVersioned(context.Background(), FetchRequest{RepositoryAddress: source, Subpath: "../escape"})
 	require.Error(t, err)
+	// A missing immutable revision must not silently downgrade to the current
+	// branch head: that would turn B into U and corrupt a customization patch.
+	_, err = provider.FetchVersioned(context.Background(), FetchRequest{RepositoryAddress: source, Subpath: "skills/demo", Revision: strings.Repeat("f", 40)})
+	require.Error(t, err)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
@@ -18,6 +19,14 @@ type UpdateOptions struct {
 	DryRun bool
 }
 
+// fetchedOrigin is an immutable acquisition result.  In particular, fetching
+// must not edit Entry.Origin: a failed candidate is not an accepted update.
+type fetchedOrigin struct {
+	Path    string
+	Version string
+	Cleanup func()
+}
+
 // Update refreshes a single entry from its origin. It fails (exit 1) when the
 // entry is missing, not active, or has no origin (FR-023).
 func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
@@ -28,6 +37,9 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 	if entry == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q not found", name), common.ExitObject)
 	}
+	if entry.Status == common.StatusError && entry.Error != nil && strings.Contains(*entry.Error, "recovery_required:") {
+		return nil, common.WithExitCode(fmt.Errorf("%s", *entry.Error), common.ExitObject)
+	}
 	if entry.Status != common.StatusActive {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q is %s; only active entries can be updated", name, entry.Status), common.ExitObject)
 	}
@@ -37,21 +49,21 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 	if entry.Origin == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q has no origin; nothing to fetch", name), common.ExitObject)
 	}
-	staged, cleanup, err := s.fetchFromOrigin(ctx, entry)
+	fetched, err := s.fetchFromOrigin(ctx, entry, !opts.DryRun)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
+	defer fetched.Cleanup()
 
 	if opts.DryRun {
 		// Fetch + probe + hash comparison without replacing.
-		before, after, changed, err := s.Repo.CompareUpdate(entry, staged)
+		before, after, changed, err := s.Repo.CompareUpdate(entry, fetched.Path)
 		if err != nil {
 			return nil, err
 		}
 		return &engines.UpdateResult{Before: before, After: after, Changed: changed}, nil
 	}
-	res, err := s.Repo.UpdateEntry(ctx, entry, staged)
+	res, err := s.Repo.UpdateEntry(ctx, entry, fetched.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -110,38 +122,47 @@ func (s *Services) Updatable(e *common.Entry) bool {
 // by address would let a later provider with overlapping capabilities replace
 // content from a different origin. Entries without a provider id are legacy
 // metadata and retain the former address-matching fallback.
-func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry) (string, func(), error) {
+func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry, persistCache bool) (fetchedOrigin, error) {
 	address := entry.Origin.Address
 	p := s.Registry.Get(entry.ProviderIDValue())
 	if entry.ProviderIDValue() != "" && p == nil {
-		return "", func() {}, common.WithExitCode(
+		return fetchedOrigin{}, common.WithExitCode(
 			fmt.Errorf("origin provider %q is unavailable for %q", entry.ProviderIDValue(), address), common.ExitError)
 	}
 	if p == nil {
 		p = s.Registry.Match(address)
 	}
 	if p == nil {
-		return "", func() {}, common.WithExitCode(fmt.Errorf("no provider can handle %q", address), common.ExitError)
+		return fetchedOrigin{}, common.WithExitCode(fmt.Errorf("no provider can handle %q", address), common.ExitError)
 	}
 	if vp, ok := p.(providers.VersionedFetcher); ok {
 		got, err := vp.FetchVersioned(ctx, providers.FetchRequest{Address: address, RepositoryAddress: entry.Origin.RepositoryAddress, RequestedRef: entry.Origin.RequestedRef, Subpath: entry.Origin.Subpath})
 		if err != nil {
-			return "", func() {}, err
+			return fetchedOrigin{}, err
 		}
-		entry.Origin.Revision = got.Revision
-		return filepath.Join(got.Path, got.ResolvedSubpath), fetchCleanup(p, got.Path), nil
+		cleanup := fetchCleanup(p, got.Path)
+		if persistCache {
+			cached, cacheErr := dal.StoreGitCache(s.Cfg.Root, got.RepositoryAddress, got.Revision, got.Path)
+			if cacheErr != nil {
+				cleanup()
+				return fetchedOrigin{}, cacheErr
+			}
+			cleanup()
+			got.Path = cached
+			cleanup = func() {}
+		}
+		return fetchedOrigin{Path: filepath.Join(got.Path, got.ResolvedSubpath), Version: got.Revision, Cleanup: cleanup}, nil
 	}
-	entry.Origin.Revision = "" // legacy/local providers identify this fetch by its new snapshot
 	tmp, err := p.Fetch(ctx, address)
 	if err != nil {
-		return "", func() {}, common.WithExitCode(err, common.ExitError)
+		return fetchedOrigin{}, common.WithExitCode(err, common.ExitError)
 	}
 	cleanup := fetchCleanup(p, tmp)
 	if entry.Origin.Subpath != "" {
 		rel := entry.Origin.Subpath
 		if !filepath.IsLocal(rel) {
 			cleanup()
-			return "", func() {}, fmt.Errorf("origin subpath must stay inside fetched source")
+			return fetchedOrigin{}, fmt.Errorf("origin subpath must stay inside fetched source")
 		}
 		root, err := filepath.EvalSymlinks(tmp)
 		var child string
@@ -157,11 +178,11 @@ func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry) (st
 		}
 		if err != nil {
 			cleanup()
-			return "", func() {}, err
+			return fetchedOrigin{}, err
 		}
-		return child, cleanup, nil
+		return fetchedOrigin{Path: child, Cleanup: cleanup}, nil
 	}
-	return tmp, cleanup, nil
+	return fetchedOrigin{Path: tmp, Cleanup: cleanup}, nil
 }
 
 // FailedUpdate is one batch-update failure: which entry, and why (the error

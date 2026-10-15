@@ -669,7 +669,7 @@ func (m model) buildDetail() string {
 	fmt.Fprintf(&sb, "%-10s %s\n", "group:", orDash(e.GroupValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "version:", orDash(e.VersionValue()))
 	if st := e.SyncView; st != nil {
-		fmt.Fprintf(&sb, "mode: %s (%s)\nbaseline: %s\nupstream: %s\nfork: %s\nattempt: %s\nrollback available: %v\n", st.Mode, st.Customization, st.BaselineVersion, st.UpstreamPath, st.ForkPath, st.AttemptPath, st.RollbackAvailable)
+		fmt.Fprintf(&sb, "mode: %s (%s)\nbaseline: %s (%s)\nupstream: %s\nfork: %s\nattempt: %s\noperation: %s (%s)\nrollback available: %v\nrecovery required: %v\ncleanup pending: %v\nnext actions: %s\n", st.Mode, st.Customization, st.BaselineVersion, st.BaselineState, st.UpstreamPath, st.ForkPath, st.AttemptPath, st.OperationID, st.OperationState, st.RollbackAvailable, st.RecoveryRequired, st.CleanupPending, strings.Join(st.NextActions, ", "))
 	}
 
 	if e.Origin != nil {

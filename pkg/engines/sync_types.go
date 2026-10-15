@@ -18,6 +18,10 @@ type SyncStatus struct {
 	Customization     string         `json:"customization"`
 	AttemptPath       string         `json:"attempt_path,omitempty"`
 	RollbackAvailable bool           `json:"rollback_available"`
+	OperationID       string         `json:"operation_id,omitempty"`
+	OperationState    string         `json:"operation_state,omitempty"`
+	RecoveryRequired  bool           `json:"recovery_required,omitempty"`
+	CleanupPending    bool           `json:"cleanup_pending,omitempty"`
 	Origin            *common.Origin `json:"origin,omitempty"`
 	Changes           []SyncChange   `json:"changes"`
 }
@@ -36,7 +40,9 @@ type SyncOptions struct {
 }
 type SyncAttempt struct {
 	Schema         int          `json:"schema_version"`
+	OperationID    string       `json:"operation_id"`
 	Entry          string       `json:"entry"`
+	Generation     uint64       `json:"generation"`
 	RecordDigest   string       `json:"record_digest"`
 	UpstreamDigest string       `json:"upstream_digest"`
 	LocalDigest    string       `json:"local_digest"`

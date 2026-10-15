@@ -31,6 +31,9 @@ func (s *Services) Archive(ctx context.Context, name string, opts engines.Lifecy
 	if entry == nil {
 		return nil, notFound("archive", name)
 	}
+	if err := syncLifecycleBlocked(entry); err != nil {
+		return nil, err
+	}
 	if entry.RepositoryPath != "" {
 		return s.trackedLifecycle(ctx, name, "archive", "", "", opts, false)
 	}
@@ -51,6 +54,9 @@ func (s *Services) Unarchive(ctx context.Context, name string, opts engines.Life
 	if entry == nil {
 		return nil, notFound("unarchive", name)
 	}
+	if err := syncLifecycleBlocked(entry); err != nil {
+		return nil, err
+	}
 	if entry.RepositoryPath != "" {
 		return s.trackedLifecycle(ctx, name, "unarchive", "", "", opts, false)
 	}
@@ -70,6 +76,9 @@ func (s *Services) Delete(ctx context.Context, name string, opts engines.Lifecyc
 	}
 	if entry == nil {
 		return nil, notFound("delete", name)
+	}
+	if err := syncLifecycleBlocked(entry); err != nil {
+		return nil, err
 	}
 	if entry.RepositoryPath != "" {
 		return s.trackedLifecycle(ctx, name, "delete", "", "", opts, false)
@@ -94,6 +103,9 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 	}
 	if entry == nil {
 		return nil, notFound("normalize", name)
+	}
+	if err := syncLifecycleBlocked(entry); err != nil {
+		return nil, err
 	}
 	if entry.RepositoryPath != "" {
 		return s.trackedLifecycle(ctx, name, "normalize", provider, "", opts, false)
@@ -125,6 +137,13 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 		s.installLinks(&moved)
 	}
 	return &LifecycleResult{Action: "normalize", Name: name, DryRun: opts.DryRun, Path: dest, Success: true}, nil
+}
+
+func syncLifecycleBlocked(entry *common.Entry) error {
+	if entry.Status == common.StatusError && entry.Error != nil && strings.Contains(*entry.Error, "recovery_required:") {
+		return fmt.Errorf("%s", *entry.Error)
+	}
+	return nil
 }
 
 // Convert flips a directory entry's kind, cleaning old-kind links and

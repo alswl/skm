@@ -35,17 +35,17 @@ func init() {
 		if err != nil {
 			return err
 		}
-		err = s.SyncRecover(cmd.Context(), flagDryRun)
+		report, recoverErr := s.SyncRecoverReport(cmd.Context(), flagDryRun)
 		if flagJSON {
-			reason := ""
-			if err != nil {
-				reason = err.Error()
-			}
-			if e := printJSON(cmd, map[string]any{"success": err == nil, "reason": reason}); e != nil {
+			if e := printJSON(cmd, report); e != nil {
 				return e
 			}
+		} else if report != nil {
+			for _, operation := range report.Operations {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s entry=%s state=%s outcome=%s\n", operation.ID, operation.Entry, operation.State, operation.Outcome)
+			}
 		}
-		return err
+		return recoverErr
 	}}
 	baseline := &cobra.Command{Use: "baseline NAME", Short: "Preview or accept an explicit historical baseline or new comparison point", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		s, err := servicesFor(cmd)
@@ -77,5 +77,28 @@ func init() {
 	baseline.Flags().Bool("new-start", false, "explicitly use this revision as a new comparison point, not recovered history")
 	baseline.Flags().Bool("accept", false, "accept the preview bound to the expected tree and local fingerprints")
 	syncCmd.AddCommand(diff, recoverCmd, baseline)
+	migrate := &cobra.Command{Use: "migrate", Short: "Preview or migrate legacy fork state", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		s, err := servicesFor(cmd)
+		if err != nil {
+			return err
+		}
+		accept, _ := cmd.Flags().GetBool("accept")
+		expected, _ := cmd.Flags().GetString("expected-state")
+		rollback, _ := cmd.Flags().GetBool("rollback")
+		res, err := s.MigrateSync(cmd.Context(), accept, expected, rollback, flagDryRun)
+		if flagJSON {
+			if outErr := printJSON(cmd, res); outErr != nil {
+				return outErr
+			}
+		} else if res != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s expected_state=%s accepted=%v\n", res.Outcome, res.ExpectedState, res.Accepted)
+		}
+		return err
+	}}
+	migrate.Flags().Bool("accept", false, "accept the migration preview")
+	migrate.Flags().String("expected-state", "", "state digest returned by preview")
+	migrate.Flags().Bool("rollback", false, "rollback an interrupted migration")
+	migrate.MarkFlagsMutuallyExclusive("accept", "rollback")
+	syncCmd.AddCommand(migrate)
 	rootCmd.AddCommand(syncCmd)
 }
