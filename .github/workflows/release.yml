@@ -10,6 +10,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Keep Linux release binaries independent of the runner's glibc version.
+    # skm has no C dependencies, so pure-Go builds are portable to older Linux
+    # distributions such as Alibaba Cloud Linux 3 (glibc 2.32).
+    env:
+      CGO_ENABLED: "0"
     strategy:
       matrix:
         include:
