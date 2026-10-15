@@ -1,3 +1,12 @@
+## [0.6.1] - 2026-10-15
+
+### 🐛 Bug Fixes
+
+- *(release)* Build portable Linux binaries
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.6.0-dev
 ## [0.6.0] - 2026-10-15
 
 ### 🚀 Features
@@ -12,6 +21,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.5.0-dev
+- Bump version to v0.6.0
 ## [0.5.0] - 2026-10-07
 
 ### 🚀 Features
@@ -22,6 +32,7 @@
 
 - Prepare next version v0.4.4-dev
 - Gitignore
+- Bump version to v0.5.0
 ## [0.4.4] - 2026-10-01
 
 ### 🐛 Bug Fixes
