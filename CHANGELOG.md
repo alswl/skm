@@ -1,3 +1,17 @@
+## [0.6.0] - 2026-10-15
+
+### 🚀 Features
+
+- Add fork-based skill customization and upstream patch updates
+
+### 🐛 Bug Fixes
+
+- *(tui)* Support spaces and cursor editing in import
+- *(tui)* Select imported skills and restore ordinary address editing
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.5.0-dev
 ## [0.5.0] - 2026-10-07
 
 ### 🚀 Features
