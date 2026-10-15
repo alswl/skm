@@ -61,7 +61,16 @@ func legacySyncFixture(t *testing.T, forkState string, gitOrigin bool) (*Service
 	writeFile(t, root, filepath.Join(rel, "guide.txt"), "base\n")
 	legacyEntry := filepath.Join(root, ".skm-sync", "entries", dal.SyncKey(rel))
 	baseline := filepath.Join(legacyEntry, "upstream-baseline")
-	require.NoError(t, dal.CopySyncTree(source, baseline))
+	if gitOrigin {
+		checkedOut := t.TempDir()
+		out, err := exec.Command("git", "-C", source, "worktree", "add", "--detach", checkedOut, origin.Revision).CombinedOutput()
+		require.NoError(t, err, string(out))
+		require.NoError(t, dal.CopySyncTree(checkedOut, baseline))
+		out, err = exec.Command("git", "-C", source, "worktree", "remove", "--force", checkedOut).CombinedOutput()
+		require.NoError(t, err, string(out))
+	} else {
+		require.NoError(t, dal.CopySyncTree(source, baseline))
+	}
 	base, err := dal.TreeFingerprint(baseline)
 	require.NoError(t, err)
 	rec := common.SyncRecord{Schema: 1, EntryPath: rel, Name: "review", Generation: 1, Origin: origin, Active: "upstream", UpstreamVersion: origin.Revision, UpstreamDigest: base}

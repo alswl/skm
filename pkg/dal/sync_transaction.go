@@ -1,6 +1,7 @@
 package dal
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -26,17 +27,32 @@ type syncJournal struct {
 }
 
 func TreeFingerprint(path string) (string, error) {
-	m, err := SyncTree(path)
+	st, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return "absent", nil
 	}
+	if err != nil {
+		return "", err
+	}
+	if st.Mode().IsRegular() {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(data)
+		// A file must never compare equal to a directory whose tree digest
+		// happens to contain the same bytes. Transaction moves may include
+		// .gitignore during a migration, so preserve the object kind here.
+		return "file:" + hex.EncodeToString(sum[:]), nil
+	}
+	m, err := SyncTree(path)
 	return m.Digest, err
 }
 
 // CommitSync requires the repository lock. Recovery uses fingerprints, not a
 // phase counter, because a process can die between a rename and journal write.
 func CommitSync(root, entry string, replacements []SyncReplacement, keepRollback bool) (retErr error) {
-	if err := InitSyncStore(root); err != nil {
+	if err := initSyncStore(root, entry != "migration"); err != nil {
 		return err
 	}
 	if err := RecoverSync(root, false); err != nil {

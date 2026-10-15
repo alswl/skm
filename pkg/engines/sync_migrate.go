@@ -1,12 +1,17 @@
 package engines
 
 import (
+	"archive/tar"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
@@ -32,6 +37,84 @@ type ForkMove struct {
 type legacyRecord struct {
 	rel string
 	rec common.SyncRecord
+}
+
+// verifiedLegacyGitBaseline promotes a v1 baseline only when the recorded
+// repository can locally prove that the exact immutable commit reconstructs
+// the old raw tree. A failed proof is intentionally not an error: preserving
+// the old tree as a snapshot is the safe migration fallback.
+func verifiedLegacyGitBaseline(stage string, origin common.Origin, revision, digest string) (common.BaselineRef, bool) {
+	if len(revision) != 40 && len(revision) != 64 || digest == "" {
+		return common.BaselineRef{}, false
+	}
+	if _, err := hex.DecodeString(revision); err != nil {
+		return common.BaselineRef{}, false
+	}
+	repository := origin.RepositoryAddress
+	if repository == "" {
+		repository = origin.Address
+	}
+	if repository == "" {
+		return common.BaselineRef{}, false
+	}
+	resolved, err := exec.Command("git", "-C", repository, "rev-parse", "--verify", revision+"^{commit}").Output()
+	if err != nil || !strings.EqualFold(strings.TrimSpace(string(resolved)), revision) {
+		return common.BaselineRef{}, false
+	}
+	archive, err := exec.Command("git", "-C", repository, "archive", "--format=tar", revision).Output()
+	if err != nil {
+		return common.BaselineRef{}, false
+	}
+	dir, err := os.MkdirTemp(stage, "verified-git-")
+	if err != nil {
+		return common.BaselineRef{}, false
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	tr := tar.NewReader(bytes.NewReader(archive))
+	for {
+		h, nextErr := tr.Next()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			return common.BaselineRef{}, false
+		}
+		// git archive writes a global PAX comment before normal entries.
+		// It carries no tree content and must not be extracted as a file.
+		if h.Typeflag == tar.TypeXHeader || h.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
+		if h.Name == "" || !filepath.IsLocal(filepath.FromSlash(h.Name)) {
+			return common.BaselineRef{}, false
+		}
+		path := filepath.Join(dir, filepath.FromSlash(h.Name))
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(path, os.FileMode(h.Mode)); err != nil {
+				return common.BaselineRef{}, false
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				return common.BaselineRef{}, false
+			}
+			f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(h.Mode))
+			if err != nil {
+				return common.BaselineRef{}, false
+			}
+			_, copyErr := io.Copy(f, tr)
+			closeErr := f.Close()
+			if copyErr != nil || closeErr != nil {
+				return common.BaselineRef{}, false
+			}
+		default:
+			return common.BaselineRef{}, false
+		}
+	}
+	got, err := dal.TreeFingerprint(dir)
+	if err != nil || got != digest {
+		return common.BaselineRef{}, false
+	}
+	return common.BaselineRef{Kind: "git", Revision: strings.ToLower(revision), RawDigest: digest}, true
 }
 
 func (r *Repository) legacyRecords() ([]legacyRecord, string, error) {
@@ -130,6 +213,9 @@ func (r *Repository) MigrateLegacy(accept bool, expected string, dryRun bool) (*
 	if err = os.MkdirAll(filepath.Join(newState, "entries"), 0700); err != nil {
 		return res, err
 	}
+	if err = os.MkdirAll(filepath.Join(newState, "baselines"), 0700); err != nil {
+		return res, err
+	}
 	if err = dal.WriteSyncJSON(filepath.Join(newState, "format.json"), map[string]int{"schema_version": 2}); err != nil {
 		return res, err
 	}
@@ -162,9 +248,6 @@ func (r *Repository) MigrateLegacy(accept bool, expected string, dryRun bool) (*
 			return res, err
 		}
 		upstreamBaseline := filepath.Join(oldState, "upstream-baseline")
-		if err = stageSnapshot(upstreamBaseline, item.rec.UpstreamDigest); err != nil {
-			return res, err
-		}
 		// A v1 record must not bless a directly edited upstream directory as a
 		// clean v2 upstream. Rebuild the maintained form from its recorded raw
 		// baseline and compare it before scheduling any replacement.
@@ -188,16 +271,34 @@ func (r *Repository) MigrateLegacy(accept bool, expected string, dryRun bool) (*
 		}
 		rec := item.rec
 		rec.Schema = 2
-		rec.UpstreamBase = common.BaselineRef{Kind: "snapshot", Revision: "sha256:" + rec.UpstreamDigest, RawDigest: rec.UpstreamDigest, SnapshotDigest: rec.UpstreamDigest}
+		upstreamRevision := rec.UpstreamVersion
+		if upstreamRevision == "" {
+			upstreamRevision = rec.Origin.Revision
+		}
+		if ref, ok := verifiedLegacyGitBaseline(stage, rec.Origin, upstreamRevision, rec.UpstreamDigest); ok {
+			rec.UpstreamBase = ref
+		} else {
+			if err = stageSnapshot(upstreamBaseline, rec.UpstreamDigest); err != nil {
+				return res, err
+			}
+			rec.UpstreamBase = common.BaselineRef{Kind: "snapshot", Revision: "sha256:" + rec.UpstreamDigest, RawDigest: rec.UpstreamDigest, SnapshotDigest: rec.UpstreamDigest}
+		}
 		if rec.ForkDigest != "" {
 			forkBaseline := upstreamBaseline
 			if rec.ForkDigest != rec.UpstreamDigest {
 				forkBaseline = filepath.Join(oldState, "fork-baseline")
 			}
-			if err = stageSnapshot(forkBaseline, rec.ForkDigest); err != nil {
-				return res, err
+			forkRevision := rec.ForkVersion
+			if forkRevision == "" {
+				forkRevision = upstreamRevision
 			}
-			forkBase := common.BaselineRef{Kind: "snapshot", Revision: "sha256:" + rec.ForkDigest, RawDigest: rec.ForkDigest, SnapshotDigest: rec.ForkDigest}
+			forkBase, verifiedFork := verifiedLegacyGitBaseline(stage, rec.Origin, forkRevision, rec.ForkDigest)
+			if !verifiedFork {
+				if err = stageSnapshot(forkBaseline, rec.ForkDigest); err != nil {
+					return res, err
+				}
+				forkBase = common.BaselineRef{Kind: "snapshot", Revision: "sha256:" + rec.ForkDigest, RawDigest: rec.ForkDigest, SnapshotDigest: rec.ForkDigest}
+			}
 			rec.ForkBase = &forkBase
 		}
 		// Version 2 resolves baseline snapshots by digest from .skm/baselines.
@@ -252,9 +353,32 @@ func (r *Repository) MigrateLegacy(accept bool, expected string, dryRun bool) (*
 	if err != nil {
 		return res, err
 	}
+	// The ignore file is a transaction target too.  In particular, do not
+	// mutate it after old records/forks have been deleted: a crash at that
+	// point must still be able to restore the whole v1 repository state.
+	ignorePath := filepath.Join(r.root, ".gitignore")
+	ignoreBefore, err := dal.TreeFingerprint(ignorePath)
+	if err != nil {
+		return res, err
+	}
+	if st, statErr := os.Lstat(ignorePath); statErr == nil && !st.Mode().IsRegular() {
+		return res, fmt.Errorf("migration_conflict: .gitignore is not a regular file")
+	} else if statErr != nil && !os.IsNotExist(statErr) {
+		return res, statErr
+	}
+	ignoreData, readErr := os.ReadFile(ignorePath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return res, readErr
+	}
+	migratedIgnore, _ := dal.MigratedSyncIgnore(ignoreData)
+	stagedIgnore := filepath.Join(stage, "gitignore")
+	if err = os.WriteFile(stagedIgnore, migratedIgnore, 0644); err != nil {
+		return res, err
+	}
 	replacements = append(replacements,
 		dal.SyncReplacement{Path: filepath.Join(".skm", "entries"), Source: filepath.Join(newState, "entries"), Expected: "absent"},
 		dal.SyncReplacement{Path: filepath.Join(".skm", "baselines"), Source: filepath.Join(newState, "baselines"), Expected: "absent"},
+		dal.SyncReplacement{Path: ".gitignore", Source: stagedIgnore, Expected: ignoreBefore},
 		dal.SyncReplacement{Path: ".skm-sync", Expected: oldStateHash},
 	)
 	if _, err := os.Lstat(filepath.Join(r.root, ".skm-local")); err == nil {
@@ -272,9 +396,6 @@ func (r *Repository) MigrateLegacy(accept bool, expected string, dryRun bool) (*
 	}
 	accepted = true
 	if err = dal.InitSyncStore(r.root); err != nil {
-		return res, err
-	}
-	if err = dal.RemoveLegacySyncIgnore(r.root); err != nil {
 		return res, err
 	}
 	res.Outcome, res.Accepted, res.Preview = "migrated", true, false

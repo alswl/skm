@@ -49,6 +49,27 @@ func (r *Repository) SyncStatus(e *common.Entry) (*SyncStatus, error) {
 	if rec.Active == "fork" && rec.ForkBase != nil {
 		ref = *rec.ForkBase
 	}
+	if ref.Kind == "git" {
+		repository := rec.Origin.RepositoryAddress
+		if repository == "" {
+			repository = rec.Origin.Address
+		}
+		cached, cacheErr := dal.ReadGitCache(r.root, repository, ref.Revision)
+		if cacheErr != nil {
+			// Catalog, info and install must remain offline. A Git baseline is
+			// reconstructible, so a missing cache is actionable rather than a
+			// corrupt record or a reason to silently contact the source.
+			st.BaselineState = "fetch_required"
+			st.NextActions = append(st.NextActions, "run sync update or sync diff when the source is available")
+			return st, nil
+		}
+		base, cacheErr = cachedSyncSubpath(cached, rec.Origin.Subpath)
+		if cacheErr != nil {
+			st.BaselineState = "fetch_required"
+			st.NextActions = append(st.NextActions, "refresh the Git cache from the recorded source")
+			return st, nil
+		}
+	}
 	if ref.Kind == "snapshot" && ref.SnapshotDigest != "" {
 		if snapshotRel, pathErr := dal.SyncBaselineRel(ref.SnapshotDigest); pathErr == nil {
 			candidate := filepath.Join(r.root, snapshotRel)
@@ -112,6 +133,24 @@ func (r *Repository) SyncStatus(e *common.Entry) (*SyncStatus, error) {
 	// A successfully accepted update leaves no history snapshot behind.
 	st.RollbackAvailable = st.AttemptPath != ""
 	return st, nil
+}
+
+func cachedSyncSubpath(root, subpath string) (string, error) {
+	if subpath == "" || subpath == "." {
+		return root, nil
+	}
+	if !filepath.IsLocal(subpath) {
+		return "", fmt.Errorf("unsafe source subpath")
+	}
+	path, err := filepath.EvalSymlinks(filepath.Join(root, subpath))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("source subpath escapes cache")
+	}
+	return path, nil
 }
 
 func (r *Repository) noAttempt(rel string) error {

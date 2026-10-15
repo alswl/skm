@@ -106,6 +106,23 @@ func SyncTree(root string) (SyncManifest, error) {
 }
 
 func CopySyncTree(src, dst string) error {
+	st, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if st.Mode().IsRegular() {
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return err
+		}
+		if err = os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+			return err
+		}
+		if err = os.WriteFile(dst, data, st.Mode().Perm()); err != nil {
+			return err
+		}
+		return os.Chmod(dst, st.Mode().Perm())
+	}
 	before, err := SyncTree(src)
 	if err != nil {
 		return err

@@ -293,7 +293,12 @@ func SyncDirectory(path string) error {
 
 // InitSyncStore owns the single v2 management root. Entries and non-rebuildable
 // baselines stay versioned; caches and unfinished operations stay local.
-func InitSyncStore(root string) error {
+func InitSyncStore(root string) error { return initSyncStore(root, true) }
+
+// initSyncStore lets the migration transaction create its journal without
+// editing .gitignore before that file has been backed up. All normal callers
+// retain InitSyncStore's complete initialization behavior.
+func initSyncStore(root string, updateIgnore bool) error {
 	_, v2Err := os.Lstat(filepath.Join(root, ".skm"))
 	if os.IsNotExist(v2Err) {
 		for _, legacy := range []string{".skm-sync", ".skm-local"} {
@@ -341,6 +346,9 @@ func InitSyncStore(root string) error {
 				return err
 			}
 		}
+	}
+	if !updateIgnore {
+		return nil
 	}
 	ignore, err := SyncPath(root, ".gitignore")
 	if err != nil {
@@ -398,6 +406,34 @@ func RemoveLegacySyncIgnore(root string) error {
 	if err != nil {
 		return err
 	}
+	kept, changed := stripLegacySyncIgnore(data)
+	if !changed {
+		return nil
+	}
+	return WriteSyncFile(ignore, kept, 0644)
+}
+
+// MigratedSyncIgnore produces the exact v2 ignore file that a migration
+// accepts atomically with the old state roots. It retains all unrelated user
+// lines, removes only known v1 roots, and supplies the v2 local-state rules.
+func MigratedSyncIgnore(data []byte) ([]byte, bool) {
+	kept, changed := stripLegacySyncIgnore(data)
+	lines := strings.Split(string(kept), "\n")
+	seen := make(map[string]bool)
+	for _, line := range lines {
+		seen[line] = true
+	}
+	for _, required := range []string{"!/.skm/", "!/.skm/format.json", "!/.skm/entries/", "!/.skm/entries/**", "/.skm/cache/", "/.skm/work/"} {
+		if !seen[required] {
+			lines = append(lines, required)
+			seen[required] = true
+			changed = true
+		}
+	}
+	return []byte(strings.Join(lines, "\n")), changed
+}
+
+func stripLegacySyncIgnore(data []byte) ([]byte, bool) {
 	legacy := map[string]bool{"/.skm-sync/": true, "/.skm-local/": true, "/forks/": true, ".skm-sync/": true, ".skm-local/": true, "forks/": true}
 	lines := strings.Split(string(data), "\n")
 	kept := make([]string, 0, len(lines))
@@ -409,8 +445,5 @@ func RemoveLegacySyncIgnore(root string) error {
 		}
 		kept = append(kept, line)
 	}
-	if !changed {
-		return nil
-	}
-	return WriteSyncFile(ignore, []byte(strings.Join(kept, "\n")), 0644)
+	return []byte(strings.Join(kept, "\n")), changed
 }

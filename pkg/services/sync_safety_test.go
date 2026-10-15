@@ -524,6 +524,23 @@ func TestMigrateRefreshesManagedLinkToMovedFork(t *testing.T) {
 	require.Equal(t, filepath.Join(s.Cfg.Root, dal.SyncForkRel("skills/local/review")), link)
 }
 
+func TestMigrateVerifiedGitBaselineUsesReconstructibleReference(t *testing.T) {
+	s, _, _ := legacySyncFixture(t, "none", true)
+	preview, err := s.MigrateSync(context.Background(), false, "", false, false)
+	require.NoError(t, err)
+	result, err := s.MigrateSync(context.Background(), true, preview.ExpectedState, false, false)
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	entry, err := s.ResolveEntry("review")
+	require.NoError(t, err)
+	rec, _, err := s.Repo.SyncRecord(entry)
+	require.NoError(t, err)
+	require.Equal(t, "git", rec.UpstreamBase.Kind)
+	status, err := s.SyncStatus("review")
+	require.NoError(t, err)
+	require.Equal(t, "fetch_required", status.BaselineState)
+}
+
 func TestMigrateRefusesLegacyPendingState(t *testing.T) {
 	s, _, _ := legacySyncFixture(t, "retained", false)
 	writeFile(t, s.Cfg.Root, ".skm-local/pending/interrupted/attempt.json", `{}`)

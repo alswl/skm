@@ -50,10 +50,6 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 // assert on diagnostics (warnings, progress) rather than the stdout report.
 func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	installTargets = nil
-	deployFlags.repo, deployFlags.into = "", ""
-	deployFlags.noRepo = false
-	deployFlags.targets, deployFlags.only = nil, nil
 	var resetCommand func(*cobra.Command)
 	resetCommand = func(cmd *cobra.Command) {
 		cmd.Flags().VisitAll(func(f *pflag.Flag) { _ = f.Value.Set(f.DefValue); f.Changed = false })
@@ -62,6 +58,13 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 		}
 	}
 	resetCommand(rootCmd)
+	// pflag serializes StringSlice's nil default as "[]". Feeding that back
+	// through Value.Set creates a literal target named "[]", so restore the
+	// slice-backed test variables after the generic recursive flag reset.
+	installTargets = nil
+	deployFlags.repo, deployFlags.into = "", ""
+	deployFlags.noRepo = false
+	deployFlags.targets, deployFlags.only = nil, nil
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	deployCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	flagRoot, flagConfig = "", ""
