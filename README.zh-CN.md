@@ -38,16 +38,20 @@ skm install review               # 将当前使用版安装到新目标
 `info`/`status` 给出保留现场的位置。手工整理其中的 `candidate/` 后执行
 `skm update review --accept` 整体接受，或用 `--abort` 取消。重复更新不会覆盖现场。
 
-`skm update review --rollback` 撤回最近一次成功更新，同时恢复内容和对应基线。
-更新后又有编辑时会拒绝覆盖，用户可以先保存修改，再从 Git 历史中选择版本。
-回退快照只属于当前工作副本。安装刷新失败单独报告，可用 `install` 重试对应目标。
+`skm update review --rollback` 只撤销当前尚未结束的更新尝试，并在安全时恢复尝试前的状态。
+已完成的更新没有内置历史回退；需要恢复早期版本时请使用 Git 历史。
+安装刷新失败会单独报告，可用 `install` 重试对应目标。
+
+fork 位于 `skills-fork/` 下，并镜像条目在 `skills/` 下的相对路径。例如，
+`skm fork review` 会创建 `skills-fork/local/review/`，`skm info review` 会输出这条可直接编辑的准确路径。
+`.skm/` 保存来源关联、基线元数据、缓存和进行中的更新状态。
 
 `skm fork review --upstream` 将安装切回仓库当前社区版，保留停用的 fork；后续更新不再修改它。
 再次创建遇到同名目录会停止，需要自行处理，或显式使用 `--replace` 授权删除并重建。
 普通 `--force` 不会丢弃定制或失败现场。
 
-将 `skills/`、`forks/`、`.skm-sync/` 和忽略规则一起提交到自己的 Git 仓库，保留完整内容、
-来源关联与原始基线。`.skm-local/` 保存临时 patch、失败现场、事务和最近一次回退点；
+将 `skills/`、`skills-fork/` 和 `.skm/` 中需要跟踪的部分一起提交到自己的 Git 仓库，保留完整内容、
+来源关联与原始基线。`.skm/cache/` 和 `.skm/work/` 分别保存可重建的缓存数据和进行中的事务状态；
 skm 自动加入精确忽略规则，不会替用户提交 Git。管理目录不进入安装或 Skill 扫描。
 
 旧导入项没有基线时仍能安装，但暂停自动更新。`skm sync baseline --help` 提供历史恢复或明确的新比较起点。

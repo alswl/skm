@@ -41,11 +41,16 @@ intervention: the current version stays usable, and `info`/`status` show the sav
 workspace. Edit `candidate/` there, then use `skm update review --accept`, or
 `--abort` to discard that attempt. A repeated update preserves the workspace.
 
-`skm update review --rollback` restores the content **and baseline** before the
-most recent successful update. Later edits block rollback; preserve them yourself
-before choosing a version from Git history. Rollback snapshots are local to this
-working copy. Installation failures are reported separately; retry `install` for
-any target that did not refresh.
+`skm update review --rollback` discards only the current unfinished update attempt
+and restores its pre-attempt state when that is safe. A completed update has no
+built-in historical rollback; use your Git history to restore an earlier version.
+Installation failures are reported separately; retry `install` for any target that
+did not refresh.
+
+Forks live under `skills-fork/`, mirroring the entry's path below `skills/`.
+For example, `skm fork review` creates `skills-fork/local/review/`; `skm info
+review` prints that exact editable path. The `.skm/` directory holds its
+source association, baseline metadata, cache, and in-progress update state.
 
 `skm fork review --upstream` switches installs back to the current community
 version and retains the inactive fork. Future updates leave that fork alone.
@@ -53,10 +58,10 @@ Creating another fork at the same location is refused; handle the old directory
 manually or explicitly authorize deletion and recreation with `--replace`.
 Ordinary `--force` never discards customization or a failed update workspace.
 
-Commit `skills/`, `forks/`, `.skm-sync/`, and the ignore rule to your own Git
-repository to preserve content, source associations, and complete baselines.
-`.skm-local/` contains temporary patches, failed attempts, transactions, and the
-single rollback point; skm adds an exact ignore rule for it. skm never commits for
+Commit `skills/`, `skills-fork/`, and the tracked parts of `.skm/` to your own
+Git repository to preserve content, source associations, and complete baselines.
+`.skm/cache/` and `.skm/work/` contain rebuildable cache data and in-progress
+transaction state, so skm adds exact ignore rules for them. skm never commits for
 you. Management directories are excluded from installation and discovery.
 
 Older imported skills without a baseline remain installable but cannot update

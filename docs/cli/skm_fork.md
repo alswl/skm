@@ -1,6 +1,6 @@
 ## skm fork
 
-Create a complete local customization and switch existing installs
+Create a complete local customization in skills-fork and switch existing installs
 
 ```
 skm fork NAME [flags]

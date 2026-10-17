@@ -24,6 +24,8 @@ func TestForkCLIWorkflowAndFailedJSON(t *testing.T) {
 	var fork engines.UpdateResult
 	require.NoError(t, json.Unmarshal([]byte(out), &fork))
 	require.True(t, fork.Accepted)
+	require.Equal(t, filepath.Join(root, "skills-fork", "local", "review"), fork.ActivePath)
+	require.FileExists(t, filepath.Join(fork.ActivePath, "SKILL.md"))
 	writeTestFile(t, fork.ActivePath, "SKILL.md", "---\nname: review\ndescription: review\n---\nlocal\n")
 	writeTestFile(t, source, "SKILL.md", "---\nname: review\ndescription: review\n---\nupstream\n")
 	out, err = call("update", "review")
