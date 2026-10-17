@@ -37,9 +37,11 @@ func TestForkActionsUseSharedServiceAndConfirmReplacement(t *testing.T) {
 	entry = m.svc.FindEntry("review")
 	actions = m.forkActions(entry)
 	require.Len(t, actions, 1)
-	require.Contains(t, actions[0].Label, "recreate")
+	require.Contains(t, actions[0].Label, "fork")
 	_, err = m.svc.Fork(context.Background(), "review", engines.SyncOptions{})
-	require.ErrorContains(t, err, "existing_fork")
+	require.NoError(t, err)
+	entry = m.svc.FindEntry("review")
+	require.Equal(t, "fork", entry.SyncView.Mode)
 }
 
 func TestForkActionsDescribeCurrentUpdateAttempt(t *testing.T) {
@@ -67,6 +69,6 @@ func TestGlobalActionsExposeLegacyMigration(t *testing.T) {
 	for _, action := range actions {
 		labels[action.Label] = action.Enabled
 	}
-	require.True(t, labels["migrate legacy fork store"])
+	require.True(t, labels["migrate legacy skill data"])
 	require.True(t, labels["rollback interrupted migration"])
 }

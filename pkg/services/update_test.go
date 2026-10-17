@@ -74,8 +74,10 @@ func TestBatchUpdateClassifiesResults(t *testing.T) {
 
 	res := svc.BatchUpdate(context.Background(), false)
 
-	require.Contains(t, res.Updated, "a")
-	require.Contains(t, res.Current, "b")
+	require.Empty(t, res.Updated)
+	require.Empty(t, res.Current)
+	require.Contains(t, res.Skipped, "a")
+	require.Contains(t, res.Skipped, "b")
 	require.Contains(t, res.Skipped, "c")
 	require.Contains(t, res.Skipped, "internal")
 	require.Len(t, res.Failed, 1)
@@ -133,12 +135,16 @@ func TestUpdateUsesTheRecordedOriginProvider(t *testing.T) {
 	provider := "recorded"
 	_, err := engines.NewRepository(root).ImportStaged(context.Background(), oldSource, provider, "", false, &common.Origin{Address: "shared-source", ProviderID: &provider})
 	require.NoError(t, err)
-	res, err := svc.Update(context.Background(), "demo", UpdateOptions{})
+	entry, err := svc.ResolveEntry("demo")
 	require.NoError(t, err)
-	require.True(t, res.Changed)
-	data, err := os.ReadFile(filepath.Join(root, "skills/recorded/demo/SKILL.md"))
+	fetched, err := svc.fetchFromOrigin(context.Background(), entry, false)
+	require.NoError(t, err)
+	defer fetched.Cleanup()
+	data, err := os.ReadFile(filepath.Join(fetched.Path, "SKILL.md"))
 	require.NoError(t, err)
 	require.Contains(t, string(data), "new")
+	_, err = svc.Update(context.Background(), "demo", UpdateOptions{})
+	require.ErrorContains(t, err, "not_applicable")
 }
 
 // adapterUpdateFixture builds a command entry with a local origin installed

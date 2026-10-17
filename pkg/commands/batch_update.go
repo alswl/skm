@@ -10,7 +10,7 @@ import (
 
 var batchUpdateCmd = &cobra.Command{
 	Use:     "batch-update",
-	Short:   "Refresh all active entries that have an origin",
+	Short:   "Refresh eligible Git Skills and other updatable entries",
 	Example: "  skm batch-update --json",
 	Args:    cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {

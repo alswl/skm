@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var syncCmd = &cobra.Command{Use: "sync", Short: "Inspect customization and restore upstream tracking"}
+var syncCmd = &cobra.Command{Use: "sync", Short: "Inspect Git fork changes, migrate old data, and recover transactions"}
 
 func init() {
-	diff := &cobra.Command{Use: "diff NAME", Short: "Show current content relative to its upstream baseline", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	diff := &cobra.Command{Use: "diff NAME", Short: "Show a Git fork's changes from its recorded base commit", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		s, err := servicesFor(cmd)
 		if err != nil {
 			return err
@@ -47,7 +47,7 @@ func init() {
 		}
 		return recoverErr
 	}}
-	baseline := &cobra.Command{Use: "baseline NAME", Short: "Preview or accept an explicit historical baseline or new comparison point", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	baseline := &cobra.Command{Use: "baseline NAME", Short: "Retired: migrate old repositories or import changed sources as new Skills", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		s, err := servicesFor(cmd)
 		if err != nil {
 			return err
@@ -72,12 +72,12 @@ func init() {
 		return err
 	}}
 	for _, name := range []string{"from", "revision", "provider", "subpath", "expected-tree", "expected-local"} {
-		baseline.Flags().String(name, "", name)
+		baseline.Flags().String(name, "", "retired; accepted only to show migration guidance")
 	}
-	baseline.Flags().Bool("new-start", false, "explicitly use this revision as a new comparison point, not recovered history")
-	baseline.Flags().Bool("accept", false, "accept the preview bound to the expected tree and local fingerprints")
+	baseline.Flags().Bool("new-start", false, "retired; accepted only to show migration guidance")
+	baseline.Flags().Bool("accept", false, "retired; accepted only to show migration guidance")
 	syncCmd.AddCommand(diff, recoverCmd, baseline)
-	migrate := &cobra.Command{Use: "migrate", Short: "Preview or migrate legacy fork state", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	migrate := &cobra.Command{Use: "migrate", Short: "Preview or convert legacy Skill state to colocated metadata", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		s, err := servicesFor(cmd)
 		if err != nil {
 			return err

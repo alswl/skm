@@ -15,6 +15,15 @@ import (
 )
 
 func (r *Repository) SyncStatus(e *common.Entry) (*SyncStatus, error) {
+	upstream := e.RepositoryPath
+	if upstream == "" {
+		upstream = e.Path
+	}
+	if meta, err := dal.ReadSkillMeta(upstream); err == nil && meta.SchemaVersion == 3 {
+		return r.finalSyncStatus(e, meta)
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
 	st := &SyncStatus{AttemptState: "none", Mode: "upstream", ForkState: "absent", ActivePath: e.Path, UpstreamPath: e.Path, BaselineState: "missing", Customization: "unknown", Origin: e.Origin, Changes: []SyncChange{}}
 	rec, rel, err := r.SyncRecord(e)
 	if os.IsNotExist(err) {

@@ -77,14 +77,13 @@ func TestDeployLibraryAndLocalUpdate(t *testing.T) {
 	copySvc.Cfg = &cfg
 	copySvc.Repo = engines.NewRepository(opts.Into)
 	writeSvcFile(t, src, "nested/alpha/resource.txt", "changed")
-	u, err := copySvc.Update(context.Background(), "alpha", UpdateOptions{})
-	require.NoError(t, err)
-	require.True(t, u.Changed)
+	_, err = copySvc.Update(context.Background(), "alpha", UpdateOptions{})
+	require.ErrorContains(t, err, "not_applicable")
 	require.NoError(t, os.RemoveAll(src))
 	for _, target := range targets {
 		data, err := os.ReadFile(filepath.Join(target.Path, "alpha/resource.txt"))
 		require.NoError(t, err)
-		require.Equal(t, "changed", string(data))
+		require.Equal(t, "resource alpha", string(data))
 	}
 	_, err = svc.Deploy(context.Background(), opts)
 	require.ErrorContains(t, err, "already exists")
@@ -344,15 +343,15 @@ func TestDeployProviderSubpathUpdateAndCleanup(t *testing.T) {
 	svc.Cfg.Root = opts.Into
 	writeSvcFile(t, src, "nested/alpha/resource.txt", "new provider bytes")
 	_, err = svc.Update(context.Background(), "alpha", UpdateOptions{})
-	require.NoError(t, err)
-	require.NoDirExists(t, p.roots[1])
+	require.ErrorContains(t, err, "not_applicable")
+	require.Len(t, p.roots, 1, "snapshot update does not fetch")
 	content, err := os.ReadFile(filepath.Join(e.Path, "resource.txt"))
 	require.NoError(t, err)
-	require.Equal(t, "new provider bytes", string(content))
+	require.Equal(t, "resource alpha", string(content))
 	e.Origin.Subpath = "../escape"
 	_, err = svc.fetchFromOrigin(context.Background(), e, false)
 	require.Error(t, err)
-	require.NoDirExists(t, p.roots[2])
+	require.NoDirExists(t, p.roots[1])
 	// A single root skill and an old origin without subpath retain the old path.
 	e.Origin.Subpath = ""
 	fetched, err := svc.fetchFromOrigin(context.Background(), e, false)

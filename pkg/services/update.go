@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -44,6 +45,16 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q is %s; only active entries can be updated", name, entry.Status), common.ExitObject)
 	}
 	if entry.Kind == common.KindSkill {
+		upstream := entry.RepositoryPath
+		if upstream == "" {
+			upstream = entry.Path
+		}
+		if meta, metaErr := dal.ReadSkillMeta(upstream); metaErr == nil && meta.SchemaVersion == 3 && meta.RevisionKind == "snapshot" {
+			reason := "non-Git Skill is a fixed snapshot; import changed source as a new Skill"
+			return &engines.UpdateResult{Entry: s.Repo.RelPath(upstream), Outcome: "not_applicable", ReasonCode: "not_applicable", Reason: reason}, common.WithExitCode(fmt.Errorf("not_applicable: %s", reason), common.ExitObject)
+		} else if metaErr != nil && !os.IsNotExist(metaErr) {
+			return nil, metaErr
+		}
 		return s.updateSkill(ctx, name, opts)
 	}
 	if entry.Origin == nil {
@@ -113,6 +124,9 @@ func (s *Services) refreshInstalls(ctx context.Context, entry *common.Entry) err
 // failed.)
 func (s *Services) Updatable(e *common.Entry) bool {
 	if e.Status != common.StatusActive || e.Origin == nil || e.ProviderIDValue() == "unknown" || e.ProviderIDValue() == "self-build" {
+		return false
+	}
+	if e.Kind == common.KindSkill && e.SyncView != nil && e.SyncView.BaselineState == "not_applicable" {
 		return false
 	}
 	return e.ProviderIDValue() != "local" || !isManagedRepositoryEntry(e.Origin.Address, s.Cfg.Root)
@@ -222,7 +236,12 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 		}
 		if !s.Updatable(e) { // active but originless: skipped, not failed
 			res.Skipped = append(res.Skipped, e.Name)
-			res.Items = append(res.Items, &engines.UpdateResult{Entry: s.Repo.RelPath(e.Path), Outcome: "not_applicable", Preview: dryRun})
+			item := &engines.UpdateResult{Entry: s.Repo.RelPath(e.Path), Outcome: "not_applicable", Preview: dryRun}
+			if e.Kind == common.KindSkill && e.SyncView != nil && e.SyncView.BaselineState == "not_applicable" {
+				item.ReasonCode = "not_applicable"
+				item.Reason = "non-Git Skill is a fixed snapshot; import changed source as a new Skill"
+			}
+			res.Items = append(res.Items, item)
 			continue
 		}
 		u, err := s.Update(ctx, e.Path, UpdateOptions{DryRun: dryRun})

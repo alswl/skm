@@ -76,7 +76,7 @@ func (m *model) globalActions() []entryAction {
 			m.openImportPrompt()
 		}},
 		{Key: "P", Label: "batch update", Enabled: true, Run: m.batchUpdate},
-		{Key: "M", Label: "migrate legacy fork store", Enabled: true, Run: m.migrateLegacy},
+		{Key: "M", Label: "migrate legacy skill data", Enabled: true, Run: m.migrateLegacy},
 		{Key: "R", Label: "rollback interrupted migration", Enabled: true, Run: m.rollbackMigration},
 		{Key: "t", Label: "targets", Enabled: true, Run: func() {
 			m.showTargets = true

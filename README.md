@@ -15,7 +15,7 @@ drifting, duplicating, and quietly rotting.
 
 `skm` keeps **your own, local-first skill library** of skills and commands and installs them into
 every tool you use. Adopt skills you already have locally, or import from GitHub, GitLab, Skills.sh,
-and local files. Then batch-update them with one automated command, browse them in a TUI, or script
+and local files. Then batch-update eligible Git sources with one automated command, browse them in a TUI, or script
 them in CI. Git is optional for the library; use it when you want versioning or synchronization.
 
 ![skm TUI demo: init, import from skills.sh and GitHub, discover and adopt an unmanaged skill, install, and inspect it](docs/assets/demo.gif)
@@ -29,16 +29,16 @@ skm import owner/repo/path/to/skill
 skm fork review                  # create a full fork and switch existing installs
 skm info review                  # find its editable fork directory
 # Edit files directly in that directory.
-skm sync diff review             # inspect customization against its baseline
+skm sync diff review             # inspect fork changes against its Git base commit
 skm update review                # migrate changes, then refresh existing installs
 skm install review               # install the active version into new targets
 ```
 
-`update` generates a fresh patch from the saved upstream baseline and your current
-fork, then applies it in an isolated copy of the new upstream. Compatible text
+For Git imports, `update` reconstructs the recorded base commit on demand, generates a
+patch from it and your current fork, then applies it in an isolated copy of the new upstream. Compatible text
 changes are automatic. Incompatible text or complex files can require manual
 intervention: the current version stays usable, and `info`/`status` show the saved
-workspace. Edit `candidate/` there, then use `skm update review --accept`, or
+workspace under `.skm/temp/`. Edit `candidate/` there, then use `skm update review --accept`, or
 `--abort` to discard that attempt. A repeated update preserves the workspace.
 
 `skm update review --rollback` discards only the current unfinished update attempt
@@ -49,29 +49,35 @@ did not refresh.
 
 Forks live under `skills-fork/`, mirroring the entry's path below `skills/`.
 For example, `skm fork review` creates `skills-fork/local/review/`; `skm info
-review` prints that exact editable path. The `.skm/` directory holds its
-source association, baseline metadata, cache, and in-progress update state.
+review` prints that exact editable path. Each upstream and fork directory contains
+skm-owned `meta.json`: the upstream records source identity, exact Git revision
+and active choice; the fork records its base revision. Only an unfinished
+operation uses `.skm/temp/`, which skm removes on normal completion.
 
 `skm fork review --upstream` switches installs back to the current community
 version and retains the inactive fork. Future updates leave that fork alone.
-Creating another fork at the same location is refused; handle the old directory
-manually or explicitly authorize deletion and recreation with `--replace`.
+Run `skm fork review` again to select the retained fork. When a fork is already
+active, another creation is refused; `--replace` explicitly deletes and recreates it.
 Ordinary `--force` never discards customization or a failed update workspace.
 
-Commit `skills/`, `skills-fork/`, and the tracked parts of `.skm/` to your own
-Git repository to preserve content, source associations, and complete baselines.
-`.skm/cache/` and `.skm/work/` contain rebuildable cache data and in-progress
-transaction state, so skm adds exact ignore rules for them. skm never commits for
-you. Management directories are excluded from installation and discovery.
+Commit `skills/` and `skills-fork/`, including their `meta.json` files, to your own Git
+repository. `.skm/temp/` is ignored and holds only recoverable unfinished work. skm
+never commits for you. Copy installs exclude skm-owned metadata; symlink installs point
+at the complete directory and therefore expose `meta.json` to the target tool.
 
-For skills imported by older skm releases without a saved baseline, the first
-`update` checks whether their content exactly matches a historical Git revision
-of the recorded source (or the current content of a non-Git source). When it
-does, skm establishes that baseline and continues the update automatically.
-`--dry-run` reports a match without writing. If no exact match can be proven,
-the skill stays unchanged and installable; `skm sync baseline --help` describes
-explicit recovery for locally edited or unavailable sources. Source-only sharing
-does not include fork content; `share create --original-source` shares the
+Run `skm sync migrate` to preview older repositories, then accept the reported
+`expected_state`. Old content stays readable until migrated. For an old Git import
+without a recorded revision, migration accepts only an exact historical content match;
+otherwise it leaves the Skill unchanged. Non-Git imports are fixed snapshots: a changed
+source is a new Skill to import under a distinct path, and batch-update skips it.
+`skm sync baseline` is retired.
+
+```sh
+skm sync migrate
+skm sync migrate --accept --expected-state DIGEST_FROM_PREVIEW
+```
+
+Source-only sharing does not include fork content; `share create --original-source` shares the
 community address with a warning.
 An export references the maintained repository remote, including only what has
 actually been published there; `backup` saves an installation list, not contents.

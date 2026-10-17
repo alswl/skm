@@ -60,6 +60,7 @@ type SyncRecord struct {
 // SyncView is a read-only catalog summary populated off the TUI event loop.
 type SyncView struct {
 	Mode, ForkState, ForkPath, UpstreamPath, BaselineVersion, BaselineState, Customization, AttemptPath, OperationID, OperationState string
+	RevisionKind, IneligibleReason                                                                                                   string
 	NextActions                                                                                                                      []string
 	RollbackAvailable, RecoveryRequired, CleanupPending                                                                              bool
 }

@@ -92,18 +92,57 @@ func TestImportProviderRecordsOrigin(t *testing.T) {
 	require.Equal(t, "https://github.com/x/y", res.Origin.Address)
 	require.Equal(t, "github", *res.Origin.ProviderID)
 	require.Equal(t, "skills/github/remote-skill", res.Origin.Path, "meta.json tracks the installed path relative to the repo root")
-	require.NoFileExists(t, filepath.Join(res.Path, "meta.json"))
-
-	// The on-disk meta.json carries url / provider / path for management.
-	record, err := dal.ReadSyncRecord(rootForSyncTest(res.Path), relativeForSyncTest(res.Path))
-	stored := &common.Origin{}
-	if record != nil {
-		stored = &record.Origin
-	}
+	storedMeta, err := dal.ReadSkillMeta(res.Path)
 	require.NoError(t, err)
+	require.Equal(t, 3, storedMeta.SchemaVersion)
+	require.Equal(t, "snapshot", storedMeta.RevisionKind)
+	stored := &storedMeta.Origin
 	require.Equal(t, "https://github.com/x/y", stored.Address)
 	require.Equal(t, "github", *stored.ProviderID)
 	require.Equal(t, "skills/github/remote-skill", stored.Path)
+	require.NoDirExists(t, filepath.Join(root, ".skm", "entries"))
+}
+
+func TestFinalSkillForkAndUseUpstreamKeepOnlyColocatedMetadata(t *testing.T) {
+	root := t.TempDir()
+	staged := filepath.Join(t.TempDir(), "review")
+	writeFile(t, staged, "SKILL.md", frontmatter("review", "Review"))
+	writeFile(t, staged, "guide.txt", "upstream\n")
+	provider := "local"
+	origin := &common.Origin{Address: staged, ProviderID: &provider}
+	_, err := engines.NewRepository(root).ImportStaged(context.Background(), staged, provider, "", false, origin)
+	require.NoError(t, err)
+	target := skillTarget("test", t.TempDir())
+	svc, err := New(newCfg(root, []common.InstallTarget{target}), common.NewLogger(false))
+	require.NoError(t, err)
+	_, err = svc.Install(context.Background(), "review", InstallOptions{})
+	require.NoError(t, err)
+	result, err := svc.Fork(context.Background(), "review", engines.SyncOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "switched", result.Outcome)
+	fork := filepath.Join(root, "skills-fork", "local", "review")
+	require.FileExists(t, filepath.Join(fork, "SKILL.md"))
+	forkMeta, err := dal.ReadForkMeta(fork)
+	require.NoError(t, err)
+	require.Empty(t, forkMeta.BaseRevision)
+	entry, err := svc.ResolveEntry("review")
+	require.NoError(t, err)
+	require.Equal(t, fork, entry.Path)
+	require.Equal(t, "active", entry.SyncView.ForkState)
+	installed, err := os.Readlink(filepath.Join(target.Path, "review"))
+	require.NoError(t, err)
+	require.Equal(t, fork, installed)
+	_, err = svc.UseUpstream(context.Background(), "review", false)
+	require.NoError(t, err)
+	entry, err = svc.ResolveEntry("review")
+	require.NoError(t, err)
+	require.Equal(t, "upstream", entry.SyncView.Mode)
+	require.Equal(t, "retained", entry.SyncView.ForkState)
+	installed, err = os.Readlink(filepath.Join(target.Path, "review"))
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(root, "skills", "local", "review"), installed)
+	require.NoDirExists(t, filepath.Join(root, ".skm", "temp"))
+	require.NoDirExists(t, filepath.Join(root, ".skm", "entries"))
 }
 
 // TestImportWithGroupNestsUnderOwnerRepoAndScanReportsIt: a non-empty group

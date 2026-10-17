@@ -15,7 +15,7 @@ AI 编程工具,就多一个技能目录，你精心写好的技能最后被复�
 
 `skm` 用**你自己的、本地优先的技能库**统一管理技能（skills）和命令（commands），并把它们安装到
 你用的每一个工具里。已有本地技能可以直接收编；GitHub、GitLab、Skills.sh 和本地文件也都能导入。之后
-一键自动化批量更新，或在 TUI 中浏览、在 CI 里脚本化。需要版本管理或同步时，再选择用 Git 管理技能库。
+一键批量更新可追踪的 Git 来源，或在 TUI 中浏览、在 CI 里脚本化。需要版本管理或同步时，再选择用 Git 管理技能库。
 
 ![skm TUI 演示：初始化、从 skills.sh 和 GitHub 导入、发现并收编未托管的 skill、安装、查看详情](docs/assets/demo.gif)
 
@@ -28,14 +28,14 @@ skm import owner/repo/path/to/skill
 skm fork review                  # 创建完整 fork，切换已有安装
 skm info review                  # 查看可以直接编辑的 fork 目录
 # 直接编辑该目录中的文件。
-skm sync diff review             # 查看相对于上游基线的定制
+skm sync diff review             # 查看 fork 相对于 Git 基准提交的定制
 skm update review                # 自动迁移定制，再刷新已有安装
 skm install review               # 将当前使用版安装到新目标
 ```
 
-更新前，skm 根据保存的上游基线和当前 fork 重新生成 patch，在新版上游的独立副本中应用。
+更新 Git 来源时，skm 按记录的完整提交号临时重建旧版上游，再根据当前 fork 生成 patch，在新版上游的独立副本中应用。
 兼容的文本修改自动完成；不兼容文本或复杂文件允许失败。失败时当前版本保持可用，
-`info`/`status` 给出保留现场的位置。手工整理其中的 `candidate/` 后执行
+`info`/`status` 给出 `.skm/temp/` 中保留现场的位置。手工整理其中的 `candidate/` 后执行
 `skm update review --accept` 整体接受，或用 `--abort` 取消。重复更新不会覆盖现场。
 
 `skm update review --rollback` 只撤销当前尚未结束的更新尝试，并在安全时恢复尝试前的状态。
@@ -44,20 +44,22 @@ skm install review               # 将当前使用版安装到新目标
 
 fork 位于 `skills-fork/` 下，并镜像条目在 `skills/` 下的相对路径。例如，
 `skm fork review` 会创建 `skills-fork/local/review/`，`skm info review` 会输出这条可直接编辑的准确路径。
-`.skm/` 保存来源关联、基线元数据、缓存和进行中的更新状态。
+上游和 fork 目录各有一个 skm 管理的 `meta.json`：上游记录来源、完整 Git 提交号和当前选择，
+fork 记录它所基于的提交号。`.skm/temp/` 只用于未结束的操作，正常完成后会清理。
 
 `skm fork review --upstream` 将安装切回仓库当前社区版，保留停用的 fork；后续更新不再修改它。
-再次创建遇到同名目录会停止，需要自行处理，或显式使用 `--replace` 授权删除并重建。
+再次执行 `skm fork review` 可以选回保留的 fork。已有活动 fork 时，再创建会停止；
+只有显式使用 `--replace` 才会删除并重建它。
 普通 `--force` 不会丢弃定制或失败现场。
 
-将 `skills/`、`skills-fork/` 和 `.skm/` 中需要跟踪的部分一起提交到自己的 Git 仓库，保留完整内容、
-来源关联与原始基线。`.skm/cache/` 和 `.skm/work/` 分别保存可重建的缓存数据和进行中的事务状态；
-skm 自动加入精确忽略规则，不会替用户提交 Git。管理目录不进入安装或 Skill 扫描。
+将 `skills/`、`skills-fork/` 连同各自的 `meta.json` 提交到自己的 Git 仓库。
+`.skm/temp/` 会被忽略，只保存可恢复的未结束操作；skm 不会替用户提交 Git。
+复制安装会排除管理元数据；符号链接安装指向完整目录，因此目标工具会看到 `meta.json`。
 
-旧版 skm 导入且未保存基线的 Skill，首次 `update` 会核对其内容是否与来源的某个历史 Git 提交
-（非 Git 来源则为当前内容）完全一致。匹配后自动建立基线并继续更新；`--dry-run` 只报告匹配，
-不改动仓库。若无法证明精确匹配，Skill 保持原样且仍可安装；本地改动或来源不可用时，
-可用 `skm sync baseline --help` 查看显式恢复方式。
+旧仓库先运行 `skm sync migrate` 预览，再用报告的 `expected_state` 显式接受迁移。
+迁移前仍能读取旧内容。早期 Git 导入若没有记录提交号，必须与历史提交内容精确匹配；
+无法证明时会保留原 Skill。非 Git 导入是固定快照：来源变了就作为新 Skill 另选路径导入，
+`batch-update` 会跳过。`skm sync baseline` 已退役。
 仅来源分享不包含 fork；`share create --original-source` 显式分享社区地址并保留提示。
 export 引用维护仓库远端，只有实际发布的内容才可由接收方获取；backup 只保存安装清单，不备份文件内容。
 

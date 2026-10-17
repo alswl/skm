@@ -83,12 +83,10 @@ func TestImportNormalizesTildeAndPastedWhitespaceForLocalSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "local", res.Provider)
 	require.Equal(t, filepath.Join(cfg.Root, "skills", "local", "local-skill"), res.Path)
-	record, err := dal.ReadSyncRecord(rootForSyncTest(res.Path), relativeForSyncTest(res.Path))
-	stored := &common.Origin{}
-	if record != nil {
-		stored = &record.Origin
-	}
+	meta, err := dal.ReadSkillMeta(res.Path)
 	require.NoError(t, err)
+	require.Equal(t, "snapshot", meta.RevisionKind)
+	stored := &meta.Origin
 	require.Equal(t, source, stored.Address)
 	require.NotNil(t, stored.ProviderID)
 	require.Equal(t, "local", *stored.ProviderID)
@@ -112,12 +110,10 @@ func TestImportWithExplicitLocalProviderPreservesExternalSource(t *testing.T) {
 	require.Equal(t, "local", res.Provider)
 	require.FileExists(t, filepath.Join(res.Path, "SKILL.md"))
 	require.FileExists(t, marker, "explicit local imports must never clean up the caller's source")
-	record, err := dal.ReadSyncRecord(rootForSyncTest(res.Path), relativeForSyncTest(res.Path))
-	stored := &common.Origin{}
-	if record != nil {
-		stored = &record.Origin
-	}
+	meta, err := dal.ReadSkillMeta(res.Path)
 	require.NoError(t, err)
+	require.Equal(t, "snapshot", meta.RevisionKind)
+	stored := &meta.Origin
 	require.Equal(t, source, stored.Address)
 	require.NotNil(t, stored.ProviderID)
 	require.Equal(t, "local", *stored.ProviderID)
@@ -158,11 +154,12 @@ func TestUpdateOfALocalImportKeepsTheSourceOnDisk(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = svc.Update(context.Background(), "d2", UpdateOptions{})
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "not_applicable")
 	require.FileExists(t, filepath.Join(source, "SKILL.md"), "update must not remove the local source")
 
 	batch := svc.BatchUpdate(context.Background(), false)
 	require.Empty(t, batch.Failed)
+	require.Equal(t, []string{"d2"}, batch.Skipped)
 	require.FileExists(t, filepath.Join(source, "SKILL.md"), "batch-update must not remove the local source")
 }
 

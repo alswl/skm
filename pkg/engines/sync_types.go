@@ -15,6 +15,10 @@ type SyncStatus struct {
 	ForkPath          string         `json:"fork_path,omitempty"`
 	BaselineState     string         `json:"baseline_state"`
 	BaselineVersion   string         `json:"baseline_version,omitempty"`
+	RevisionKind      string         `json:"revision_kind,omitempty"`
+	ForkBaseVersion   string         `json:"fork_base_version,omitempty"`
+	UpdateEligible    bool           `json:"update_eligible"`
+	IneligibleReason  string         `json:"ineligible_reason,omitempty"`
 	Customization     string         `json:"customization"`
 	AttemptPath       string         `json:"attempt_path,omitempty"`
 	RollbackAvailable bool           `json:"rollback_available"`

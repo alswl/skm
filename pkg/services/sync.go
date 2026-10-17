@@ -39,7 +39,34 @@ func (s *Services) MigrateSync(ctx context.Context, accept bool, expected string
 		result.Accepted = true
 		return result, nil
 	}
-	result, err := s.Repo.MigrateLegacy(accept, expected, dryRun)
+	if err = s.Repo.SyncReadCheck(); err != nil {
+		return nil, err
+	}
+	var result *engines.MigrationResult
+	if _, formatErr := os.Lstat(filepath.Join(s.Cfg.Root, ".skm", "format.json")); formatErr == nil {
+		result, err = s.Repo.MigrateFinal(accept, expected, dryRun)
+	} else if !os.IsNotExist(formatErr) {
+		return nil, formatErr
+	} else if dal.LegacySyncStore(s.Cfg.Root) {
+		if preflightErr := s.Repo.PreflightFinalLegacy(); preflightErr != nil {
+			return nil, preflightErr
+		}
+		result, err = s.Repo.MigrateLegacy(accept, expected, dryRun)
+		if err == nil && result != nil && result.Accepted && !dryRun {
+			finalPreview, previewErr := s.Repo.MigrateFinal(false, "", false)
+			if previewErr != nil {
+				return result, fmt.Errorf("legacy converted to readable v2; final migration preflight failed: %w", previewErr)
+			}
+			finalResult, finalErr := s.Repo.MigrateFinal(true, finalPreview.ExpectedState, false)
+			if finalErr != nil {
+				return result, fmt.Errorf("legacy converted to readable v2; final migration failed: %w", finalErr)
+			}
+			finalResult.ForkMoves = result.ForkMoves
+			result = finalResult
+		}
+	} else {
+		result, err = s.migrateMetaOnly(ctx, accept, expected, dryRun)
+	}
 	if err != nil || result == nil || !result.Accepted || dryRun {
 		return result, err
 	}
@@ -66,113 +93,8 @@ func (s *Services) MigrateSync(ctx context.Context, accept bool, expected string
 	return result, nil
 }
 
-func (s *Services) SyncBaseline(ctx context.Context, name string, opts BaselineOptions) (*BaselineResult, error) {
-	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
-	if err != nil {
-		return nil, err
-	}
-	defer lock.Release()
-	if err = s.Repo.SyncReadCheck(); err != nil {
-		return nil, err
-	}
-	e, err := s.syncEntry(name)
-	if err != nil {
-		return nil, err
-	}
-	if opts.Source == "" || opts.Revision == "" {
-		return nil, fmt.Errorf("baseline requires --from and immutable --revision")
-	}
-	if e.RepositoryPath != "" && !opts.NewStart {
-		st, _ := s.Repo.SyncStatus(e)
-		if st == nil || st.BaselineState == "valid" {
-			return nil, fmt.Errorf("valid association exists; use --new-start explicitly")
-		}
-	}
-	source := opts.Source
-	id := opts.Provider
-	if id == "" && e.Origin != nil {
-		if e.Origin.ProviderID != nil {
-			id = *e.Origin.ProviderID
-		}
-	}
-	var staged string
-	var cleanup func()
-	var origin *common.Origin
-	var cacheRepository, cacheRevision, cacheSubpath, cacheSource string
-	p := s.Registry.Get(id)
-	if p == nil {
-		p = s.Registry.Match(source)
-	}
-	if vp, ok := p.(providers.VersionedFetcher); ok {
-		got, err := vp.FetchVersioned(ctx, providers.FetchRequest{Address: source, Revision: opts.Revision, Subpath: opts.Subpath})
-		if err != nil {
-			return nil, err
-		}
-		cleanup = fetchCleanup(p, got.Path)
-		defer cleanup()
-		staged = filepath.Join(got.Path, got.ResolvedSubpath)
-		cacheRepository, cacheRevision, cacheSubpath, cacheSource = got.RepositoryAddress, got.Revision, got.ResolvedSubpath, got.Path
-		pid := p.ID()
-		origin = &common.Origin{Address: source, ProviderID: &pid, Subpath: got.ResolvedSubpath, RepositoryAddress: got.RepositoryAddress, RequestedRef: got.RequestedRef, Revision: got.Revision}
-	} else {
-		var group string
-		staged, _, group, origin, cleanup, err = s.resolveSource(ctx, source, id)
-		_ = group
-		if err != nil {
-			return nil, err
-		}
-		defer cleanup()
-		if opts.Subpath != "" {
-			staged, err = dal.SyncPath(staged, opts.Subpath)
-			if err != nil {
-				return nil, err
-			}
-			origin.Subpath = opts.Subpath
-		}
-	}
-	m, err := dal.SyncTree(staged)
-	if err != nil {
-		return nil, err
-	}
-	actual := origin.Revision
-	if actual == "" {
-		actual = "sha256:" + m.Digest
-	}
-	if opts.Revision != actual {
-		return nil, fmt.Errorf("requested revision does not match fetched content: %s", actual)
-	}
-	local, err := dal.SyncTree(e.Path)
-	if err != nil {
-		return nil, err
-	}
-	res := &BaselineResult{Tree: m.Digest, Local: local.Digest, Revision: actual, Mode: "historical"}
-	if opts.NewStart {
-		res.Mode = "new-start"
-	}
-	if !opts.Accept || opts.DryRun {
-		return res, nil
-	}
-	if opts.ExpectedTree != res.Tree || opts.ExpectedLocal != res.Local {
-		return res, fmt.Errorf("stale_input: --accept requires preview --expected-tree and --expected-local")
-	}
-	if cacheRevision != "" {
-		cached, cacheErr := dal.StoreGitCache(s.Cfg.Root, cacheRepository, cacheRevision, cacheSource)
-		if cacheErr != nil {
-			return res, cacheErr
-		}
-		staged = filepath.Join(cached, cacheSubpath)
-	}
-	origin.Revision = actual
-	if err = s.Repo.AssociateBaseline(e, staged, origin, opts.NewStart); err != nil {
-		return res, err
-	}
-	res.Accepted = true
-	next, err := s.syncEntry(name)
-	if err != nil {
-		return res, err
-	}
-	report := &engines.UpdateResult{Accepted: true}
-	return res, s.refreshSyncInstalls(next, report)
+func (s *Services) SyncBaseline(context.Context, string, BaselineOptions) (*BaselineResult, error) {
+	return nil, common.WithExitCode(fmt.Errorf("sync baseline is retired; run skm sync migrate to convert legacy repositories, or import changed sources as a new Skill"), common.ExitObject)
 }
 
 func (s *Services) SyncDiff(ctx context.Context, name string) (string, error) {
@@ -187,6 +109,15 @@ func (s *Services) SyncDiff(ctx context.Context, name string) (string, error) {
 	e, err := s.syncEntry(name)
 	if err != nil {
 		return "", err
+	}
+	upstream := e.RepositoryPath
+	if upstream == "" {
+		upstream = e.Path
+	}
+	if meta, metaErr := dal.ReadSkillMeta(upstream); metaErr == nil && meta.SchemaVersion == 3 {
+		return s.finalSyncDiff(ctx, e, meta)
+	} else if metaErr != nil && !os.IsNotExist(metaErr) {
+		return "", metaErr
 	}
 	rec, rel, err := s.Repo.SyncRecord(e)
 	if err != nil {

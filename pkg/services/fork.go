@@ -35,6 +35,15 @@ func (s *Services) syncEntry(name string) (*common.Entry, error) {
 }
 func (s *Services) Fork(ctx context.Context, name string, opts engines.SyncOptions) (*engines.UpdateResult, error) {
 	return s.syncWrite(ctx, name, opts, func(e *common.Entry) (*engines.UpdateResult, error) {
+		upstream := e.RepositoryPath
+		if upstream == "" {
+			upstream = e.Path
+		}
+		if meta, err := dal.ReadSkillMeta(upstream); err == nil && meta.SchemaVersion == 3 {
+			return s.Repo.ForkFinal(e, opts)
+		} else if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
 		if opts.Upstream {
 			return s.Repo.ForkEntry(e, opts)
 		}
@@ -63,7 +72,18 @@ func (s *Services) RollbackUpdate(ctx context.Context, name string, dryRun bool)
 	return s.finishUpdate(ctx, name, engines.SyncOptions{Rollback: true, DryRun: dryRun})
 }
 func (s *Services) finishUpdate(ctx context.Context, name string, opts engines.SyncOptions) (*engines.UpdateResult, error) {
-	return s.syncWrite(ctx, name, opts, func(e *common.Entry) (*engines.UpdateResult, error) { return s.Repo.FinishSyncUpdate(e, opts) })
+	return s.syncWrite(ctx, name, opts, func(e *common.Entry) (*engines.UpdateResult, error) {
+		upstream := e.RepositoryPath
+		if upstream == "" {
+			upstream = e.Path
+		}
+		if meta, err := dal.ReadSkillMeta(upstream); err == nil && meta.SchemaVersion == 3 {
+			return s.Repo.FinishFinalUpdate(e, opts)
+		} else if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		return s.Repo.FinishSyncUpdate(e, opts)
+	})
 }
 
 func (s *Services) syncWrite(ctx context.Context, name string, opts engines.SyncOptions, action func(*common.Entry) (*engines.UpdateResult, error)) (*engines.UpdateResult, error) {
@@ -77,6 +97,9 @@ func (s *Services) syncWrite(ctx context.Context, name string, opts engines.Sync
 		// normal auto-recovery gate, which intentionally refuses to choose it.
 		err = s.Repo.SyncReadCheck()
 		if err != nil && strings.Contains(err.Error(), "recovery_required:") {
+			if result, found, rollbackErr := s.rollbackMissingSyncEntry(name, opts.DryRun); found || rollbackErr != nil {
+				return result, rollbackErr
+			}
 			err = nil
 		}
 	} else if opts.DryRun {
@@ -295,6 +318,15 @@ func (s *Services) SyncRecoverReport(ctx context.Context, dryRun bool) (*SyncRec
 }
 func (s *Services) updateSkill(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
 	return s.syncWrite(ctx, name, engines.SyncOptions{DryRun: opts.DryRun}, func(e *common.Entry) (*engines.UpdateResult, error) {
+		upstream := e.RepositoryPath
+		if upstream == "" {
+			upstream = e.Path
+		}
+		if meta, metaErr := dal.ReadSkillMeta(upstream); metaErr == nil && meta.SchemaVersion == 3 {
+			return s.updateFinalSkill(ctx, e, meta, opts)
+		} else if metaErr != nil && !os.IsNotExist(metaErr) {
+			return nil, metaErr
+		}
 		if _, _, err := s.Repo.SyncRecord(e); err != nil {
 			if !os.IsNotExist(err) || e.Origin == nil {
 				return nil, s.syncRecordError(name, err)
@@ -370,7 +402,7 @@ func (s *Services) syncRecordError(name string, err error) error {
 
 func syncReasonCode(err error) string {
 	text := err.Error()
-	for _, code := range []string{"customization_requires_fork", "missing_baseline", "corrupt_baseline", "existing_fork", "pending_attempt", "stale_input", "patch_failed", "unsupported_content", "invalid_candidate", "rollback_unavailable", "recovery_required", "recovery_blocked", "migration_required", "migration_conflict", "refresh_failed"} {
+	for _, code := range []string{"not_applicable", "historical_source_unavailable", "customization_requires_fork", "missing_baseline", "corrupt_baseline", "existing_fork", "pending_attempt", "stale_input", "patch_failed", "unsupported_content", "invalid_candidate", "rollback_unavailable", "recovery_required", "recovery_blocked", "migration_required", "migration_conflict", "refresh_failed"} {
 		if strings.Contains(text, code+":") || text == code {
 			return code
 		}

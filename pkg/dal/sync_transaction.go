@@ -55,10 +55,20 @@ func CommitSync(root, entry string, replacements []SyncReplacement) (retErr erro
 	if err := initSyncStore(root, entry != "migration"); err != nil {
 		return err
 	}
+	return commitSync(root, entry, replacements, filepath.Join(".skm", "work", "transactions"))
+}
+
+// CommitFinalSync keeps a journal only for the duration of a final-format
+// operation. It does not bootstrap the legacy record, baseline or cache store.
+func CommitFinalSync(root, entry string, replacements []SyncReplacement) error {
+	return commitSync(root, entry, replacements, filepath.Join(".skm", "temp", "transactions"))
+}
+
+func commitSync(root, entry string, replacements []SyncReplacement, journalRel string) (retErr error) {
 	if err := RecoverSync(root, false); err != nil {
 		return err
 	}
-	parent := filepath.Join(root, ".skm", "work", "transactions")
+	parent := filepath.Join(root, journalRel)
 	if err := os.MkdirAll(parent, 0700); err != nil {
 		return err
 	}
@@ -79,10 +89,11 @@ func CommitSync(root, entry string, replacements []SyncReplacement) (retErr erro
 	defer func() {
 		if !published {
 			_ = os.RemoveAll(dir)
+			pruneFinalTemp(root, dir)
 		}
 	}()
 	for i, a := range replacements {
-		if a.Path == ".git" || strings.HasPrefix(a.Path, ".git/") || a.Path == ".skm" || strings.HasPrefix(a.Path, ".skm/cache/") || strings.HasPrefix(a.Path, ".skm/work/") {
+		if reservedSyncTarget(entry, a.Path) {
 			return fmt.Errorf("reserved transaction target")
 		}
 		for _, b := range replacements[:i] {
@@ -267,7 +278,16 @@ func syncFile(path string) error {
 }
 
 func RecoverSync(root string, checkOnly bool) error {
-	parent, err := SyncPath(root, filepath.Join(".skm", "work", "transactions"))
+	for _, rel := range []string{filepath.Join(".skm", "work", "transactions"), filepath.Join(".skm", "temp", "transactions")} {
+		if err := recoverSyncParent(root, rel, checkOnly); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func recoverSyncParent(root, rel string, checkOnly bool) error {
+	parent, err := SyncPath(root, rel)
 	if err != nil {
 		return err
 	}
@@ -371,16 +391,26 @@ func RecoverSync(root string, checkOnly bool) error {
 // first path is changed. The durable journal remains until every slot is back
 // at before, so a second interruption is safe to retry.
 func RollbackSync(root, entry string, dryRun bool) error {
-	parent, err := SyncPath(root, filepath.Join(".skm", "work", "transactions"))
+	for _, rel := range []string{filepath.Join(".skm", "work", "transactions"), filepath.Join(".skm", "temp", "transactions")} {
+		found, err := rollbackSyncParent(root, rel, entry, dryRun)
+		if found || err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("rollback_unavailable: no interrupted transaction for %s", entry)
+}
+
+func rollbackSyncParent(root, rel, entry string, dryRun bool) (bool, error) {
+	parent, err := SyncPath(root, rel)
 	if err != nil {
-		return err
+		return false, err
 	}
 	dirs, err := os.ReadDir(parent)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("rollback_unavailable: no interrupted transaction")
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	for _, d := range dirs {
 		if !d.IsDir() {
@@ -394,17 +424,17 @@ func RollbackSync(root, entry string, dryRun bool) error {
 		for i, m := range j.Moves {
 			path, err := SyncPath(root, m.Path)
 			if err != nil {
-				return err
+				return true, err
 			}
 			current, err := TreeFingerprint(path)
 			if err != nil {
-				return err
+				return true, err
 			}
 			backup := filepath.Join(dir, fmt.Sprintf("old-%d", i))
 			if m.Before != "absent" {
 				got, err := TreeFingerprint(backup)
 				if err != nil || got != m.Before {
-					return fmt.Errorf("recovery_blocked: missing or corrupt backup for %s", m.Path)
+					return true, fmt.Errorf("recovery_blocked: missing or corrupt backup for %s", m.Path)
 				}
 			}
 			if current == m.Before || current == m.After {
@@ -416,74 +446,75 @@ func RollbackSync(root, entry string, dryRun bool) error {
 			if current == "absent" && m.Before != "absent" && removedErr == nil && removed == m.Before {
 				continue
 			}
-			return fmt.Errorf("stale_input: %s changed after interrupted update", m.Path)
+			return true, fmt.Errorf("stale_input: %s changed after interrupted update", m.Path)
 		}
 		if dryRun {
-			return nil
+			return true, nil
 		}
 		j.State = "rolling_back"
 		if err := WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
-			return err
+			return true, err
 		}
 		if err := SyncDirectory(dir); err != nil {
-			return err
+			return true, err
 		}
 		for i, m := range j.Moves {
 			path, err := SyncPath(root, m.Path)
 			if err != nil {
-				return err
+				return true, err
 			}
 			current, err := TreeFingerprint(path)
 			if err != nil {
-				return err
+				return true, err
 			}
 			if current == m.Before {
 				continue
 			}
 			if m.Before == "absent" {
 				if err := os.RemoveAll(path); err != nil {
-					return err
+					return true, err
 				}
 				continue
 			}
 			restore := filepath.Join(dir, fmt.Sprintf("restore-%d", i))
 			if err := os.RemoveAll(restore); err != nil {
-				return err
+				return true, err
 			}
 			if err := CopySyncTree(filepath.Join(dir, fmt.Sprintf("old-%d", i)), restore); err != nil {
-				return err
+				return true, err
 			}
 			if current != "absent" {
 				if err := os.Rename(path, filepath.Join(dir, fmt.Sprintf("discarded-%d", i))); err != nil {
-					return err
+					return true, err
 				}
 			}
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-				return err
+				return true, err
 			}
 			if err := os.Rename(restore, path); err != nil {
-				return err
+				return true, err
 			}
 			if err := SyncDirectory(filepath.Dir(path)); err != nil {
-				return err
+				return true, err
 			}
 		}
 		j.State = "rolled_back"
 		if err := WriteSyncJSON(filepath.Join(dir, "journal.json"), j); err != nil {
-			return err
+			return true, err
 		}
 		if err := SyncDirectory(dir); err != nil {
-			return err
+			return true, err
 		}
 		if err := os.RemoveAll(dir); err != nil {
-			return err
+			return true, err
 		}
+		pruneFinalTemp(root, dir)
 		if entry == "migration" {
-			return CleanupMigrationBootstrap(root)
+			return true, CleanupMigrationBootstrap(root)
 		}
-		return nil
+		return true, nil
 	}
-	return fmt.Errorf("rollback_unavailable: no interrupted transaction for %s", entry)
+	return false, nil
 }
 
 // CleanupMigrationBootstrap removes the temporary v2 root used only to host a
@@ -517,7 +548,19 @@ type SyncTransactionStatus struct {
 // will inspect. It is read-only and rejects malformed journals rather than
 // inventing an identity for a damaged transaction.
 func SyncTransactions(root string) ([]SyncTransactionStatus, error) {
-	parent, err := SyncPath(root, filepath.Join(".skm", "work", "transactions"))
+	var all []SyncTransactionStatus
+	for _, rel := range []string{filepath.Join(".skm", "work", "transactions"), filepath.Join(".skm", "temp", "transactions")} {
+		items, err := syncTransactionsParent(root, rel)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, items...)
+	}
+	return all, nil
+}
+
+func syncTransactionsParent(root, rel string) ([]SyncTransactionStatus, error) {
+	parent, err := SyncPath(root, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -568,7 +611,21 @@ func InterruptedSyncEntries(root string) ([]string, error) {
 }
 
 func finishSync(root, dir string, j syncJournal) error {
-	return os.RemoveAll(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	pruneFinalTemp(root, dir)
+	return nil
+}
+
+func pruneFinalTemp(root, dir string) {
+	temp := filepath.Join(root, ".skm", "temp")
+	if filepath.Dir(filepath.Dir(dir)) != temp {
+		return
+	}
+	_ = os.Remove(filepath.Dir(dir)) // only when no other transaction remains
+	_ = os.Remove(temp)              // only when no pending operation remains
+	_ = os.Remove(filepath.Join(root, ".skm"))
 }
 
 // RollbackReplacements verifies the accepted group before exposing old sources.
@@ -633,7 +690,7 @@ func validateSyncJournal(j syncJournal) error {
 			return fmt.Errorf("invalid transaction path")
 		}
 		top := strings.Split(m.Path, string(filepath.Separator))[0]
-		if top == ".git" || m.Path == ".skm" || strings.HasPrefix(m.Path, ".skm/cache/") || strings.HasPrefix(m.Path, ".skm/work/") {
+		if top == ".git" || reservedSyncTarget(j.Entry, m.Path) {
 			return fmt.Errorf("reserved transaction path")
 		}
 		if !validHash(m.Before) || !validHash(m.After) {
@@ -646,6 +703,32 @@ func validateSyncJournal(j syncJournal) error {
 		}
 	}
 	return nil
+}
+
+func migrationStatePath(entry, path string) bool {
+	if entry != "migration" {
+		return false
+	}
+	switch path {
+	case filepath.Join(".skm", "entries"), filepath.Join(".skm", "baselines"), filepath.Join(".skm", "cache"), filepath.Join(".skm", "work"), filepath.Join(".skm", "format.json"):
+		return true
+	}
+	return false
+}
+
+func reservedSyncTarget(entry, path string) bool {
+	if path == ".git" || strings.HasPrefix(path, ".git/") || path == ".skm" {
+		return true
+	}
+	if !strings.HasPrefix(path, ".skm/") {
+		return false
+	}
+	if migrationStatePath(entry, path) {
+		return false
+	}
+	return path == filepath.Join(".skm", "temp") || strings.HasPrefix(path, filepath.Join(".skm", "temp")+string(filepath.Separator)) ||
+		path == filepath.Join(".skm", "work") || strings.HasPrefix(path, filepath.Join(".skm", "work")+string(filepath.Separator)) ||
+		path == filepath.Join(".skm", "cache") || strings.HasPrefix(path, filepath.Join(".skm", "cache")+string(filepath.Separator))
 }
 
 // SyncAcceptedError means the durable commit succeeded but local cleanup failed.

@@ -78,9 +78,9 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 		}
 		plan := preview.result
 		m.confirm = &pages.Confirm{
-			Prompt: fmt.Sprintf("Migrate %d legacy skill(s) to .skm and skills-fork?", len(plan.Entries)),
+			Prompt: fmt.Sprintf("Migrate %d legacy skill(s) to colocated meta.json?", len(plan.Entries)),
 			OnYes: func() {
-				m.submitJob("migrate legacy fork store", func(ctx context.Context) (any, error) {
+				m.submitJob("migrate legacy skill data", func(ctx context.Context) (any, error) {
 					result, err := m.svc.MigrateSync(ctx, true, plan.ExpectedState, false, false)
 					if err != nil {
 						return nil, err

@@ -8,7 +8,7 @@ import (
 )
 
 var forkCmd = &cobra.Command{
-	Use: "fork NAME", Short: "Create a complete local customization in skills-fork and switch existing installs",
+	Use: "fork NAME", Short: "Create or select a complete local customization in skills-fork",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)

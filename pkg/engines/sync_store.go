@@ -110,6 +110,47 @@ func (r *Repository) attachSync(e *common.Entry) *common.Entry {
 }
 
 func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *common.Origin, force bool, legacySource string) error {
+	if legacySource == "" {
+		if _, err := os.Lstat(filepath.Join(r.root, ".skm", "format.json")); os.IsNotExist(err) {
+			return r.importFinalSkill(staged, tmp, dest, origin)
+		} else if err != nil {
+			return err
+		}
+	}
+	return r.trackedImportV2(staged, tmp, dest, name, origin, force, legacySource)
+}
+
+func (r *Repository) importFinalSkill(staged, tmp, dest string, origin *common.Origin) error {
+	if _, err := os.Lstat(dest); err == nil {
+		return fmt.Errorf("existing skill: import under a new name; source changes create a new Skill")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(staged, "meta.json")); err == nil {
+		return fmt.Errorf("reserved upstream root meta.json; cannot silently discard source data")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	rel, err := filepath.Rel(r.root, dest)
+	if err != nil {
+		return err
+	}
+	if _, err = dal.SyncPath(r.root, rel); err != nil {
+		return err
+	}
+	meta := common.SkillMeta{Origin: *origin, SchemaVersion: 3, RevisionKind: "snapshot", Active: "upstream"}
+	meta.Path = rel
+	origin.Path = rel
+	if origin.RepositoryAddress != "" {
+		meta.RevisionKind = "git"
+	}
+	if err = dal.WriteSkillMeta(tmp, meta); err != nil {
+		return err
+	}
+	return dal.CommitFinalSync(r.root, rel, []dal.SyncReplacement{{Path: rel, Source: tmp, Expected: "absent"}})
+}
+
+func (r *Repository) trackedImportV2(staged, tmp, dest, name string, origin *common.Origin, force bool, legacySource string) error {
 	rel, err := filepath.Rel(r.root, dest)
 	if err != nil {
 		return err

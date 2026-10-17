@@ -165,20 +165,17 @@ func TestLegacyMissingBaselineAndExplicitMigration(t *testing.T) {
 	require.NotContains(t, err.Error(), "format.json")
 	require.Equal(t, "missing_baseline", result.ReasonCode)
 	require.Contains(t, result.NextActions, "skm sync baseline review --help")
-	raw, err := dal.SyncTree(source)
+	_, err = s.SyncBaseline(ctx, "review", BaselineOptions{Source: source})
+	require.ErrorContains(t, err, "retired")
+	preview, err := s.MigrateSync(ctx, false, "", false, false)
 	require.NoError(t, err)
-	opts := BaselineOptions{Source: source, Revision: "sha256:" + raw.Digest, NewStart: true}
-	preview, err := s.SyncBaseline(ctx, "review", opts)
-	require.NoError(t, err)
-	opts.Accept = true
-	opts.ExpectedTree = preview.Tree
-	opts.ExpectedLocal = preview.Local
-	_, err = s.SyncBaseline(ctx, "review", opts)
+	_, err = s.MigrateSync(ctx, true, preview.ExpectedState, false, false)
 	require.NoError(t, err)
 	require.Equal(t, "custom\n", readSyncFile(t, currentSyncPath(t, s)))
 	st, err := s.SyncStatus("review")
 	require.NoError(t, err)
-	require.Equal(t, "fork", st.Mode)
+	require.Equal(t, "upstream", st.Mode)
+	require.Equal(t, "not_applicable", st.BaselineState)
 }
 
 func TestLegacyGitImportRecoversHistoricalBaselineOnUpdate(t *testing.T) {
@@ -365,16 +362,8 @@ func TestBaselineReassociationCannotOverwriteRetainedFork(t *testing.T) {
 	writeFile(t, fork, "guide.txt", "preserve\n")
 	_, err = s.UseUpstream(ctx, "review", false)
 	require.NoError(t, err)
-	raw, err := dal.SyncTree(source)
-	require.NoError(t, err)
-	opts := BaselineOptions{Source: source, Revision: "sha256:" + raw.Digest, NewStart: true}
-	result, err := s.SyncBaseline(ctx, "review", opts)
-	require.NoError(t, err)
-	opts.Accept = true
-	opts.ExpectedTree = result.Tree
-	opts.ExpectedLocal = result.Local
-	_, err = s.SyncBaseline(ctx, "review", opts)
-	require.ErrorContains(t, err, "existing_fork")
+	_, err = s.SyncBaseline(ctx, "review", BaselineOptions{Source: source})
+	require.ErrorContains(t, err, "retired")
 	require.Equal(t, "preserve\n", readSyncFile(t, filepath.Join(fork, "guide.txt")))
 }
 
@@ -416,16 +405,16 @@ func TestImportedNormalizationIsNotMistakenForUserCustomization(t *testing.T) {
 	s := newUpdateSvc(t, root)
 	imported, err := s.Import(context.Background(), source, ImportOptions{})
 	require.NoError(t, err)
-	result, err := s.Update(context.Background(), imported.Name, UpdateOptions{})
-	require.NoError(t, err)
-	require.Equal(t, "current", result.Outcome)
+	_, err = s.Update(context.Background(), imported.Name, UpdateOptions{})
+	require.ErrorContains(t, err, "not_applicable")
 	entry := s.FindEntry(imported.Name)
-	rec, rel, err := s.Repo.SyncRecord(entry)
+	meta, err := dal.ReadSkillMeta(entry.Path)
 	require.NoError(t, err)
-	raw, err := os.ReadFile(filepath.Join(root, dal.SyncStateRel(rel), "upstream-baseline", "SKILL.md"))
+	require.Equal(t, "snapshot", meta.RevisionKind)
+	raw, err := os.ReadFile(filepath.Join(entry.Path, "SKILL.md"))
 	require.NoError(t, err)
-	require.Equal(t, "raw instructions\n", string(raw))
-	require.NotEmpty(t, rec.UpstreamVersion)
+	require.Contains(t, string(raw), "raw instructions")
+	require.NoDirExists(t, filepath.Join(root, ".skm", "baselines"))
 }
 
 func TestUnresolvedMarkersAreRejectedButLiteralExamplesAreAllowed(t *testing.T) {
@@ -637,9 +626,10 @@ func TestMigrateVerifiedGitBaselineUsesReconstructibleReference(t *testing.T) {
 	require.True(t, result.Accepted)
 	entry, err := s.ResolveEntry("review")
 	require.NoError(t, err)
-	rec, _, err := s.Repo.SyncRecord(entry)
+	meta, err := dal.ReadSkillMeta(entry.RepositoryPath)
 	require.NoError(t, err)
-	require.Equal(t, "git", rec.UpstreamBase.Kind)
+	require.Equal(t, "git", meta.RevisionKind)
+	require.NotEmpty(t, meta.Revision)
 	status, err := s.SyncStatus("review")
 	require.NoError(t, err)
 	require.Equal(t, "fetch_required", status.BaselineState)

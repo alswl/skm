@@ -31,5 +31,8 @@ func InitializeRepository(path string) (string, error) {
 	if err := os.MkdirAll(filepath.Join(abs, "skills"), 0o755); err != nil {
 		return "", fmt.Errorf("init: create skills repository: %w", err)
 	}
+	if err := os.WriteFile(filepath.Join(abs, ".gitignore"), []byte("/.skm/temp/\n"), 0644); err != nil {
+		return "", fmt.Errorf("init: write temporary-operation ignore rule: %w", err)
+	}
 	return abs, nil
 }

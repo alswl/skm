@@ -115,6 +115,7 @@ func TestLegacySyncFixtureBuildsForkStatesAndImmutableGitSource(t *testing.T) {
 func syncFixture(t *testing.T) (*Services, string, string) {
 	t.Helper()
 	root := t.TempDir()
+	require.NoError(t, dal.InitSyncStore(root)) // v2 regression fixture during migration
 	source := t.TempDir()
 	target := t.TempDir()
 	writeFile(t, source, "SKILL.md", frontmatter("review", "Review"))
@@ -137,17 +138,4 @@ func currentSyncPath(t *testing.T, s *Services) string {
 	require.NoError(t, err)
 	require.NotNil(t, e)
 	return filepath.Join(e.Path, "guide.txt")
-}
-
-func rootForSyncTest(path string) string {
-	for p := filepath.Dir(path); p != filepath.Dir(p); p = filepath.Dir(p) {
-		if filepath.Base(p) == "skills" {
-			return filepath.Dir(p)
-		}
-	}
-	return ""
-}
-func relativeForSyncTest(path string) string {
-	rel, _ := filepath.Rel(rootForSyncTest(path), path)
-	return rel
 }

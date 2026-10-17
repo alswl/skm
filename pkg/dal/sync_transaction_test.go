@@ -44,6 +44,40 @@ func TestSyncCommitDoesNotKeepSuccessfulRollback(t *testing.T) {
 	require.NotEqual(t, old, got)
 }
 
+func TestFinalSyncTransactionLeavesNoLegacyStoreOrTemp(t *testing.T) {
+	root := t.TempDir()
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("new"), 0600))
+	require.NoError(t, CommitFinalSync(root, "skills/local/review", []SyncReplacement{
+		{Path: "skills/local/review", Source: src, Expected: "absent"},
+	}))
+	require.FileExists(t, filepath.Join(root, "skills", "local", "review", "SKILL.md"))
+	require.NoDirExists(t, filepath.Join(root, ".skm", "temp"))
+	require.NoDirExists(t, filepath.Join(root, ".skm", "entries"))
+	require.NoFileExists(t, filepath.Join(root, ".skm", "format.json"))
+}
+
+func TestFinalSyncInterruptedTransactionRequiresAndAllowsRollback(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "skills", "local", "review")
+	require.NoError(t, os.MkdirAll(path, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("old"), 0600))
+	before, err := TreeFingerprint(path)
+	require.NoError(t, err)
+	dir := filepath.Join(root, ".skm", "temp", "transactions", "txn-interrupted")
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	require.NoError(t, CopySyncTree(path, filepath.Join(dir, "old-0")))
+	require.NoError(t, os.Rename(path, filepath.Join(dir, "removed-0")))
+	require.NoError(t, WriteSyncJSON(filepath.Join(dir, "journal.json"), syncJournal{
+		Schema: 2, Entry: "skills/local/review", BackupComplete: true, State: "accepting",
+		Moves: []syncMove{{Path: "skills/local/review", Before: before, After: "absent"}},
+	}))
+	require.ErrorContains(t, RecoverSync(root, true), "recovery_required")
+	require.NoError(t, RollbackSync(root, "skills/local/review", false))
+	require.FileExists(t, filepath.Join(path, "SKILL.md"))
+	require.NoDirExists(t, filepath.Join(root, ".skm", "temp"))
+}
+
 func TestCommitSyncReplacesAndAddsTreesWithModes(t *testing.T) {
 	root := t.TempDir()
 	old := filepath.Join(root, "skills", "old")
