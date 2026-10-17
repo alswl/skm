@@ -39,35 +39,10 @@ func (r *Repository) RelPath(path string) string {
 // StatusNonStandard entry, instead of being silently invisible.
 func (r *Repository) Scan() []*common.Entry {
 	var entries []*common.Entry
-	entries = append(entries, r.scanTop("skills", common.KindSkill, common.StatusActive)...)
+	entries = append(entries, r.attachForks(r.scanTop("skills", common.KindSkill, common.StatusActive))...)
 	entries = append(entries, r.scanTop("commands", common.KindCommand, common.StatusActive)...)
 	entries = append(entries, r.scanTop("archived", "", common.StatusArchived)...)
 	entries = append(entries, r.scanNonStandard()...)
-	if err := r.SyncReadCheck(); err != nil {
-		for i, e := range entries {
-			if e.Kind == common.KindSkill {
-				entries[i] = errEntry(e, err.Error())
-			}
-		}
-		return entries
-	}
-	_, stateErr := os.Lstat(filepath.Join(r.root, ".skm"))
-	for i, e := range entries {
-		if e.Kind == common.KindSkill {
-			meta, err := dal.ReadSkillMeta(e.Path)
-			if err == nil && meta.SchemaVersion == 3 {
-				entries[i] = r.attachFinalSkill(e, meta)
-				continue
-			}
-			if err != nil && !os.IsNotExist(err) {
-				entries[i] = errEntry(e, err.Error())
-				continue
-			}
-		}
-		if stateErr == nil {
-			entries[i] = r.attachSync(e)
-		}
-	}
 	return entries
 }
 
@@ -383,10 +358,7 @@ func (r *Repository) finishEntry(e *common.Entry, marker string, requireName boo
 		if o, err := dal.ReadMeta(e.Path); err == nil {
 			e.Origin = o
 			if o.ProviderID != nil && *o.ProviderID != "" && *o.ProviderID != *e.ProviderID {
-				meta, metaErr := dal.ReadSkillMeta(e.Path)
-				if metaErr != nil || meta.SchemaVersion != 3 {
-					return errEntry(e, fmt.Sprintf("mode_id mismatch: origin %q != directory %q", *o.ProviderID, *e.ProviderID))
-				}
+				return errEntry(e, fmt.Sprintf("mode_id mismatch: origin %q != directory %q", *o.ProviderID, *e.ProviderID))
 			}
 		}
 	}

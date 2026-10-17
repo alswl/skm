@@ -71,14 +71,11 @@ const (
 // and Path the entry's location relative to the repository root. InstallSlot
 // preserves a source directory name when it differs from the skill name.
 type Origin struct {
-	Revision          string  `json:"revision,omitempty"`
-	RepositoryAddress string  `json:"repository_address,omitempty"`
-	RequestedRef      string  `json:"requested_ref,omitempty"`
-	Subpath           string  `json:"subpath,omitempty"`
-	Address           string  `json:"address"`
-	ProviderID        *string `json:"mode_id,omitempty"`
-	Path              string  `json:"path,omitempty"`
-	InstallSlot       string  `json:"install_slot,omitempty"`
+	Subpath     string  `json:"subpath,omitempty"`
+	Address     string  `json:"address"`
+	ProviderID  *string `json:"mode_id,omitempty"`
+	Path        string  `json:"path,omitempty"`
+	InstallSlot string  `json:"install_slot,omitempty"`
 }
 
 // InstallStrategy is the on-disk shape a target uses to place an asset
@@ -200,19 +197,19 @@ func (t InstallTarget) EffectiveStrategies() map[EntryKind]InstallStrategy {
 
 // Entry is the central asset — a managed skill or command.
 type Entry struct {
-	SyncView       *SyncView
-	RepositoryPath string // stable logical path when Path selects a fork
-	AlternatePath  string // other managed content path, for installation switching
-	Name           string
-	Description    string
-	Kind           EntryKind
-	Status         Status
-	Path           string
-	Version        *string
-	ProviderID     *string
-	Group          *string
-	Error          *string
-	Origin         *Origin
+	Name        string
+	Description string
+	Kind        EntryKind
+	Status      Status
+	Path        string
+	Version     *string
+	ProviderID  *string
+	Group       *string
+	Error       *string
+	Origin      *Origin
+	// UpstreamPath is the skills/ directory when Path selects its fork in
+	// skills-fork/; empty for an entry without a fork.
+	UpstreamPath string
 }
 
 // InstallReport is the per-target result of an install/uninstall action.

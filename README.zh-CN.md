@@ -15,7 +15,7 @@ AI 编程工具,就多一个技能目录，你精心写好的技能最后被复�
 
 `skm` 用**你自己的、本地优先的技能库**统一管理技能（skills）和命令（commands），并把它们安装到
 你用的每一个工具里。已有本地技能可以直接收编；GitHub、GitLab、Skills.sh 和本地文件也都能导入。之后
-一键批量更新可追踪的 Git 来源，或在 TUI 中浏览、在 CI 里脚本化。需要版本管理或同步时，再选择用 Git 管理技能库。
+一键批量更新，或在 TUI 中浏览、在 CI 里脚本化。需要版本管理或同步时，再选择用 Git 管理技能库。
 
 ![skm TUI 演示：初始化、从 skills.sh 和 GitHub 导入、发现并收编未托管的 skill、安装、查看详情](docs/assets/demo.gif)
 
@@ -25,51 +25,30 @@ AI 编程工具,就多一个技能目录，你精心写好的技能最后被复�
 
 ```sh
 skm import owner/repo/path/to/skill
-skm fork review                  # 创建完整 fork，切换已有安装
-skm info review                  # 查看可以直接编辑的 fork 目录
-# 直接编辑该目录中的文件。
-skm sync diff review             # 查看 fork 相对于 Git 基准提交的定制
-skm update review                # 自动迁移定制，再刷新已有安装
-skm install review               # 将当前使用版安装到新目标
+skm fork review                  # 复制到 skills-fork/，并切换已有安装
+# 直接编辑 skills-fork/<路径>/ 里的文件（`skm info review` 会输出该路径）。
+skm update review                # 把你的修改带到新的上游版本上
+skm fork review --discard        # 删除 fork，回到上游
 ```
 
-更新 Git 来源时，skm 按记录的完整提交号临时重建旧版上游，再根据当前 fork 生成 patch，在新版上游的独立副本中应用。
-兼容的文本修改自动完成；不兼容文本或复杂文件允许失败。失败时当前版本保持可用，
-`info`/`status` 给出 `.skm/temp/` 中保留现场的位置。手工整理其中的 `candidate/` 后执行
-`skm update review --accept` 整体接受，或用 `--abort` 取消。重复更新不会覆盖现场。
+fork 就是一份普通拷贝：`skills/<路径>/` 仍是上游，`skills-fork/<路径>/` 是你的版本。
+拷贝存在时它就是当前使用的版本，安装、`list`、`info` 都指向它。
+这个目录就是全部状态，没有需要迁移或清理的东西。
 
-`skm update review --rollback` 只撤销当前尚未结束的更新尝试，并在安全时恢复尝试前的状态。
-已完成的更新没有内置历史回退；需要恢复早期版本时请使用 Git 历史。
-安装刷新失败会单独报告，可用 `install` 重试对应目标。
+`skm update` 先取得新的上游，再把你的修改逐个文件合并上去（`git merge-file`，以当前上游为共同基准）。
+全部合并成功后，两个目录一起替换，已有安装随之刷新。出现冲突、某个文件两边都是二进制、
+或合并超过 30 秒时，skm 会停下并且什么都不改，错误信息里会写明文件。请修改 fork 后重新 `update`，
+或用 `fork --replace` 从上游重新开始。`update --dry-run` 会完整跑一遍合并，但不替换任何东西。
 
-fork 位于 `skills-fork/` 下，并镜像条目在 `skills/` 下的相对路径。例如，
-`skm fork review` 会创建 `skills-fork/local/review/`，`skm info review` 会输出这条可直接编辑的准确路径。
-上游和 fork 目录各有一个 skm 管理的 `meta.json`：上游记录来源、完整 Git 提交号和当前选择，
-fork 记录它所基于的提交号。`.skm/temp/` 只用于未结束的操作，正常完成后会清理。
+`fork --replace` 删除现有 fork 并重新复制上游；`fork --discard` 直接删除。命令行不会再次确认，
+请先确认 `skills-fork/` 已提交。对有 fork 的 Skill，归档和删除会被拒绝，需要先 discard。
+更新中途被中断不会自动恢复：请用 Git 还原这两个目录。
 
-`skm fork review --upstream` 将安装切回仓库当前社区版，保留停用的 fork；后续更新不再修改它。
-再次执行 `skm fork review` 可以选回保留的 fork。已有活动 fork 时，再创建会停止；
-只有显式使用 `--replace` 才会删除并重建它。
-普通 `--force` 不会丢弃定制或失败现场。
-
-将 `skills/`、`skills-fork/` 连同各自的 `meta.json` 提交到自己的 Git 仓库。
-`.skm/temp/` 会被忽略，只保存可恢复的未结束操作；skm 不会替用户提交 Git。
-复制安装会排除管理元数据；符号链接安装指向完整目录，因此目标工具会看到 `meta.json`。
-
-旧仓库先运行 `skm sync migrate` 预览，再用报告的 `expected_state` 显式接受迁移。
-迁移前仍能读取旧内容。早期 Git 导入若没有记录提交号，必须与历史提交内容精确匹配；
-无法证明时会保留原 Skill。非 Git 导入是固定快照：来源变了就作为新 Skill 另选路径导入，
-`batch-update` 会跳过。`skm sync baseline` 已退役。
-仅来源分享不包含 fork；`share create --original-source` 显式分享社区地址并保留提示。
-export 引用维护仓库远端，只有实际发布的内容才可由接收方获取；backup 只保存安装清单，不备份文件内容。
-
-TUI 的 `x` 动作菜单提供创建/退出 fork、接受/取消现场和回退；`p` 更新单项，`P` 更新可见项。
-`F` 仍用于安装目标修复。预览使用 `--dry-run`，自动化使用 `--json`；文本 patch 操作需要 Git。
+将 `skills/` 和 `skills-fork/` 提交到自己的 Git 仓库；skm 不会替你提交。
+符号链接安装指向完整目录，因此目标工具会看到 `skills/<路径>/meta.json`。
 
 编辑导入地址时，静态反显单元标示插入位置，`NO_COLOR` 下也保持可见，不依赖终端原生光标或窗口焦点。
 地址完整可见时，方向键只移动插入位置，不移动文本。
-
-Git 不跟踪纯空目录；需要随克隆保留的目录请自行放置占位文件。
 
 ## ✨ 你能得到什么
 

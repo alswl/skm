@@ -15,9 +15,6 @@ func TestInitializeRepositoryCreatesSkillsTree(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, root, got)
 	require.DirExists(t, filepath.Join(root, "skills"))
-	ignore, err := os.ReadFile(filepath.Join(root, ".gitignore"))
-	require.NoError(t, err)
-	require.Equal(t, "/.skm/temp/\n", string(ignore))
 }
 
 func TestInitializeRepositoryRefusesNonEmptyDirectory(t *testing.T) {

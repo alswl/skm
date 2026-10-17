@@ -27,9 +27,6 @@ func newLifecycleCommand(use, short string, run func(ctx context.Context, svc *s
 				return printJSON(cmd, result)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %q -> %s\n", result.Action, result.Name, result.Path)
-			for _, warning := range result.Warnings {
-				fmt.Fprintln(cmd.ErrOrStderr(), warning)
-			}
 			return nil
 		},
 	}

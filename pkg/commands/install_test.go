@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -50,17 +49,6 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 // assert on diagnostics (warnings, progress) rather than the stdout report.
 func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	var resetCommand func(*cobra.Command)
-	resetCommand = func(cmd *cobra.Command) {
-		cmd.Flags().VisitAll(func(f *pflag.Flag) { _ = f.Value.Set(f.DefValue); f.Changed = false })
-		for _, child := range cmd.Commands() {
-			resetCommand(child)
-		}
-	}
-	resetCommand(rootCmd)
-	// pflag serializes StringSlice's nil default as "[]". Feeding that back
-	// through Value.Set creates a literal target named "[]", so restore the
-	// slice-backed test variables after the generic recursive flag reset.
 	installTargets = nil
 	deployFlags.repo, deployFlags.into = "", ""
 	deployFlags.noRepo = false
@@ -72,6 +60,7 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	flagNoStrict = false
 	normalizeFlags.provider = "local"
 	pluginKind, pluginName = "", ""
+	forkFlags.replace, forkFlags.discard = false, false
 	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}

@@ -19,7 +19,7 @@ func TestShareCreateEmitsApplyCommand(t *testing.T) {
 	root, cfgDir := cmdFixture(t)
 	writeTestFile(t, root, "skills/local/skill-a/meta.json", `{"address":"https://github.com/acme/skill-a","mode_id":"local"}`)
 
-	out, err := runCmd(t, "share", "create", "--original-source", "skill-a", "--root", root, "--config", cfgDir)
+	out, err := runCmd(t, "share", "create", "skill-a", "--root", root, "--config", cfgDir)
 	require.NoError(t, err)
 	require.Contains(t, out, "skm share apply 'skm1z")
 }
@@ -30,11 +30,11 @@ func TestShareCreateReportsProgressForMultipleEntriesOnly(t *testing.T) {
 	writeTestFile(t, root, "skills/local/skill-b/SKILL.md", "---\nname: skill-b\ndescription: B skill\n---\nbody\n")
 	writeTestFile(t, root, "skills/local/skill-b/meta.json", `{"address":"https://github.com/acme/skill-b","mode_id":"local"}`)
 
-	_, stderr, err := runCmdWithStderr(t, "share", "create", "--original-source", "skill-a", "--root", root, "--config", cfgDir)
+	_, stderr, err := runCmdWithStderr(t, "share", "create", "skill-a", "--root", root, "--config", cfgDir)
 	require.NoError(t, err)
-	require.NotContains(t, stderr, "share: 1/", "a single selected entry should not print progress")
+	require.Empty(t, stderr, "a single selected entry should not print progress")
 
-	_, stderr, err = runCmdWithStderr(t, "share", "create", "--original-source", "skill-a", "skill-b", "--root", root, "--config", cfgDir)
+	_, stderr, err = runCmdWithStderr(t, "share", "create", "skill-a", "skill-b", "--root", root, "--config", cfgDir)
 	require.NoError(t, err)
 	require.Contains(t, stderr, "share: 1/2")
 	require.Contains(t, stderr, "share: 2/2")
@@ -44,7 +44,7 @@ func TestShareCreateJSONIncludesEntries(t *testing.T) {
 	root, cfgDir := cmdFixture(t)
 	writeTestFile(t, root, "skills/local/skill-a/meta.json", `{"address":"https://github.com/acme/skill-a","mode_id":"local"}`)
 
-	out, err := runCmd(t, "share", "create", "--original-source", "skill-a", "--root", root, "--config", cfgDir, "--json")
+	out, err := runCmd(t, "share", "create", "skill-a", "--root", root, "--config", cfgDir, "--json")
 	require.NoError(t, err)
 	require.Contains(t, out, `"name":"skill-a"`)
 	require.Contains(t, out, `"source":"https://github.com/acme/skill-a"`)
@@ -52,7 +52,7 @@ func TestShareCreateJSONIncludesEntries(t *testing.T) {
 
 func TestShareCreateRejectsLocalOnlyExplicitEntry(t *testing.T) {
 	root, cfgDir := cmdFixture(t) // skill-a has no origin and the fixture is not a git repo
-	_, err := runCmd(t, "share", "create", "--original-source", "skill-a", "--root", root, "--config", cfgDir)
+	_, err := runCmd(t, "share", "create", "skill-a", "--root", root, "--config", cfgDir)
 	require.Error(t, err)
 }
 
@@ -65,7 +65,7 @@ func TestShareApplyRejectsMalformedPayload(t *testing.T) {
 func TestShareApplySkipsSameNameCollisionWithoutFetching(t *testing.T) {
 	srcRoot, srcCfgDir := cmdFixture(t)
 	writeTestFile(t, srcRoot, "skills/local/skill-a/meta.json", `{"address":"https://github.com/acme/skill-a","mode_id":"local"}`)
-	create, err := runCmd(t, "share", "create", "--original-source", "skill-a", "--root", srcRoot, "--config", srcCfgDir)
+	create, err := runCmd(t, "share", "create", "skill-a", "--root", srcRoot, "--config", srcCfgDir)
 	require.NoError(t, err)
 	payload := extractPayloadCommand(t, create)
 

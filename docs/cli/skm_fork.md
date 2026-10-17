@@ -1,17 +1,31 @@
 ## skm fork
 
-Create or select a complete local customization in skills-fork
+Give a Skill its own editable copy in skills-fork/
+
+### Synopsis
+
+Copy a Skill into skills-fork/ so you can edit it. While the copy exists it is the Skill's active content.
+
+`skm update` then carries your changes onto each new upstream version with a three-way merge (`git merge-file`), and stops without changing anything when they conflict.
+--replace copies the upstream again, dropping the old copy. --discard deletes the copy and returns to the upstream.
 
 ```
 skm fork NAME [flags]
 ```
 
+### Examples
+
+```
+  skm fork review
+  skm fork review --discard
+```
+
 ### Options
 
 ```
-  -h, --help       help for fork
-      --replace    explicitly delete and recreate an existing fork
-      --upstream   use community content and retain the inactive fork
+      --discard   delete the fork and return to the upstream
+  -h, --help      help for fork
+      --replace   discard the existing fork and copy the upstream again
 ```
 
 ### Options inherited from parent commands

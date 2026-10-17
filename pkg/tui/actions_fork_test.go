@@ -1,74 +1,94 @@
 package tui
 
 import (
-	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/engines"
-	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/stretchr/testify/require"
 )
 
-func TestForkActionsUseSharedServiceAndConfirmReplacement(t *testing.T) {
+func menuAction(t *testing.T, m *model, labelPrefix string) entryAction {
+	t.Helper()
+	for _, a := range m.entryActions() {
+		if strings.HasPrefix(a.Label, labelPrefix) {
+			return a
+		}
+	}
+	t.Fatalf("no menu action %q in %v", labelPrefix, m.entryActions())
+	return entryAction{}
+}
+
+func TestForkMenuCreatesReplacesAndDiscards(t *testing.T) {
+	m := newTestModel(t)
+	selectEntry(t, &m, "skill-a")
+	for _, a := range m.entryActions() {
+		require.NotContains(t, a.Label, "discard", "no fork yet")
+	}
+
+	menuAction(t, &m, "create fork").Run()
+	drainJob(t, &m)
+	require.Contains(t, m.status, "forked")
+	e := m.svc.FindEntry("skill-a")
+	require.Equal(t, filepath.Join(m.svc.Cfg.Root, "skills-fork", "local", "skill-a"), e.Path)
+	require.NotEmpty(t, e.UpstreamPath)
+
+	selectEntry(t, &m, "skill-a")
+	require.Contains(t, m.buildDetail(), "fork:")
+	require.NoError(t, os.WriteFile(filepath.Join(e.Path, "mine.txt"), []byte("x"), 0o644))
+	menuAction(t, &m, "replace fork").Run()
+	require.NotNil(t, m.confirm, "replacing deletes the user's copy, so it asks first")
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.NoFileExists(t, filepath.Join(e.Path, "mine.txt"))
+
+	selectEntry(t, &m, "skill-a")
+	menuAction(t, &m, "discard fork").Run()
+	require.NotNil(t, m.confirm)
+	_ = m.handleConfirmKey(runeKey('y'))
+	drainJob(t, &m)
+	require.NoDirExists(t, filepath.Join(m.svc.Cfg.Root, "skills-fork", "local", "skill-a"))
+	require.Empty(t, m.svc.FindEntry("skill-a").UpstreamPath)
+}
+
+func TestArchiveAndDeleteAreRefusedWhileForked(t *testing.T) {
+	m := newTestModel(t)
+	selectEntry(t, &m, "skill-a")
+	menuAction(t, &m, "create fork").Run()
+	drainJob(t, &m)
+	selectEntry(t, &m, "skill-a")
+
+	m.archiveSelected()
+	require.Contains(t, m.status, "discard the fork first")
+	require.Nil(t, m.confirm)
+	m.deleteSelected()
+	require.Contains(t, m.status, "discard the fork first")
+	require.Nil(t, m.confirm)
+	require.DirExists(t, filepath.Join(m.svc.Cfg.Root, "skills", "local", "skill-a"))
+}
+
+func TestUpdateSelectedShowsForkConflict(t *testing.T) {
 	m := newTestModel(t)
 	src := t.TempDir()
-	writeFileT(t, src, "SKILL.md", "---\nname: review\ndescription: review\n---\nbody\n")
-	_, err := m.svc.Import(context.Background(), src, services.ImportOptions{})
-	require.NoError(t, err)
-	entry := m.svc.FindEntry("review")
-	require.NotNil(t, entry)
-	actions := m.forkActions(entry)
-	require.Len(t, actions, 1)
-	require.Equal(t, "create fork", actions[0].Label)
-	actions[0].Run()
+	body := "line1\nline2\nline3\nline4\nline5\n"
+	writeFileT(t, src, "SKILL.md", "---\nname: forked\ndescription: forked skill\n---\n"+body)
+	m.runImport(src, "", "auto")
 	drainJob(t, &m)
-	entry = m.svc.FindEntry("review")
-	require.Equal(t, "fork", entry.SyncView.Mode)
-	actions = m.forkActions(entry)
-	require.Len(t, actions, 2)
-	actions[1].Run()
-	require.NotNil(t, m.confirm)
-	require.Contains(t, m.confirm.Prompt, "Delete")
-	// The confirmation itself must not remove customized content.
-	require.DirExists(t, entry.Path)
-	_, err = m.svc.UseUpstream(context.Background(), "review", false)
+	selectEntry(t, &m, "forked")
+	menuAction(t, &m, "create fork").Run()
+	drainJob(t, &m)
+	selectEntry(t, &m, "forked")
+	e := m.filtered[m.cursor]
+	writeFileT(t, e.Path, "SKILL.md", "---\nname: forked\ndescription: forked skill\n---\nmine\nline2\nline3\nline4\nline5\n")
+	writeFileT(t, src, "SKILL.md", "---\nname: forked\ndescription: forked skill\n---\ntheirs\nline2\nline3\nline4\nline5\n")
+	before, err := os.ReadFile(filepath.Join(e.Path, "SKILL.md"))
 	require.NoError(t, err)
-	entry = m.svc.FindEntry("review")
-	actions = m.forkActions(entry)
-	require.Len(t, actions, 1)
-	require.Contains(t, actions[0].Label, "fork")
-	_, err = m.svc.Fork(context.Background(), "review", engines.SyncOptions{})
+
+	m.updateSelected()
+	drainJob(t, &m)
+	require.Contains(t, m.status, "conflict in SKILL.md")
+	after, err := os.ReadFile(filepath.Join(e.Path, "SKILL.md"))
 	require.NoError(t, err)
-	entry = m.svc.FindEntry("review")
-	require.Equal(t, "fork", entry.SyncView.Mode)
-}
-
-func TestForkActionsDescribeCurrentUpdateAttempt(t *testing.T) {
-	m := newTestModel(t)
-	e := &common.Entry{
-		Name:   "review",
-		Kind:   common.KindSkill,
-		Status: common.StatusActive,
-		SyncView: &common.SyncView{
-			AttemptPath:    ".skm/work/operations/abc",
-			OperationID:    "abc",
-			OperationState: "failed_candidate",
-		},
-	}
-	actions := m.forkActions(e)
-	require.Len(t, actions, 2)
-	require.Equal(t, "accept update candidate", actions[0].Label)
-	require.Equal(t, "rollback this update attempt", actions[1].Label)
-}
-
-func TestGlobalActionsExposeLegacyMigration(t *testing.T) {
-	m := newTestModel(t)
-	actions := m.globalActions()
-	labels := map[string]bool{}
-	for _, action := range actions {
-		labels[action.Label] = action.Enabled
-	}
-	require.True(t, labels["migrate legacy skill data"])
-	require.True(t, labels["rollback interrupted migration"])
+	require.Equal(t, string(before), string(after))
 }

@@ -71,26 +71,6 @@ func (m *model) handleJobDone(r jobs.Result) tea.Cmd {
 		m.showOrphanDanglingConfirmation(preview)
 		return nil
 	}
-	if preview, ok := r.Value.(migrationPreviewResult); ok && r.Err == nil {
-		if preview.result == nil || len(preview.result.Entries) == 0 {
-			m.setStatus("migration: repository is current")
-			return scanCmd(m.svc, scanAfterJob, r.ID)
-		}
-		plan := preview.result
-		m.confirm = &pages.Confirm{
-			Prompt: fmt.Sprintf("Migrate %d legacy skill(s) to colocated meta.json?", len(plan.Entries)),
-			OnYes: func() {
-				m.submitJob("migrate legacy skill data", func(ctx context.Context) (any, error) {
-					result, err := m.svc.MigrateSync(ctx, true, plan.ExpectedState, false, false)
-					if err != nil {
-						return nil, err
-					}
-					return selectionJobResult{status: fmt.Sprintf("migration: %s", result.Outcome)}, nil
-				})
-			},
-		}
-		return nil
-	}
 	if r.Err != nil && hasRetry && common.IsNeedsForce(r.Err) {
 		m.confirm = &pages.Confirm{
 			Prompt: fmt.Sprintf("%s: a same-named non-managed object exists at the destination. Overwrite it?", retry.name),

@@ -12,13 +12,12 @@ import (
 
 // LifecycleResult is the CLI JSON report for lifecycle commands.
 type LifecycleResult struct {
-	Warnings []string          `json:"warnings,omitempty"`
-	Action   string            `json:"action"`
-	Name     string            `json:"name"`
-	DryRun   bool              `json:"dry_run"`
-	Path     string            `json:"path"`
-	Type     *common.EntryKind `json:"type,omitempty"`
-	Success  bool              `json:"success"`
+	Action  string            `json:"action"`
+	Name    string            `json:"name"`
+	DryRun  bool              `json:"dry_run"`
+	Path    string            `json:"path"`
+	Type    *common.EntryKind `json:"type,omitempty"`
+	Success bool              `json:"success"`
 }
 
 // Archive moves an active entry into the archived tree. CLI archive only
@@ -31,13 +30,9 @@ func (s *Services) Archive(ctx context.Context, name string, opts engines.Lifecy
 	if entry == nil {
 		return nil, notFound("archive", name)
 	}
-	if err := syncLifecycleBlocked(entry); err != nil {
+	if err := rejectForked("archive", entry); err != nil {
 		return nil, err
 	}
-	if entry.RepositoryPath != "" {
-		return s.trackedLifecycle(ctx, name, "archive", "", "", opts, false)
-	}
-
 	newPath, err := s.Repo.Archive(ctx, entry, opts)
 	if err != nil {
 		return nil, err
@@ -54,13 +49,9 @@ func (s *Services) Unarchive(ctx context.Context, name string, opts engines.Life
 	if entry == nil {
 		return nil, notFound("unarchive", name)
 	}
-	if err := syncLifecycleBlocked(entry); err != nil {
+	if err := rejectForked("unarchive", entry); err != nil {
 		return nil, err
 	}
-	if entry.RepositoryPath != "" {
-		return s.trackedLifecycle(ctx, name, "unarchive", "", "", opts, false)
-	}
-
 	newPath, err := s.Repo.Unarchive(ctx, entry, opts)
 	if err != nil {
 		return nil, err
@@ -77,13 +68,9 @@ func (s *Services) Delete(ctx context.Context, name string, opts engines.Lifecyc
 	if entry == nil {
 		return nil, notFound("delete", name)
 	}
-	if err := syncLifecycleBlocked(entry); err != nil {
+	if err := rejectForked("delete", entry); err != nil {
 		return nil, err
 	}
-	if entry.RepositoryPath != "" {
-		return s.trackedLifecycle(ctx, name, "delete", "", "", opts, false)
-	}
-
 	if err := s.Repo.Delete(ctx, entry, opts); err != nil {
 		return nil, err
 	}
@@ -104,13 +91,9 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 	if entry == nil {
 		return nil, notFound("normalize", name)
 	}
-	if err := syncLifecycleBlocked(entry); err != nil {
+	if err := rejectForked("normalize", entry); err != nil {
 		return nil, err
 	}
-	if entry.RepositoryPath != "" {
-		return s.trackedLifecycle(ctx, name, "normalize", provider, "", opts, false)
-	}
-
 	relink := entry.Status == common.StatusActive && !opts.DryRun
 	if relink {
 		// Validate the destination before touching any links, so a move to an
@@ -139,13 +122,6 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 	return &LifecycleResult{Action: "normalize", Name: name, DryRun: opts.DryRun, Path: dest, Success: true}, nil
 }
 
-func syncLifecycleBlocked(entry *common.Entry) error {
-	if entry.Status == common.StatusError && entry.Error != nil && strings.Contains(*entry.Error, "recovery_required:") {
-		return fmt.Errorf("%s", *entry.Error)
-	}
-	return nil
-}
-
 // Convert flips a directory entry's kind, cleaning old-kind links and
 // reinstalling under the new kind (FR-026).
 func (s *Services) Convert(ctx context.Context, name string, targetKind common.EntryKind, opts engines.LifecycleOptions) (*LifecycleResult, error) {
@@ -156,8 +132,8 @@ func (s *Services) Convert(ctx context.Context, name string, targetKind common.E
 	if entry == nil {
 		return nil, notFound("convert", name)
 	}
-	if entry.RepositoryPath != "" {
-		return s.trackedLifecycle(ctx, name, "convert", "", targetKind, opts, false)
+	if err := rejectForked("convert", entry); err != nil {
+		return nil, err
 	}
 
 	if opts.DryRun {
@@ -204,4 +180,14 @@ func notFound(action, name string) error {
 
 func ambiguous(name string, paths []string) error {
 	return common.WithExitCode(fmt.Errorf("entry %q is ambiguous; %d entries share this name:\n  %s\nre-run with one of the paths above", name, len(paths), strings.Join(paths, "\n  ")), common.ExitObject)
+}
+
+// rejectForked stops operations that move or delete an entry's directory while
+// the entry has a fork: they would act on skills-fork/ and leave the upstream
+// behind. The user discards the fork first.
+func rejectForked(action string, entry *common.Entry) error {
+	if entry.UpstreamPath == "" {
+		return nil
+	}
+	return common.WithExitCode(fmt.Errorf("%s: %q has a fork; run `skm fork %s --discard` first", action, entry.Name, entry.Name), common.ExitObject)
 }

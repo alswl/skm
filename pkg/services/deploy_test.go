@@ -50,7 +50,7 @@ func TestDeployLibraryAndLocalUpdate(t *testing.T) {
 	svc, opts, src, targets := deployFixture(t)
 	// A local .git directory must not invoke git pull, even without a remote.
 	writeSvcFile(t, src, ".git/config", "invalid git config; must not be read")
-	// Reserved upstream meta.json rejection is covered separately.
+	writeSvcFile(t, src, "nested/alpha/meta.json", `{"address":"/untrusted","mode_id":"wrong"}`)
 	r, err := svc.Deploy(context.Background(), opts)
 	require.NoError(t, err)
 	require.True(t, r.Success)
@@ -77,13 +77,14 @@ func TestDeployLibraryAndLocalUpdate(t *testing.T) {
 	copySvc.Cfg = &cfg
 	copySvc.Repo = engines.NewRepository(opts.Into)
 	writeSvcFile(t, src, "nested/alpha/resource.txt", "changed")
-	_, err = copySvc.Update(context.Background(), "alpha", UpdateOptions{})
-	require.ErrorContains(t, err, "not_applicable")
+	u, err := copySvc.Update(context.Background(), "alpha", UpdateOptions{})
+	require.NoError(t, err)
+	require.True(t, u.Changed)
 	require.NoError(t, os.RemoveAll(src))
 	for _, target := range targets {
 		data, err := os.ReadFile(filepath.Join(target.Path, "alpha/resource.txt"))
 		require.NoError(t, err)
-		require.Equal(t, "resource alpha", string(data))
+		require.Equal(t, "changed", string(data))
 	}
 	_, err = svc.Deploy(context.Background(), opts)
 	require.ErrorContains(t, err, "already exists")
@@ -343,22 +344,22 @@ func TestDeployProviderSubpathUpdateAndCleanup(t *testing.T) {
 	svc.Cfg.Root = opts.Into
 	writeSvcFile(t, src, "nested/alpha/resource.txt", "new provider bytes")
 	_, err = svc.Update(context.Background(), "alpha", UpdateOptions{})
-	require.ErrorContains(t, err, "not_applicable")
-	require.Len(t, p.roots, 1, "snapshot update does not fetch")
+	require.NoError(t, err)
+	require.NoDirExists(t, p.roots[1])
 	content, err := os.ReadFile(filepath.Join(e.Path, "resource.txt"))
 	require.NoError(t, err)
-	require.Equal(t, "resource alpha", string(content))
+	require.Equal(t, "new provider bytes", string(content))
 	e.Origin.Subpath = "../escape"
-	_, err = svc.fetchFromOrigin(context.Background(), e, false)
+	_, _, err = svc.fetchFromOrigin(context.Background(), e)
 	require.Error(t, err)
-	require.NoDirExists(t, p.roots[1])
+	require.NoDirExists(t, p.roots[2])
 	// A single root skill and an old origin without subpath retain the old path.
 	e.Origin.Subpath = ""
-	fetched, err := svc.fetchFromOrigin(context.Background(), e, false)
+	path, cleanup, err := svc.fetchFromOrigin(context.Background(), e)
 	require.NoError(t, err)
-	require.DirExists(t, fetched.Path)
-	fetched.Cleanup()
-	require.NoDirExists(t, fetched.Path)
+	require.DirExists(t, path)
+	cleanup()
+	require.NoDirExists(t, path)
 }
 
 func TestDeployProviderFailureCleansRoot(t *testing.T) {

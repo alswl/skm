@@ -668,16 +668,9 @@ func (m model) buildDetail() string {
 	fmt.Fprintf(&sb, "%-10s %s\n", "provider:", providerLabel(m.providerIcon(e.ProviderIDValue()), providerDisplayLabel(e.ProviderIDValue())))
 	fmt.Fprintf(&sb, "%-10s %s\n", "group:", orDash(e.GroupValue()))
 	fmt.Fprintf(&sb, "%-10s %s\n", "version:", orDash(e.VersionValue()))
-	if st := e.SyncView; st != nil {
-		fmt.Fprintf(&sb, "mode: %s (%s)\nbaseline: %s (%s)\nupstream: %s\nfork: %s\nattempt: %s\noperation: %s (%s)\nrollback available: %v\nrecovery required: %v\ncleanup pending: %v\nnext actions: %s\n", st.Mode, st.Customization, st.BaselineVersion, st.BaselineState, st.UpstreamPath, st.ForkPath, st.AttemptPath, st.OperationID, st.OperationState, st.RollbackAvailable, st.RecoveryRequired, st.CleanupPending, strings.Join(st.NextActions, ", "))
-		if st.RevisionKind != "" {
-			fmt.Fprintf(&sb, "source kind: %s\n", st.RevisionKind)
-		}
-		if st.IneligibleReason != "" {
-			fmt.Fprintf(&sb, "update: %s\n", st.IneligibleReason)
-		}
+	if e.UpstreamPath != "" {
+		fmt.Fprintf(&sb, "%-10s %s\n%-10s %s\n", "fork:", m.svc.Repo.RelPath(e.Path), "upstream:", m.svc.Repo.RelPath(e.UpstreamPath))
 	}
-
 	if e.Origin != nil {
 		fmt.Fprintf(&sb, "%-10s %s\n", "origin:", e.Origin.Address)
 	} else {

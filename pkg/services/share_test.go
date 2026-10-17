@@ -18,7 +18,7 @@ func TestCreateShareIncludesOnlySourceIdentityForUpstreamOrigin(t *testing.T) {
 	svc, _, root := exportFixture(t)
 	writeFile(t, root, "skills/local/demo/meta.json", `{"address":"https://github.com/acme/skills","mode_id":"local"}`)
 
-	result, err := svc.CreateOriginalSourceShare(t.Context(), []string{"demo"}, nil)
+	result, err := svc.CreateShare(t.Context(), []string{"demo"}, nil)
 	require.NoError(t, err)
 	require.Contains(t, result.Command, "skm share apply 'skm1z")
 
@@ -68,7 +68,7 @@ func TestCreateShareDefaultSelectionWarnsAndSkipsUnshareableEntry(t *testing.T) 
 	writeFile(t, root, "skills/local/demo/meta.json", `{"address":"https://github.com/acme/skills","mode_id":"local"}`)
 	writeFile(t, root, "skills/local/local-only/SKILL.md", frontmatter("local-only", "local only"))
 
-	result, err := svc.CreateOriginalSourceShare(t.Context(), nil, nil)
+	result, err := svc.CreateShare(t.Context(), nil, nil)
 	require.NoError(t, err)
 	require.Len(t, result.Entries, 1)
 	require.Equal(t, "demo", result.Entries[0].Name)
@@ -205,7 +205,7 @@ func TestCreateShareCompletesWithinOneSecondFor20Entries(t *testing.T) {
 	}
 
 	start := time.Now()
-	result, err := svc.CreateOriginalSourceShare(t.Context(), names, nil)
+	result, err := svc.CreateShare(t.Context(), names, nil)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)

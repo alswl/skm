@@ -3,14 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/engines"
-	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // UpdateResult is the CLI JSON report for update (contract/cli-json.md).
@@ -18,14 +15,6 @@ import (
 // UpdateOptions controls a single update.
 type UpdateOptions struct {
 	DryRun bool
-}
-
-// fetchedOrigin is an immutable acquisition result.  In particular, fetching
-// must not edit Entry.Origin: a failed candidate is not an accepted update.
-type fetchedOrigin struct {
-	Path    string
-	Version string
-	Cleanup func()
 }
 
 // Update refreshes a single entry from its origin. It fails (exit 1) when the
@@ -38,43 +27,30 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 	if entry == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q not found", name), common.ExitObject)
 	}
-	if entry.Status == common.StatusError && entry.Error != nil && strings.Contains(*entry.Error, "recovery_required:") {
-		return nil, common.WithExitCode(fmt.Errorf("%s", *entry.Error), common.ExitObject)
-	}
 	if entry.Status != common.StatusActive {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q is %s; only active entries can be updated", name, entry.Status), common.ExitObject)
-	}
-	if entry.Kind == common.KindSkill {
-		upstream := entry.RepositoryPath
-		if upstream == "" {
-			upstream = entry.Path
-		}
-		if meta, metaErr := dal.ReadSkillMeta(upstream); metaErr == nil && meta.SchemaVersion == 3 && meta.RevisionKind == "snapshot" {
-			reason := "non-Git Skill is a fixed snapshot; import changed source as a new Skill"
-			return &engines.UpdateResult{Entry: s.Repo.RelPath(upstream), Outcome: "not_applicable", ReasonCode: "not_applicable", Reason: reason}, common.WithExitCode(fmt.Errorf("not_applicable: %s", reason), common.ExitObject)
-		} else if metaErr != nil && !os.IsNotExist(metaErr) {
-			return nil, metaErr
-		}
-		return s.updateSkill(ctx, name, opts)
 	}
 	if entry.Origin == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q has no origin; nothing to fetch", name), common.ExitObject)
 	}
-	fetched, err := s.fetchFromOrigin(ctx, entry, !opts.DryRun)
+	staged, cleanup, err := s.fetchFromOrigin(ctx, entry)
 	if err != nil {
 		return nil, err
 	}
-	defer fetched.Cleanup()
+	defer cleanup()
+	if entry.UpstreamPath != "" {
+		return s.updateFork(ctx, entry, staged, opts)
+	}
 
 	if opts.DryRun {
 		// Fetch + probe + hash comparison without replacing.
-		before, after, changed, err := s.Repo.CompareUpdate(entry, fetched.Path)
+		before, after, changed, err := s.Repo.CompareUpdate(entry, staged)
 		if err != nil {
 			return nil, err
 		}
 		return &engines.UpdateResult{Before: before, After: after, Changed: changed}, nil
 	}
-	res, err := s.Repo.UpdateEntry(ctx, entry, fetched.Path)
+	res, err := s.Repo.UpdateEntry(ctx, entry, staged)
 	if err != nil {
 		return nil, err
 	}
@@ -126,9 +102,6 @@ func (s *Services) Updatable(e *common.Entry) bool {
 	if e.Status != common.StatusActive || e.Origin == nil || e.ProviderIDValue() == "unknown" || e.ProviderIDValue() == "self-build" {
 		return false
 	}
-	if e.Kind == common.KindSkill && e.SyncView != nil && e.SyncView.BaselineState == "not_applicable" {
-		return false
-	}
 	return e.ProviderIDValue() != "local" || !isManagedRepositoryEntry(e.Origin.Address, s.Cfg.Root)
 }
 
@@ -136,47 +109,29 @@ func (s *Services) Updatable(e *common.Entry) bool {
 // by address would let a later provider with overlapping capabilities replace
 // content from a different origin. Entries without a provider id are legacy
 // metadata and retain the former address-matching fallback.
-func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry, persistCache bool) (fetchedOrigin, error) {
+func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry) (string, func(), error) {
 	address := entry.Origin.Address
 	p := s.Registry.Get(entry.ProviderIDValue())
 	if entry.ProviderIDValue() != "" && p == nil {
-		return fetchedOrigin{}, common.WithExitCode(
+		return "", func() {}, common.WithExitCode(
 			fmt.Errorf("origin provider %q is unavailable for %q", entry.ProviderIDValue(), address), common.ExitError)
 	}
 	if p == nil {
 		p = s.Registry.Match(address)
 	}
 	if p == nil {
-		return fetchedOrigin{}, common.WithExitCode(fmt.Errorf("no provider can handle %q", address), common.ExitError)
-	}
-	if vp, ok := p.(providers.VersionedFetcher); ok {
-		got, err := vp.FetchVersioned(ctx, providers.FetchRequest{Address: address, RepositoryAddress: entry.Origin.RepositoryAddress, RequestedRef: entry.Origin.RequestedRef, Subpath: entry.Origin.Subpath})
-		if err != nil {
-			return fetchedOrigin{}, err
-		}
-		cleanup := fetchCleanup(p, got.Path)
-		if persistCache {
-			cached, cacheErr := dal.StoreGitCache(s.Cfg.Root, got.RepositoryAddress, got.Revision, got.Path)
-			if cacheErr != nil {
-				cleanup()
-				return fetchedOrigin{}, cacheErr
-			}
-			cleanup()
-			got.Path = cached
-			cleanup = func() {}
-		}
-		return fetchedOrigin{Path: filepath.Join(got.Path, got.ResolvedSubpath), Version: got.Revision, Cleanup: cleanup}, nil
+		return "", func() {}, common.WithExitCode(fmt.Errorf("no provider can handle %q", address), common.ExitError)
 	}
 	tmp, err := p.Fetch(ctx, address)
 	if err != nil {
-		return fetchedOrigin{}, common.WithExitCode(err, common.ExitError)
+		return "", func() {}, common.WithExitCode(err, common.ExitError)
 	}
 	cleanup := fetchCleanup(p, tmp)
 	if entry.Origin.Subpath != "" {
 		rel := entry.Origin.Subpath
 		if !filepath.IsLocal(rel) {
 			cleanup()
-			return fetchedOrigin{}, fmt.Errorf("origin subpath must stay inside fetched source")
+			return "", func() {}, fmt.Errorf("origin subpath must stay inside fetched source")
 		}
 		root, err := filepath.EvalSymlinks(tmp)
 		var child string
@@ -192,11 +147,11 @@ func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry, per
 		}
 		if err != nil {
 			cleanup()
-			return fetchedOrigin{}, err
+			return "", func() {}, err
 		}
-		return fetchedOrigin{Path: child, Cleanup: cleanup}, nil
+		return child, cleanup, nil
 	}
-	return fetchedOrigin{Path: tmp, Cleanup: cleanup}, nil
+	return tmp, cleanup, nil
 }
 
 // FailedUpdate is one batch-update failure: which entry, and why (the error
@@ -210,21 +165,17 @@ type FailedUpdate struct {
 // BatchUpdateResult is the CLI JSON report for batch-update
 // (contract/cli-json.md). Only active items are processed (FR-024).
 type BatchUpdateResult struct {
-	Items    []*engines.UpdateResult `json:"items"`
-	ExitCode int                     `json:"-"`
-	Success  bool                    `json:"success"`
-	Preview  bool                    `json:"preview"`
-	Updated  []string                `json:"updated"`
-	Current  []string                `json:"current"`
-	Failed   []FailedUpdate          `json:"failed"`
-	Skipped  []string                `json:"skipped"`
-	Total    int                     `json:"total"`
+	Updated []string       `json:"updated"`
+	Current []string       `json:"current"`
+	Failed  []FailedUpdate `json:"failed"`
+	Skipped []string       `json:"skipped"`
+	Total   int            `json:"total"`
 }
 
 // BatchUpdate refreshes all active entries with an origin, classifying each as
 // updated/current/failed/skipped (FR-024).
 func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateResult {
-	res := &BatchUpdateResult{Items: []*engines.UpdateResult{}, Success: true, Preview: dryRun,
+	res := &BatchUpdateResult{
 		Updated: []string{},
 		Current: []string{},
 		Failed:  []FailedUpdate{},
@@ -236,36 +187,14 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 		}
 		if !s.Updatable(e) { // active but originless: skipped, not failed
 			res.Skipped = append(res.Skipped, e.Name)
-			item := &engines.UpdateResult{Entry: s.Repo.RelPath(e.Path), Outcome: "not_applicable", Preview: dryRun}
-			if e.Kind == common.KindSkill && e.SyncView != nil && e.SyncView.BaselineState == "not_applicable" {
-				item.ReasonCode = "not_applicable"
-				item.Reason = "non-Git Skill is a fixed snapshot; import changed source as a new Skill"
-			}
-			res.Items = append(res.Items, item)
 			continue
 		}
 		u, err := s.Update(ctx, e.Path, UpdateOptions{DryRun: dryRun})
-		if u == nil {
-			u = &engines.UpdateResult{Entry: s.Repo.RelPath(e.Path), Outcome: "failed", Preview: dryRun}
-			if err != nil {
-				u.Reason = err.Error()
-				u.ReasonCode = syncReasonCode(err)
-			}
-		}
-		if u != nil {
-			res.Items = append(res.Items, u)
-		}
 		if err != nil {
-			res.Success = false
-			code := common.ExitCodeOf(err, common.ExitError)
-			if code > res.ExitCode {
-				res.ExitCode = code
-			}
 			res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: err.Error()})
 			continue
 		}
-
-		if u.Changed || u.Outcome == "updated" {
+		if u.Changed {
 			res.Updated = append(res.Updated, e.Name)
 		} else {
 			res.Current = append(res.Current, e.Name)

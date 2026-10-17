@@ -1849,8 +1849,12 @@ func TestRunInstallConflictOffersForceRetry(t *testing.T) {
 	require.Equal(t, common.InstallInstalled, m.svc.Installer.State(entry, target))
 }
 
-// A source change creates a new Skill. A force retry cannot overwrite an
-// existing imported Skill, even when the TUI first offers the generic retry.
+// TestRunImportConflictOffersForceRetry: importing a name that already exists
+// in the repo used to fail forever with no way to proceed from the TUI (the
+// underlying Force flag was never wired up, see
+// pkg/services/repository_import.go's "use --force to overwrite" error). The
+// job must now surface as a confirm-then-retry offer, and confirming must
+// retry with force and succeed.
 func TestRunImportConflictOffersForceRetry(t *testing.T) {
 	m := newTestModel(t)
 	src := t.TempDir()
@@ -1865,12 +1869,7 @@ func TestRunImportConflictOffersForceRetry(t *testing.T) {
 	require.Nil(t, m.confirm, "confirm closes on yes")
 	drainJob(t, &m)
 
-	require.Contains(t, m.status, "existing skill")
-	entry := m.svc.FindEntry("skill-a")
-	require.NotNil(t, entry)
-	data, err := os.ReadFile(filepath.Join(entry.Path, "SKILL.md"))
-	require.NoError(t, err)
-	require.NotContains(t, string(data), "new body")
+	require.Contains(t, m.status, "imported", "confirming the retry must succeed with force")
 }
 
 // TestNonTTYGuard: a non-terminal file is not treated as interactive.

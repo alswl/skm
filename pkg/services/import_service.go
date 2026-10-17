@@ -213,15 +213,7 @@ func (s *Services) fetchProvider(ctx context.Context, p providers.Provider, sour
 	if nerr != nil {
 		return "", "", "", nil, func() {}, common.WithExitCode(nerr, common.ExitError)
 	}
-	var version providers.FetchResult
-	var tmp string
-	var ferr error
-	if vp, ok := p.(providers.VersionedFetcher); ok {
-		version, ferr = vp.FetchVersioned(ctx, providers.FetchRequest{Address: normalized})
-		tmp = version.Path
-	} else {
-		tmp, ferr = p.Fetch(ctx, normalized)
-	}
+	tmp, ferr := p.Fetch(ctx, normalized)
 	if ferr != nil {
 		return "", "", "", nil, func() {}, common.WithExitCode(ferr, common.ExitError)
 	}
@@ -229,16 +221,7 @@ func (s *Services) fetchProvider(ctx context.Context, p providers.Provider, sour
 	if g, ok := p.(grouper); ok {
 		group = g.Group(normalized)
 	}
-	origin = &common.Origin{Address: normalized, ProviderID: &modeID}
-	cleanup = fetchCleanup(p, tmp)
-	if version.Revision != "" {
-		origin.Revision = version.Revision
-		origin.RepositoryAddress = version.RepositoryAddress
-		origin.RequestedRef = version.RequestedRef
-		origin.Subpath = version.ResolvedSubpath
-		tmp = filepath.Join(tmp, version.ResolvedSubpath)
-	}
-	return tmp, p.ID(), group, origin, cleanup, nil
+	return tmp, p.ID(), group, &common.Origin{Address: normalized, ProviderID: &modeID}, fetchCleanup(p, tmp), nil
 }
 
 // fetchCleanup frees what Fetch staged. A borrowed source (borrowsSource) is

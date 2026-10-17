@@ -24,9 +24,6 @@ func (m *model) updateEntry(name, ref string, selectAfterScan bool) func(ctx con
 		if !result.Changed {
 			verb = "current"
 		}
-		if result.Outcome != "" {
-			verb = result.Outcome
-		}
 		jobResult := selectionJobResult{status: fmt.Sprintf("%s is %s", name, verb)}
 		if selectAfterScan {
 			jobResult.path = m.svc.Repo.RelPath(ref)

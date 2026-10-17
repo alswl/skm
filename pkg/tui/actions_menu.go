@@ -1,12 +1,10 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/engines"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
@@ -76,8 +74,6 @@ func (m *model) globalActions() []entryAction {
 			m.openImportPrompt()
 		}},
 		{Key: "P", Label: "batch update", Enabled: true, Run: m.batchUpdate},
-		{Key: "M", Label: "migrate legacy skill data", Enabled: true, Run: m.migrateLegacy},
-		{Key: "R", Label: "rollback interrupted migration", Enabled: true, Run: m.rollbackMigration},
 		{Key: "t", Label: "targets", Enabled: true, Run: func() {
 			m.showTargets = true
 			m.targetsCursor = 0
@@ -86,35 +82,6 @@ func (m *model) globalActions() []entryAction {
 			m.showTasks = true
 			m.tasksCursor = 0
 		}},
-	}
-}
-
-type migrationPreviewResult struct{ result *engines.MigrationResult }
-
-// migrateLegacy first obtains the services-owned read-only plan. Acceptance is
-// separately confirmed and is bound to the plan's expected-state digest.
-func (m *model) migrateLegacy() {
-	m.submitJob("preview legacy migration", func(ctx context.Context) (any, error) {
-		result, err := m.svc.MigrateSync(ctx, false, "", false, false)
-		if err != nil {
-			return nil, err
-		}
-		return migrationPreviewResult{result: result}, nil
-	})
-}
-
-func (m *model) rollbackMigration() {
-	m.confirm = &pages.Confirm{
-		Prompt: "Rollback the current interrupted migration?",
-		OnYes: func() {
-			m.submitJob("rollback migration", func(ctx context.Context) (any, error) {
-				result, err := m.svc.MigrateSync(ctx, false, "", true, false)
-				if err != nil {
-					return nil, err
-				}
-				return selectionJobResult{status: fmt.Sprintf("migration: %s", result.Outcome)}, nil
-			})
-		},
 	}
 }
 
