@@ -1,3 +1,12 @@
+## [0.7.0] - 2026-10-17
+
+### 🚀 Features
+
+- [**breaking**] Reduce fork to a copied directory merged on update
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.6.1-dev
 ## [0.6.1] - 2026-10-15
 
 ### 🐛 Bug Fixes
@@ -7,6 +16,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.6.0-dev
+- Bump version to v0.6.1
 ## [0.6.0] - 2026-10-15
 
 ### 🚀 Features
