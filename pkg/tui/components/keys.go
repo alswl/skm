@@ -32,6 +32,7 @@ type KeyMap struct {
 	Normalize   key.Binding
 	Claim       key.Binding
 	Fix         key.Binding
+	Fork        key.Binding
 	ActionsMenu key.Binding
 	Refresh     key.Binding
 
@@ -80,7 +81,8 @@ func DefaultKeys() KeyMap {
 		TargetAdd:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add target")),
 		Normalize:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "normalize")),
 		Claim:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claim skill")),
-		Fix:          key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "fix installs")),
+		Fix:          key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "fix installs")),
+		Fork:         key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "fork")),
 		ActionsMenu:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "actions menu")),
 		Refresh:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
 		Queue:        key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "job queue")),
@@ -104,7 +106,7 @@ func DefaultKeys() KeyMap {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.MoveDown, k.MoveUp, k.PagePrev, k.PageNext, k.First, k.Last, k.Search, k.ClearSearch, k.ShowArchived, k.TabNext, k.TabPrev},
-		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize, k.Claim, k.Fix, k.ActionsMenu, k.Refresh},
+		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize, k.Claim, k.Fix, k.Fork, k.ActionsMenu, k.Refresh},
 		{k.Queue, k.Cancel, k.Help, k.Quit},
 	}
 }

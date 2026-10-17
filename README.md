@@ -126,7 +126,8 @@ the ones you want into the repo.
 | Key | Action |
 |---|---|
 | `j` / `k` | move · `/` search · `enter` detail |
-| `i` | install / uninstall for the selected entry |
+| `i` | install / uninstall for the selected entry · `f` fix broken installs |
+| `F` | fork the selected skill (replace or discard it from `x`) |
 | `m` | import · `p` update · `P` update all · `a` archive · `d` delete |
 | `o` | discover unmanaged skills · `c` claim one into the repo |
 | `x` | all actions for the current entry |

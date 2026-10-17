@@ -42,7 +42,7 @@ func (m *model) fixableTargets(entry *common.Entry) []string {
 }
 
 // fixSelected repairs the current entry's conflict and dangling installs (key
-// "F") by force-installing over each broken target — the same recovery
+// "f") by force-installing over each broken target — the same recovery
 // already offered for a needs-force failure (see submitJobForce), just
 // applied proactively instead of waiting for a rejected install. Scoped to
 // the entry under the cursor only.

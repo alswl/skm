@@ -48,7 +48,7 @@ func (m *model) entryActions() []entryAction {
 		entryAction{Key: "p", Label: "update", Enabled: update, Run: m.updateSelected},
 		entryAction{Key: "n", Label: "normalize", Enabled: normalize, Run: m.normalizeSelected},
 		entryAction{Key: "c", Label: "claim → self-build", Enabled: claim, Run: m.claimAndRepairSelected},
-		entryAction{Key: "F", Label: "fix conflicts/dangling", Enabled: fix, Run: m.fixSelected},
+		entryAction{Key: "f", Label: "fix conflicts/dangling", Enabled: fix, Run: m.fixSelected},
 		entryAction{Key: "a", Label: archiveLabel, Enabled: true, Run: m.archiveSelected},
 		entryAction{Key: "d", Label: "delete", Enabled: true, Run: m.deleteSelected},
 	)

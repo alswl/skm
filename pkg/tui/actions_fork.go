@@ -32,13 +32,36 @@ func (m *model) forkActions(e *common.Entry) []entryAction {
 		return func() { m.confirm = &pages.Confirm{Prompt: prompt, OnYes: do} }
 	}
 	if e.UpstreamPath == "" {
-		return []entryAction{{Key: "menu", Label: "create fork", Enabled: true, Run: run("fork", services.ForkOptions{}, "")}}
+		return []entryAction{{Key: "F", Label: "create fork", Enabled: true, Run: run("fork", services.ForkOptions{}, "")}}
 	}
 	return []entryAction{
 		{Key: "menu", Label: "replace fork (copy upstream again)", Enabled: true, Run: run("replace fork", services.ForkOptions{Replace: true},
 			fmt.Sprintf("Delete your fork of %s and copy the upstream again?", e.Name))},
 		{Key: "menu", Label: "discard fork (back to upstream)", Enabled: true, Run: run("discard fork", services.ForkOptions{Discard: true},
 			fmt.Sprintf("Delete your fork of %s and go back to the upstream?", e.Name))},
+	}
+}
+
+// canFork reports whether key "F" can create a fork for e.
+func canFork(e *common.Entry) bool {
+	return e.Kind == common.KindSkill && e.Status == common.StatusActive && e.UpstreamPath == ""
+}
+
+// forkSelected is key "F": create a fork of the highlighted Skill. It never
+// replaces or discards an existing fork: those delete the user's copy and stay
+// behind the actions menu's confirmation.
+func (m *model) forkSelected() {
+	if m.cursor >= len(m.filtered) {
+		return
+	}
+	e := m.filtered[m.cursor]
+	switch {
+	case e.UpstreamPath != "":
+		m.setStatus(fmt.Sprintf("%s already has a fork; use x to replace or discard it", e.Name))
+	case !canFork(e):
+		m.setStatus(fmt.Sprintf("%s: only an active skill can be forked", e.Name))
+	default:
+		m.forkActions(e)[0].Run()
 	}
 }
 

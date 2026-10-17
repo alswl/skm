@@ -49,6 +49,8 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.deleteSelected()
 	case key.Matches(msg, k.Fix):
 		m.fixSelected()
+	case key.Matches(msg, k.Fork):
+		m.forkSelected()
 	case key.Matches(msg, k.ActionsMenu):
 		m.openActionsMenu()
 	case key.Matches(msg, k.Refresh):
@@ -130,6 +132,8 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		m.deleteSelected()
 	case key.Matches(msg, k.Fix):
 		m.fixSelected()
+	case key.Matches(msg, k.Fork):
+		m.forkSelected()
 	case key.Matches(msg, k.Discover):
 		m.discoverExternal()
 	case key.Matches(msg, k.Targets):
@@ -281,6 +285,7 @@ func (m model) renderMainArea(inner, rows int) []string {
 		wrap := lipgloss.NewStyle().Width(inner)
 		help := wrap.Render("Install status: ✓ installed  ⚠ dangling link (source missing)  ✗ conflict (not managed)  blank not installed or unsupported") + "\n" +
 			wrap.Render("Target columns: Claude Claude* (Commands) Codex Pi") + "\n" +
+			wrap.Render("Status +fork: the active content is your copy in skills-fork/ (F creates one, x replaces or discards it)") + "\n" +
 			m.help.FullHelpView(m.keys.FullHelp())
 		lines := components.SplitLines(help)
 		if len(lines) > rows {
@@ -456,10 +461,17 @@ func installHeaderRow(targets []common.InstallTarget, groupCol bool) string {
 // columns that follow it.
 func renderEntryLine(e *common.Entry, icon, groupCell string, cells []installCell, highlighted bool) string {
 	kind := truncPad(string(e.Kind), kindColWidth)
-	status := truncPad(string(e.Status), statusColWidth)
+	status := truncPad(statusLabel(e), statusColWidth)
 	if !highlighted {
 		kind = components.StyleForKind(e.Kind).Render(kind)
-		status = components.StyleForStatus(e.Status).Render(status)
+		if e.UpstreamPath != "" {
+			// Keep the fork marker visible against the plain status word.
+			status = components.StyleForStatus(e.Status).Render(string(e.Status)) +
+				components.StyleTitle.Render(forkSuffix) +
+				strings.Repeat(" ", maxInt(0, statusColWidth-lipgloss.Width(statusLabel(e))))
+		} else {
+			status = components.StyleForStatus(e.Status).Render(status)
+		}
 	}
 	var sb strings.Builder
 	sb.WriteString(truncPad(icon, iconColWidth) + " " +
@@ -483,6 +495,19 @@ func renderEntryLine(e *common.Entry, icon, groupCell string, cells []installCel
 		sb.WriteString(" " + cell)
 	}
 	return sb.String()
+}
+
+// forkSuffix marks an entry whose active content is a fork in skills-fork/.
+// "active+fork" is 11 cells, inside statusColWidth.
+const forkSuffix = "+fork"
+
+// statusLabel is the status column text: the status, plus forkSuffix when the
+// entry uses a fork.
+func statusLabel(e *common.Entry) string {
+	if e.UpstreamPath != "" {
+		return string(e.Status) + forkSuffix
+	}
+	return string(e.Status)
 }
 
 // truncPad truncates s to at most w cells (ANSI/wide-rune aware) and
@@ -530,7 +555,7 @@ func (m model) selectionSummary() string {
 	pages := maxInt(1, pagination.PageCount(len(m.rows), m.pageSize))
 	e := m.filtered[m.cursor]
 	return fmt.Sprintf("%d/%d · %s · %s · %s · %s",
-		m.page+1, pages, sectionHeader(e), e.Name, e.Kind, e.Status)
+		m.page+1, pages, sectionHeader(e), e.Name, e.Kind, statusLabel(e))
 }
 
 // detailView renders the full-screen detail page for the entry opened with
@@ -637,6 +662,7 @@ func (m model) detailBindings() []pages.HintItem {
 		{Keys: "d", Label: "delete", Enabled: true},
 		{Keys: "n", Label: "move", Enabled: e.Status == common.StatusNonStandard},
 		{Keys: "c", Label: "claim → self-build", Enabled: claim},
+		{Keys: "F", Label: "fork", Enabled: canFork(e)},
 		{Keys: "x", Label: "actions", Enabled: true},
 	}
 }
