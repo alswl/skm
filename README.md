@@ -33,23 +33,37 @@ skm fork review --discard        # delete the fork and go back to the upstream
 ```
 
 A fork is a plain copy: `skills/<path>/` stays the upstream and `skills-fork/<path>/` is yours.
-While the copy exists it is the active version; installs, `list` and `info` all point at it.
-That directory is the only state, so there is nothing to migrate or clean up.
+While the copy exists it is the active version: installs point at it, and `list`, `info` and
+`status` report it (`info` and `status --json` add `upstream_path`). That directory is the only
+state, so there is nothing to migrate or clean up. The fork takes effect the moment it is
+created: existing installs switch in the same operation.
 
-`skm update` fetches the new upstream, then merges your edits onto it file by file
-(`git merge-file`, with the current upstream as the common base). If everything merges, both
-directories are replaced together and existing installs are refreshed. If anything conflicts, a
-file is binary on both sides, or a merge takes longer than 30 seconds, skm stops and changes
-nothing; the error names the file. Fix your fork and run `update` again, or `fork --replace` to
-start over from the upstream. `update --dry-run` runs the whole merge without replacing anything.
+**Updating.** `skm update` fetches the new upstream, then merges your edits onto it file by file
+(`git merge-file`, with the current upstream as the common base, so `git` must be on `PATH`).
+Files you did not touch take the new upstream version, files only you changed keep yours, and a
+change both sides made identically is kept once. If everything merges, both directories are
+replaced together and existing installs are refreshed. If anything conflicts, a file is binary and
+changed on both sides, or a merge takes longer than 30 seconds, skm stops and changes nothing;
+the error names the file. Fix your fork and run `update` again, or `fork --replace` to start over
+from the upstream. `update --dry-run` runs the whole merge without writing anything, and
+`batch-update` lists a conflicting fork under `failed` with its reason while updating the rest.
 
-`fork --replace` deletes the existing fork and copies the upstream again; `fork --discard` deletes
-it. Both ask nothing on the command line, so check `skills-fork/` is committed first. Archive and
-delete refuse a forked Skill until you discard the fork. An update that is interrupted halfway is
-not recovered automatically: restore the two directories from Git.
+**Replace and discard.** `fork --replace` deletes the existing fork and copies the upstream again;
+`fork --discard` deletes it and returns to the upstream. Neither asks on the command line, so
+check `skills-fork/` is committed first. Archive, delete, normalize and convert refuse a forked
+Skill until you discard the fork. An update that is interrupted halfway is not recovered
+automatically: restore the two directories from Git.
+
+**In the TUI**, `F` forks the selected skill. A forked entry shows `active+fork` in the status
+column and in the bottom summary (the `?` help explains it). `x` offers create, replace and
+discard; replace and discard ask for confirmation. Pressing `F` on an entry that already has a
+fork only points you at `x`, so your copy is never deleted by accident. `p` and `P` update, and a
+conflict shows its reason in the status bar. Fixing broken installs is `f`.
 
 Commit `skills/` and `skills-fork/` to your own Git repository; skm never commits for you. Symlink
 installs point at the complete directory, so the target tool sees `skills/<path>/meta.json`.
+Known limits: only a change to a file's content is carried over (a permission-only change is
+not), and a skill that contains a dangling symlink cannot be updated.
 
 While editing an import address, a static reverse-video cell marks the insertion
 point, including with `NO_COLOR`. It does not depend on the terminal's native
