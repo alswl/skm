@@ -15,10 +15,7 @@ skm update NAME [flags]
 ### Options
 
 ```
-      --abort      discard the failed attempt, preserving the current version
-      --accept     accept the manually prepared candidate
-  -h, --help       help for update
-      --rollback   restore the version and baseline before the last successful update
+  -h, --help   help for update
 ```
 
 ### Options inherited from parent commands

@@ -1671,10 +1671,18 @@ func TestStatusBarSpinsWhileJobRuns(t *testing.T) {
 	require.NotNil(t, cmd, "Update must return a command that carries the spinner tick")
 	require.True(t, m.spinning, "a job in flight starts the spinner tick loop")
 
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(m.statusContent(), "update skill-a") && time.Now().Before(deadline) {
+	// A just-submitted job reads "queued: update skill-a" with no spinner until
+	// the worker picks it up, which can take a while when the machine is busy
+	// (the whole package running in parallel). Wait for the running state.
+	running := func() bool {
+		fields := strings.Fields(m.statusContent())
+		return len(fields) > 0 && fields[0] != "queued:" && strings.Contains(m.statusContent(), "update skill-a")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !running() && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
+	require.True(t, running(), "the job never left the queue: %q", m.statusContent())
 
 	// The frames advance: feeding ticks back in changes the rendered status.
 	frames := map[string]bool{}

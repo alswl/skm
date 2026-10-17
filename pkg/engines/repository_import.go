@@ -148,12 +148,6 @@ func (r *Repository) importStaged(ctx context.Context, staged, providerID, group
 			common.WithNeedsForce(fmt.Errorf("import: destination %q already exists; use --force to overwrite", dest)),
 			common.ExitObject)
 	}
-	if kind == common.KindSkill && origin != nil && !claimSource {
-		if err := r.trackedImport(staged, tmp, dest, name, origin, force); err != nil {
-			return nil, common.WithExitCode(err, common.ExitObject)
-		}
-		return &RepositoryImportResult{Name: name, Kind: kind, Provider: providerID, Path: dest, Origin: origin}, nil
-	}
 	tx := &dal.FileTransaction{}
 	if dal.PathExists(dest) && (!claimSource || !samePath(dest, staged)) {
 		if err := tx.BackupRemove(dest); err != nil {

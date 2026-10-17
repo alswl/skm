@@ -39,21 +39,16 @@ func (r *Repository) RelPath(path string) string {
 // StatusNonStandard entry, instead of being silently invisible.
 func (r *Repository) Scan() []*common.Entry {
 	var entries []*common.Entry
-	entries = append(entries, r.scanTop("skills", common.KindSkill, common.StatusActive)...)
+	entries = append(entries, r.attachForks(r.scanTop("skills", common.KindSkill, common.StatusActive))...)
 	entries = append(entries, r.scanTop("commands", common.KindCommand, common.StatusActive)...)
 	entries = append(entries, r.scanTop("archived", "", common.StatusArchived)...)
 	entries = append(entries, r.scanNonStandard()...)
-	if _, err := os.Lstat(filepath.Join(r.root, ".skm-sync")); err == nil {
-		for i, e := range entries {
-			entries[i] = r.attachSync(e)
-		}
-	}
 	return entries
 }
 
 // managedTopDirs are the only top-level names scanNonStandard does not
 // itself walk into — they already have their own dedicated scan above.
-var managedTopDirs = map[string]bool{"skills": true, "commands": true, "archived": true, "forks": true}
+var managedTopDirs = map[string]bool{"skills": true, "skills-fork": true, "commands": true, "archived": true}
 
 // scanNonStandard walks the repo root looking for skill/command markers
 // outside skills/commands/archived, so a misplaced asset is visible instead

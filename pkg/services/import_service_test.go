@@ -83,11 +83,7 @@ func TestImportNormalizesTildeAndPastedWhitespaceForLocalSource(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "local", res.Provider)
 	require.Equal(t, filepath.Join(cfg.Root, "skills", "local", "local-skill"), res.Path)
-	record, err := dal.ReadSyncRecord(rootForSyncTest(res.Path), relativeForSyncTest(res.Path))
-	stored := &common.Origin{}
-	if record != nil {
-		stored = &record.Origin
-	}
+	stored, err := dal.ReadMeta(res.Path)
 	require.NoError(t, err)
 	require.Equal(t, source, stored.Address)
 	require.NotNil(t, stored.ProviderID)
@@ -112,11 +108,7 @@ func TestImportWithExplicitLocalProviderPreservesExternalSource(t *testing.T) {
 	require.Equal(t, "local", res.Provider)
 	require.FileExists(t, filepath.Join(res.Path, "SKILL.md"))
 	require.FileExists(t, marker, "explicit local imports must never clean up the caller's source")
-	record, err := dal.ReadSyncRecord(rootForSyncTest(res.Path), relativeForSyncTest(res.Path))
-	stored := &common.Origin{}
-	if record != nil {
-		stored = &record.Origin
-	}
+	stored, err := dal.ReadMeta(res.Path)
 	require.NoError(t, err)
 	require.Equal(t, source, stored.Address)
 	require.NotNil(t, stored.ProviderID)

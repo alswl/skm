@@ -70,17 +70,6 @@ func (s *Services) runInstall(ctx context.Context, action, name string, opts Ins
 	}
 	defer lock.Release()
 
-	if err := s.Repo.SyncReadCheck(); err != nil {
-		return nil, err
-	}
-	// Resolve again under the lock: a fork may have switched while waiting.
-	entry, err = s.ResolveEntry(name)
-	if err != nil {
-		return nil, err
-	}
-	if entry == nil {
-		return nil, fmt.Errorf("entry disappeared")
-	}
 	tx := &dal.FileTransaction{}
 	for _, t := range targets {
 		var changed bool

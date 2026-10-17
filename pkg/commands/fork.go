@@ -3,57 +3,39 @@ package commands
 import (
 	"fmt"
 
-	"github.com/alswl/skm/skm/pkg/engines"
+	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
 
+var forkFlags struct{ replace, discard bool }
+
 var forkCmd = &cobra.Command{
-	Use: "fork NAME", Short: "Create a complete local customization and switch existing installs",
-	Args: cobra.ExactArgs(1),
+	Use:   "fork NAME",
+	Short: "Give a Skill its own editable copy in skills-fork/",
+	Long: "Copy a Skill into skills-fork/ so you can edit it. While the copy exists it is the Skill's active content.\n\n" +
+		"`skm update` then carries your changes onto each new upstream version with a three-way merge (`git merge-file`), and stops without changing anything when they conflict.\n" +
+		"--replace copies the upstream again, dropping the old copy. --discard deletes the copy and returns to the upstream.",
+	Example: "  skm fork review\n  skm fork review --discard",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		svc, err := servicesFor(cmd)
 		if err != nil {
 			return err
 		}
-		upstream, _ := cmd.Flags().GetBool("upstream")
-		replace, _ := cmd.Flags().GetBool("replace")
-		res, err := svc.Fork(cmd.Context(), args[0], engines.SyncOptions{Upstream: upstream, Replace: replace, DryRun: flagDryRun})
-		return printSyncResult(cmd, res, err)
+		result, err := svc.Fork(cmd.Context(), args[0], services.ForkOptions{Replace: forkFlags.replace, Discard: forkFlags.discard})
+		if err != nil {
+			return err
+		}
+		if flagJSON {
+			return printJSON(cmd, result)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %q -> %s\n", result.Action, result.Name, result.ActivePath)
+		return nil
 	},
 }
 
 func init() {
-	forkCmd.Flags().Bool("upstream", false, "use community content and retain the inactive fork")
-	forkCmd.Flags().Bool("replace", false, "explicitly delete and recreate an existing fork")
-	forkCmd.MarkFlagsMutuallyExclusive("upstream", "replace")
+	forkCmd.Flags().BoolVar(&forkFlags.replace, "replace", false, "discard the existing fork and copy the upstream again")
+	forkCmd.Flags().BoolVar(&forkFlags.discard, "discard", false, "delete the fork and return to the upstream")
 	rootCmd.AddCommand(forkCmd)
-}
-func printSyncResult(cmd *cobra.Command, res *engines.UpdateResult, err error) error {
-	if res == nil {
-		res = &engines.UpdateResult{Outcome: "failed"}
-		if err != nil {
-			res.Reason = err.Error()
-		}
-	}
-	if flagJSON {
-		if outputErr := printJSON(cmd, res); outputErr != nil {
-			return outputErr
-		}
-	} else {
-		outcome := res.Outcome
-		if outcome == "" {
-			outcome = "current"
-			if res.Changed {
-				outcome = "updated"
-			}
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s (accepted=%v) %s\n", outcome, res.Accepted, res.ActivePath)
-		if res.AttemptPath != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "Manual update workspace: %s\n", res.AttemptPath)
-		}
-		if res.Reason != "" {
-			fmt.Fprintln(cmd.OutOrStdout(), res.Reason)
-		}
-	}
-	return err
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/engines"
-	"github.com/alswl/skm/skm/pkg/providers"
 )
 
 // UpdateResult is the CLI JSON report for update (contract/cli-json.md).
@@ -31,9 +30,6 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 	if entry.Status != common.StatusActive {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q is %s; only active entries can be updated", name, entry.Status), common.ExitObject)
 	}
-	if entry.Kind == common.KindSkill {
-		return s.updateSkill(ctx, name, opts)
-	}
 	if entry.Origin == nil {
 		return nil, common.WithExitCode(fmt.Errorf("update: entry %q has no origin; nothing to fetch", name), common.ExitObject)
 	}
@@ -42,6 +38,9 @@ func (s *Services) Update(ctx context.Context, name string, opts UpdateOptions) 
 		return nil, err
 	}
 	defer cleanup()
+	if entry.UpstreamPath != "" {
+		return s.updateFork(ctx, entry, staged, opts)
+	}
 
 	if opts.DryRun {
 		// Fetch + probe + hash comparison without replacing.
@@ -123,15 +122,6 @@ func (s *Services) fetchFromOrigin(ctx context.Context, entry *common.Entry) (st
 	if p == nil {
 		return "", func() {}, common.WithExitCode(fmt.Errorf("no provider can handle %q", address), common.ExitError)
 	}
-	if vp, ok := p.(providers.VersionedFetcher); ok {
-		got, err := vp.FetchVersioned(ctx, providers.FetchRequest{Address: address, RepositoryAddress: entry.Origin.RepositoryAddress, RequestedRef: entry.Origin.RequestedRef, Subpath: entry.Origin.Subpath})
-		if err != nil {
-			return "", func() {}, err
-		}
-		entry.Origin.Revision = got.Revision
-		return filepath.Join(got.Path, got.ResolvedSubpath), fetchCleanup(p, got.Path), nil
-	}
-	entry.Origin.Revision = "" // legacy/local providers identify this fetch by its new snapshot
 	tmp, err := p.Fetch(ctx, address)
 	if err != nil {
 		return "", func() {}, common.WithExitCode(err, common.ExitError)
@@ -175,21 +165,17 @@ type FailedUpdate struct {
 // BatchUpdateResult is the CLI JSON report for batch-update
 // (contract/cli-json.md). Only active items are processed (FR-024).
 type BatchUpdateResult struct {
-	Items    []*engines.UpdateResult `json:"items"`
-	ExitCode int                     `json:"-"`
-	Success  bool                    `json:"success"`
-	Preview  bool                    `json:"preview"`
-	Updated  []string                `json:"updated"`
-	Current  []string                `json:"current"`
-	Failed   []FailedUpdate          `json:"failed"`
-	Skipped  []string                `json:"skipped"`
-	Total    int                     `json:"total"`
+	Updated []string       `json:"updated"`
+	Current []string       `json:"current"`
+	Failed  []FailedUpdate `json:"failed"`
+	Skipped []string       `json:"skipped"`
+	Total   int            `json:"total"`
 }
 
 // BatchUpdate refreshes all active entries with an origin, classifying each as
 // updated/current/failed/skipped (FR-024).
 func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateResult {
-	res := &BatchUpdateResult{Items: []*engines.UpdateResult{}, Success: true, Preview: dryRun,
+	res := &BatchUpdateResult{
 		Updated: []string{},
 		Current: []string{},
 		Failed:  []FailedUpdate{},
@@ -201,31 +187,14 @@ func (s *Services) BatchUpdate(ctx context.Context, dryRun bool) *BatchUpdateRes
 		}
 		if !s.Updatable(e) { // active but originless: skipped, not failed
 			res.Skipped = append(res.Skipped, e.Name)
-			res.Items = append(res.Items, &engines.UpdateResult{Entry: s.Repo.RelPath(e.Path), Outcome: "not_applicable", Preview: dryRun})
 			continue
 		}
 		u, err := s.Update(ctx, e.Path, UpdateOptions{DryRun: dryRun})
-		if u == nil {
-			u = &engines.UpdateResult{Entry: s.Repo.RelPath(e.Path), Outcome: "failed", Preview: dryRun}
-			if err != nil {
-				u.Reason = err.Error()
-				u.ReasonCode = syncReasonCode(err)
-			}
-		}
-		if u != nil {
-			res.Items = append(res.Items, u)
-		}
 		if err != nil {
-			res.Success = false
-			code := common.ExitCodeOf(err, common.ExitError)
-			if code > res.ExitCode {
-				res.ExitCode = code
-			}
 			res.Failed = append(res.Failed, FailedUpdate{Name: e.Name, Reason: err.Error()})
 			continue
 		}
-
-		if u.Changed || u.Outcome == "updated" {
+		if u.Changed {
 			res.Updated = append(res.Updated, e.Name)
 		} else {
 			res.Current = append(res.Current, e.Name)

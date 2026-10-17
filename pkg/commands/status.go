@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/engines"
 	"github.com/alswl/skm/skm/pkg/services"
 	"github.com/spf13/cobra"
 )
@@ -12,17 +11,16 @@ import (
 // statusReport is the single-entry health report (contract/cli-json.md). The
 // CLI always reports modified as "unknown".
 type statusReport struct {
-	Sync            *engines.SyncStatus `json:"sync,omitempty"`
-	SyncError       string              `json:"sync_error,omitempty"`
-	Path            string              `json:"path"`
-	Status          common.Status       `json:"status"`
-	Address         *string             `json:"address"`
-	Installed       bool                `json:"installed"`
-	LinkHealthy     bool                `json:"link_healthy"`
-	DanglingTargets []string            `json:"dangling_targets"`
-	Modified        string              `json:"modified"`
-	Version         *string             `json:"version"`
-	Error           *string             `json:"error"`
+	Path            string        `json:"path"`
+	UpstreamPath    string        `json:"upstream_path,omitempty"` // set when Path is a fork
+	Status          common.Status `json:"status"`
+	Address         *string       `json:"address"`
+	Installed       bool          `json:"installed"`
+	LinkHealthy     bool          `json:"link_healthy"`
+	DanglingTargets []string      `json:"dangling_targets"`
+	Modified        string        `json:"modified"`
+	Version         *string       `json:"version"`
+	Error           *string       `json:"error"`
 }
 
 var statusCmd = &cobra.Command{
@@ -43,12 +41,6 @@ var statusCmd = &cobra.Command{
 			return common.WithExitCode(fmt.Errorf("status: entry %q not found", args[0]), common.ExitObject)
 		}
 		rep := buildStatusReport(svc, entry)
-		if !flagJSON && rep.Sync != nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "mode=%s customization=%s baseline=%s\nupstream=%s\nfork=%s\nattempt=%s rollback=%v\n", rep.Sync.Mode, rep.Sync.Customization, rep.Sync.BaselineVersion, rep.Sync.UpstreamPath, rep.Sync.ForkPath, rep.Sync.AttemptPath, rep.Sync.RollbackAvailable)
-		}
-		if !flagJSON && rep.SyncError != "" {
-			fmt.Fprintln(cmd.OutOrStdout(), rep.SyncError)
-		}
 		if flagJSON {
 			return printJSON(cmd, rep)
 		}
@@ -65,31 +57,15 @@ func init() { rootCmd.AddCommand(statusCmd) }
 func buildStatusReport(svc *services.Services, e *common.Entry) *statusReport {
 	rep := &statusReport{
 		Path:            e.Path,
+		UpstreamPath:    e.UpstreamPath,
 		Status:          e.Status,
 		Version:         e.Version,
 		Error:           e.Error,
 		Modified:        "unknown",
 		DanglingTargets: []string{},
 	}
-	if e.Kind == common.KindSkill {
-		var syncErr error
-		rep.Sync, syncErr = svc.SyncStatus(e.Path)
-		if syncErr != nil {
-			rep.SyncError = syncErr.Error()
-		}
-	}
 	if e.Origin != nil {
 		rep.Address = &e.Origin.Address
-	}
-	if rep.Sync != nil {
-		switch rep.Sync.Customization {
-		case "clean":
-			rep.Modified = "clean"
-		case "customized":
-			rep.Modified = "modified"
-		default:
-			rep.Modified = "unknown"
-		}
 	}
 	// Archived entries are never installed (models.go), so they have no
 	// install state to probe.

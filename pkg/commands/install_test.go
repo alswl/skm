@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -54,9 +53,6 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	deployFlags.repo, deployFlags.into = "", ""
 	deployFlags.noRepo = false
 	deployFlags.targets, deployFlags.only = nil, nil
-	for _, cmd := range []*cobra.Command{forkCmd, updateCmd, shareCreateCmd} {
-		cmd.Flags().VisitAll(func(f *pflag.Flag) { _ = f.Value.Set(f.DefValue); f.Changed = false })
-	}
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	deployCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	flagRoot, flagConfig = "", ""
@@ -64,6 +60,7 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	flagNoStrict = false
 	normalizeFlags.provider = "local"
 	pluginKind, pluginName = "", ""
+	forkFlags.replace, forkFlags.discard = false, false
 	resetTargetFlags()
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}

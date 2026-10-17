@@ -92,14 +92,10 @@ func TestImportProviderRecordsOrigin(t *testing.T) {
 	require.Equal(t, "https://github.com/x/y", res.Origin.Address)
 	require.Equal(t, "github", *res.Origin.ProviderID)
 	require.Equal(t, "skills/github/remote-skill", res.Origin.Path, "meta.json tracks the installed path relative to the repo root")
-	require.NoFileExists(t, filepath.Join(res.Path, "meta.json"))
+	require.FileExists(t, filepath.Join(res.Path, "meta.json"))
 
 	// The on-disk meta.json carries url / provider / path for management.
-	record, err := dal.ReadSyncRecord(rootForSyncTest(res.Path), relativeForSyncTest(res.Path))
-	stored := &common.Origin{}
-	if record != nil {
-		stored = &record.Origin
-	}
+	stored, err := dal.ReadMeta(res.Path)
 	require.NoError(t, err)
 	require.Equal(t, "https://github.com/x/y", stored.Address)
 	require.Equal(t, "github", *stored.ProviderID)

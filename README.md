@@ -26,56 +26,48 @@ One column per tool. A `✓` means installed there. That's the whole idea.
 
 ```sh
 skm import owner/repo/path/to/skill
-skm fork review                  # create a full fork and switch existing installs
-skm info review                  # find its editable fork directory
-# Edit files directly in that directory.
-skm sync diff review             # inspect customization against its baseline
-skm update review                # migrate changes, then refresh existing installs
-skm install review               # install the active version into new targets
+skm fork review                  # copy it to skills-fork/ and switch existing installs
+# Edit the files in skills-fork/<path>/ (`skm info review` prints it).
+skm update review                # carry your edits onto the new upstream version
+skm fork review --discard        # delete the fork and go back to the upstream
 ```
 
-`update` generates a fresh patch from the saved upstream baseline and your current
-fork, then applies it in an isolated copy of the new upstream. Compatible text
-changes are automatic. Incompatible text or complex files can require manual
-intervention: the current version stays usable, and `info`/`status` show the saved
-workspace. Edit `candidate/` there, then use `skm update review --accept`, or
-`--abort` to discard that attempt. A repeated update preserves the workspace.
+A fork is a plain copy: `skills/<path>/` stays the upstream and `skills-fork/<path>/` is yours.
+While the copy exists it is the active version: installs point at it, and `list`, `info` and
+`status` report it (`info` and `status --json` add `upstream_path`). That directory is the only
+state, so there is nothing to migrate or clean up. The fork takes effect the moment it is
+created: existing installs switch in the same operation.
 
-`skm update review --rollback` restores the content **and baseline** before the
-most recent successful update. Later edits block rollback; preserve them yourself
-before choosing a version from Git history. Rollback snapshots are local to this
-working copy. Installation failures are reported separately; retry `install` for
-any target that did not refresh.
+**Updating.** `skm update` fetches the new upstream, then merges your edits onto it file by file
+(`git merge-file`, with the current upstream as the common base, so `git` must be on `PATH`).
+Files you did not touch take the new upstream version, files only you changed keep yours, and a
+change both sides made identically is kept once. If everything merges, both directories are
+replaced together and existing installs are refreshed. If anything conflicts, a file is binary and
+changed on both sides, or a merge takes longer than 30 seconds, skm stops and changes nothing;
+the error names the file. Fix your fork and run `update` again, or `fork --replace` to start over
+from the upstream. `update --dry-run` runs the whole merge without writing anything, and
+`batch-update` lists a conflicting fork under `failed` with its reason while updating the rest.
 
-`skm fork review --upstream` switches installs back to the current community
-version and retains the inactive fork. Future updates leave that fork alone.
-Creating another fork at the same location is refused; handle the old directory
-manually or explicitly authorize deletion and recreation with `--replace`.
-Ordinary `--force` never discards customization or a failed update workspace.
+**Replace and discard.** `fork --replace` deletes the existing fork and copies the upstream again;
+`fork --discard` deletes it and returns to the upstream. Neither asks on the command line, so
+check `skills-fork/` is committed first. Archive, delete, normalize and convert refuse a forked
+Skill until you discard the fork. An update that is interrupted halfway is not recovered
+automatically: restore the two directories from Git.
 
-Commit `skills/`, `forks/`, `.skm-sync/`, and the ignore rule to your own Git
-repository to preserve content, source associations, and complete baselines.
-`.skm-local/` contains temporary patches, failed attempts, transactions, and the
-single rollback point; skm adds an exact ignore rule for it. skm never commits for
-you. Management directories are excluded from installation and discovery.
+**In the TUI**, `F` forks the selected skill. A forked entry shows `active+fork` in the status
+column and in the bottom summary (the `?` help explains it). `x` offers create, replace and
+discard; replace and discard ask for confirmation. Pressing `F` on an entry that already has a
+fork only points you at `x`, so your copy is never deleted by accident. `p` and `P` update, and a
+conflict shows its reason in the status bar. Fixing broken installs is `f`.
 
-Older imported skills without a baseline remain installable but cannot update
-safely. `skm sync baseline --help` describes historical restoration and an explicit
-new comparison point. Source-only sharing does not include fork content: opting
-into `share create --original-source` shares the community address with a warning.
-An export references the maintained repository remote, including only what has
-actually been published there; `backup` saves an installation list, not contents.
-
-In the TUI, use the actions menu (`x`) to create or leave a fork, accept or cancel
-an attempt, or roll back. `p` updates one item; `P` updates the visible items. The
-installation repair action (`F`) keeps its existing meaning. Use `--dry-run` for
-previews and `--json` for structured results. Text patch operations require Git.
+Commit `skills/` and `skills-fork/` to your own Git repository; skm never commits for you. Symlink
+installs point at the complete directory, so the target tool sees `skills/<path>/meta.json`.
+Known limits: only a change to a file's content is carried over (a permission-only change is
+not), and a skill that contains a dangling symlink cannot be updated.
 
 While editing an import address, a static reverse-video cell marks the insertion
 point, including with `NO_COLOR`. It does not depend on the terminal's native
 cursor or window focus; arrow keys move it without shifting fully visible text.
-
-Git does not track empty directories; retain a placeholder file when a directory must survive a clone.
 
 ## ✨ What you get
 
@@ -148,7 +140,8 @@ the ones you want into the repo.
 | Key | Action |
 |---|---|
 | `j` / `k` | move · `/` search · `enter` detail |
-| `i` | install / uninstall for the selected entry |
+| `i` | install / uninstall for the selected entry · `f` fix broken installs |
+| `F` | fork the selected skill (replace or discard it from `x`) |
 | `m` | import · `p` update · `P` update all · `a` archive · `d` delete |
 | `o` | discover unmanaged skills · `c` claim one into the repo |
 | `x` | all actions for the current entry |

@@ -9,8 +9,7 @@ skm share create [NAME ...] [flags]
 ### Options
 
 ```
-  -h, --help              help for create
-      --original-source   share only the original source, excluding local customization
+  -h, --help   help for create
 ```
 
 ### Options inherited from parent commands

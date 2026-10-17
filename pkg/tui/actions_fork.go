@@ -5,78 +5,73 @@ import (
 	"fmt"
 
 	"github.com/alswl/skm/skm/pkg/common"
-	"github.com/alswl/skm/skm/pkg/engines"
+	"github.com/alswl/skm/skm/pkg/services"
 	pages "github.com/alswl/skm/skm/pkg/tui/widgets"
 )
 
+// forkActions are the fork rows of the actions menu. They call the same
+// Services.Fork as `skm fork`; replacing or discarding deletes the user's
+// copy, so those two confirm first.
 func (m *model) forkActions(e *common.Entry) []entryAction {
 	if e.Kind != common.KindSkill || e.Status != common.StatusActive {
 		return nil
 	}
-	st := e.SyncView
-	if st == nil {
-		return nil
+	run := func(label string, opts services.ForkOptions, prompt string) func() {
+		do := func() {
+			m.submitJob(label+" "+e.Name, func(ctx context.Context) (any, error) {
+				res, err := m.svc.Fork(ctx, e.Path, opts)
+				if err != nil {
+					return nil, err
+				}
+				return selectionJobResult{status: fmt.Sprintf("%s: %s", e.Name, res.Action), path: m.svc.Repo.RelPath(res.ActivePath)}, nil
+			})
+		}
+		if prompt == "" {
+			return do
+		}
+		return func() { m.confirm = &pages.Confirm{Prompt: prompt, OnYes: do} }
 	}
+	if e.UpstreamPath == "" {
+		return []entryAction{{Key: "F", Label: "create fork", Enabled: true, Run: run("fork", services.ForkOptions{}, "")}}
+	}
+	return []entryAction{
+		{Key: "menu", Label: "replace fork (copy upstream again)", Enabled: true, Run: run("replace fork", services.ForkOptions{Replace: true},
+			fmt.Sprintf("Delete your fork of %s and copy the upstream again?", e.Name))},
+		{Key: "menu", Label: "discard fork (back to upstream)", Enabled: true, Run: run("discard fork", services.ForkOptions{Discard: true},
+			fmt.Sprintf("Delete your fork of %s and go back to the upstream?", e.Name))},
+	}
+}
 
-	run := func(mode string) func() {
-		return func() {
-			action := func() {
-				m.submitJob(mode+" "+e.Name, func(ctx context.Context) (any, error) {
-					var res *engines.UpdateResult
-					var err error
-					switch mode {
-					case "fork":
-						res, err = m.svc.Fork(ctx, e.Path, engines.SyncOptions{})
-					case "replace fork":
-						res, err = m.svc.Fork(ctx, e.Path, engines.SyncOptions{Replace: true})
-					case "use upstream":
-						res, err = m.svc.UseUpstream(ctx, e.Path, false)
-					case "accept update":
-						res, err = m.svc.AcceptUpdate(ctx, e.Path, false)
-					case "cancel update":
-						res, err = m.svc.CancelUpdate(ctx, e.Path, false)
-					case "rollback update":
-						res, err = m.svc.RollbackUpdate(ctx, e.Path, false)
-					}
-					if err != nil {
-						return nil, err
-					}
-					path := res.ActivePath
-					if path == "" {
-						path = e.RepositoryPath
-					}
-					if path == "" {
-						path = e.Path
-					}
-					return selectionJobResult{status: fmt.Sprintf("%s: %s", e.Name, res.Outcome), path: m.svc.Repo.RelPath(path)}, nil
-				})
-			}
-			if mode == "fork" {
-				action()
-				return
-			}
-			prompt := mode + " for " + e.Name + "?"
-			if mode == "replace fork" {
-				prompt = "Delete the existing fork and recreate it from community content?"
-			}
-			m.confirm = &pages.Confirm{Prompt: prompt, OnYes: action}
-		}
+// canFork reports whether key "F" can create a fork for e.
+func canFork(e *common.Entry) bool {
+	return e.Kind == common.KindSkill && e.Status == common.StatusActive && e.UpstreamPath == ""
+}
+
+// forkSelected is key "F": create a fork of the highlighted Skill. It never
+// replaces or discards an existing fork: those delete the user's copy and stay
+// behind the actions menu's confirmation.
+func (m *model) forkSelected() {
+	if m.cursor >= len(m.filtered) {
+		return
 	}
-	var out []entryAction
-	if st.AttemptPath != "" {
-		out = append(out, entryAction{Key: "menu", Label: "accept manually prepared update", Enabled: true, Run: run("accept update")}, entryAction{Key: "menu", Label: "cancel failed update", Enabled: true, Run: run("cancel update")})
-	} else {
-		if st.ForkState == "absent" {
-			out = append(out, entryAction{Key: "menu", Label: "create fork", Enabled: true, Run: run("fork")})
-		} else {
-			if st.Mode == "fork" {
-				out = append(out, entryAction{Key: "menu", Label: "use community version (retain fork)", Enabled: true, Run: run("use upstream")})
-			}
-			out = append(out, entryAction{Key: "menu", Label: "delete and recreate existing fork", Enabled: true, Run: run("replace fork")})
-		}
-		if st.RollbackAvailable {
-			out = append(out, entryAction{Key: "menu", Label: "rollback last successful update", Enabled: true, Run: run("rollback update")})
-		}
+	e := m.filtered[m.cursor]
+	switch {
+	case e.UpstreamPath != "":
+		m.setStatus(fmt.Sprintf("%s already has a fork; use x to replace or discard it", e.Name))
+	case !canFork(e):
+		m.setStatus(fmt.Sprintf("%s: only an active skill can be forked", e.Name))
+	default:
+		m.forkActions(e)[0].Run()
 	}
-	return out
+}
+
+// refuseForked reports whether entry has a fork, telling the user to discard it
+// first. Archive and delete move or remove the entry's directory, which would
+// leave the upstream behind.
+func (m *model) refuseForked(entry *common.Entry, action string) bool {
+	if entry.UpstreamPath == "" {
+		return false
+	}
+	m.setStatus(fmt.Sprintf("%s: %s has a fork; discard the fork first (actions menu)", action, entry.Name))
+	return true
 }
