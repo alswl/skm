@@ -43,8 +43,20 @@ func (r *Repository) Scan() []*common.Entry {
 	entries = append(entries, r.scanTop("commands", common.KindCommand, common.StatusActive)...)
 	entries = append(entries, r.scanTop("archived", "", common.StatusArchived)...)
 	entries = append(entries, r.scanNonStandard()...)
-	if _, err := os.Lstat(filepath.Join(r.root, ".skm")); err == nil {
-		for i, e := range entries {
+	_, stateErr := os.Lstat(filepath.Join(r.root, ".skm"))
+	for i, e := range entries {
+		if e.Kind == common.KindSkill {
+			meta, err := dal.ReadSkillMeta(e.Path)
+			if err == nil && meta.SchemaVersion == 3 {
+				entries[i] = r.attachFinalSkill(e, meta)
+				continue
+			}
+			if err != nil && !os.IsNotExist(err) {
+				entries[i] = errEntry(e, err.Error())
+				continue
+			}
+		}
+		if stateErr == nil {
 			entries[i] = r.attachSync(e)
 		}
 	}

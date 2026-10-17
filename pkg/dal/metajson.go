@@ -1,8 +1,8 @@
 package dal
 
 import (
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
