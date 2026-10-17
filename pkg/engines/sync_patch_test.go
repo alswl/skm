@@ -56,6 +56,23 @@ func TestCustomizationPatchIncludesSingleSidedAndBinaryChanges(t *testing.T) {
 	require.Contains(t, string(patch), "GIT binary patch")
 }
 
+func TestManagementMetaDoesNotBecomeCustomization(t *testing.T) {
+	base, local, upstream, candidate := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	for _, root := range []string{base, local, upstream} {
+		require.NoError(t, os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("same skill"), 0600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(local, "meta.json"), []byte(`{"active":"fork"}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(upstream, "meta.json"), []byte(`{"revision":"new"}`), 0600))
+	patch, err := GenerateCustomizationPatch(context.Background(), base, local)
+	require.NoError(t, err)
+	require.Empty(t, patch)
+	result, err := ApplyCustomization(context.Background(), base, local, upstream, candidate)
+	require.NoError(t, err)
+	require.Empty(t, result.Failures)
+	require.NoFileExists(t, filepath.Join(candidate, "meta.json"))
+	require.FileExists(t, filepath.Join(candidate, "SKILL.md"))
+}
+
 func TestPatchTreeMatrix(t *testing.T) {
 	type files map[string][]byte
 	tests := []struct {

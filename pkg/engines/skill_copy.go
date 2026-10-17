@@ -89,7 +89,7 @@ func CopySkill(tx *dal.FileTransaction, entry *common.Entry, target common.Insta
 	if entry.RepositoryPath != "" {
 		tmp, err = os.MkdirTemp("", "skm-copy-*")
 		if err == nil {
-			err = dal.CopySyncTree(entry.Path, tmp)
+			err = dal.CopyPayloadSyncTree(entry.Path, tmp)
 		}
 	} else {
 		tmp, err = repo.prepareImport(entry.Path, entry.Name)

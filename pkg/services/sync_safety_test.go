@@ -502,22 +502,25 @@ func TestDeletingCommunityKeepsRetainedForkAndWarns(t *testing.T) {
 	require.Empty(t, s.Scan())
 }
 
-func TestTrackedCopyInstallsExactMaintainedResources(t *testing.T) {
+func TestTrackedCopyInstallsPayloadWithoutManagementMeta(t *testing.T) {
 	s, _, _ := syncFixture(t)
 	_, err := s.Fork(context.Background(), "review", engines.SyncOptions{})
 	require.NoError(t, err)
 	entry := s.FindEntry("review")
-	writeFile(t, entry.Path, "meta.json", `{"user_resource":true}`)
+	writeFile(t, entry.Path, "meta.json", `{"schema_version":3,"active":"fork"}`)
+	writeFile(t, entry.Path, "nested/meta.json", `{"user_resource":true}`)
 	target := common.InstallTarget{Name: "copy", Path: t.TempDir(), Accepts: []common.EntryKind{common.KindSkill}, Strategies: map[common.EntryKind]common.InstallStrategy{common.KindSkill: common.StrategySkillSymlink}}
 	tx := &dal.FileTransaction{}
 	_, err = s.Installer.CopySkill(tx, entry, target, false)
 	require.NoError(t, err)
 	tx.Commit()
-	before, err := dal.SyncTree(entry.Path)
+	before, err := dal.PayloadSyncTree(entry.Path)
 	require.NoError(t, err)
-	installed, err := dal.SyncTree(filepath.Join(target.Path, "review"))
+	installed, err := dal.PayloadSyncTree(filepath.Join(target.Path, "review"))
 	require.NoError(t, err)
 	require.Equal(t, before.Digest, installed.Digest)
+	require.NoFileExists(t, filepath.Join(target.Path, "review", "meta.json"))
+	require.FileExists(t, filepath.Join(target.Path, "review", "nested", "meta.json"))
 }
 
 func TestDeployRefusesInterruptedSourceRepository(t *testing.T) {

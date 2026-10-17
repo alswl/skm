@@ -28,7 +28,7 @@ func ApplyCustomization(ctx context.Context, base, local, upstream, candidate st
 	trees := make([]map[string]dal.SyncNode, 3)
 	all := map[string]bool{}
 	for i, root := range roots {
-		m, err := dal.SyncTree(root)
+		m, err := dal.PayloadSyncTree(root)
 		if err != nil {
 			return result, err
 		}
@@ -272,11 +272,11 @@ func applyTextPatch(ctx context.Context, b, l, u []byte) ([]byte, []byte, bool, 
 // changes that need no three-way assistance. Empty directories remain in the
 // accompanying manifests because Git patches do not represent them.
 func GenerateCustomizationPatch(ctx context.Context, base, local string) ([]byte, error) {
-	bm, err := dal.SyncTree(base)
+	bm, err := dal.PayloadSyncTree(base)
 	if err != nil {
 		return nil, err
 	}
-	lm, err := dal.SyncTree(local)
+	lm, err := dal.PayloadSyncTree(local)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +289,7 @@ func GenerateCustomizationPatch(ctx context.Context, base, local string) ([]byte
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	for _, item := range []struct{ src, name string }{{base, "base"}, {local, "local"}} {
-		if err = dal.CopySyncTree(item.src, filepath.Join(dir, item.name)); err != nil {
+		if err = dal.CopyPayloadSyncTree(item.src, filepath.Join(dir, item.name)); err != nil {
 			return nil, err
 		}
 	}

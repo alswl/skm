@@ -45,6 +45,17 @@ func SyncPath(root, rel string) (string, error) {
 }
 
 func SyncTree(root string) (SyncManifest, error) {
+	return syncTree(root, false)
+}
+
+// PayloadSyncTree describes Skill content without skm's root management file.
+// Transaction fingerprints continue to use SyncTree so metadata edits remain
+// visible to acceptance and recovery checks.
+func PayloadSyncTree(root string) (SyncManifest, error) {
+	return syncTree(root, true)
+}
+
+func syncTree(root string, excludeMeta bool) (SyncManifest, error) {
 	m := SyncManifest{Nodes: []SyncNode{}}
 	st, err := os.Lstat(root)
 	if err != nil {
@@ -63,6 +74,16 @@ func SyncTree(root string) (SyncManifest, error) {
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
+		}
+		if excludeMeta && rel == metaFileName {
+			info, infoErr := d.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("invalid management meta: %s", path)
+			}
+			return nil
 		}
 		if d.Name() == ".git" {
 			if d.IsDir() {
@@ -106,6 +127,16 @@ func SyncTree(root string) (SyncManifest, error) {
 }
 
 func CopySyncTree(src, dst string) error {
+	return copySyncTree(src, dst, false)
+}
+
+// CopyPayloadSyncTree copies installable Skill content, omitting only the
+// skm-owned root meta.json. Nested files with that name remain user content.
+func CopyPayloadSyncTree(src, dst string) error {
+	return copySyncTree(src, dst, true)
+}
+
+func copySyncTree(src, dst string, excludeMeta bool) error {
 	st, err := os.Lstat(src)
 	if err != nil {
 		return err
@@ -123,7 +154,7 @@ func CopySyncTree(src, dst string) error {
 		}
 		return os.Chmod(dst, st.Mode().Perm())
 	}
-	before, err := SyncTree(src)
+	before, err := syncTree(src, excludeMeta)
 	if err != nil {
 		return err
 	}
@@ -151,11 +182,11 @@ func CopySyncTree(src, dst string) error {
 			return err
 		}
 	}
-	after, err := SyncTree(src)
+	after, err := syncTree(src, excludeMeta)
 	if err != nil {
 		return err
 	}
-	copied, err := SyncTree(dst)
+	copied, err := syncTree(dst, excludeMeta)
 	if err != nil {
 		return err
 	}

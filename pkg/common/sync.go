@@ -1,5 +1,21 @@
 package common
 
+// SkillMeta is the final-directory identity of a managed upstream Skill.
+// Origin is embedded to preserve the existing flat meta.json source fields.
+type SkillMeta struct {
+	Origin
+	SchemaVersion int    `json:"schema_version,omitempty"`
+	RevisionKind  string `json:"revision_kind,omitempty"`
+	Active        string `json:"active,omitempty"`
+}
+
+// ForkMeta records only the Git revision against which a complete fork was
+// last reconciled. Source identity and active choice belong to SkillMeta.
+type ForkMeta struct {
+	SchemaVersion int    `json:"schema_version"`
+	BaseRevision  string `json:"base_revision,omitempty"`
+}
+
 // BaselineRef identifies the immutable raw tree used for a comparison. Git
 // references are reconstructed through a verified full commit; snapshots are
 // versioned content and remain valid when the original source disappears.
