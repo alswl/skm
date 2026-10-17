@@ -160,8 +160,11 @@ func TestLegacyMissingBaselineAndExplicitMigration(t *testing.T) {
 	require.NoError(t, dal.WriteMeta(filepath.Join(root, "skills/local/review"), &common.Origin{Address: source, ProviderID: &provider}))
 	s := newUpdateSvc(t, root)
 	ctx := context.Background()
-	_, err := s.Update(ctx, "review", UpdateOptions{})
+	result, err := s.Update(ctx, "review", UpdateOptions{})
 	require.ErrorContains(t, err, "missing_baseline")
+	require.NotContains(t, err.Error(), "format.json")
+	require.Equal(t, "missing_baseline", result.ReasonCode)
+	require.Contains(t, result.NextActions, "skm sync baseline review --help")
 	raw, err := dal.SyncTree(source)
 	require.NoError(t, err)
 	opts := BaselineOptions{Source: source, Revision: "sha256:" + raw.Digest, NewStart: true}

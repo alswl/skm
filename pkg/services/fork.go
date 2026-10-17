@@ -135,6 +135,9 @@ func (s *Services) syncWrite(ctx context.Context, name string, opts engines.Sync
 		}
 		res.ReasonCode = syncReasonCode(err)
 		res.NextActions = []string{"skm info " + name}
+		if res.ReasonCode == "missing_baseline" {
+			res.NextActions = append(res.NextActions, "skm sync baseline "+name+" --help")
+		}
 		if res.AttemptPath != "" {
 			res.NextActions = append(res.NextActions, "skm update "+name+" --accept", "skm update "+name+" --abort")
 		}
@@ -293,7 +296,7 @@ func (s *Services) SyncRecoverReport(ctx context.Context, dryRun bool) (*SyncRec
 func (s *Services) updateSkill(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
 	return s.syncWrite(ctx, name, engines.SyncOptions{DryRun: opts.DryRun}, func(e *common.Entry) (*engines.UpdateResult, error) {
 		if _, _, err := s.Repo.SyncRecord(e); err != nil {
-			return nil, fmt.Errorf("missing_baseline: use sync baseline before update: %w", err)
+			return nil, s.syncRecordError(name, err)
 		}
 		st, err := s.Repo.SyncStatus(e)
 		if err != nil {
@@ -330,6 +333,21 @@ func (s *Services) updateSkill(ctx context.Context, name string, opts UpdateOpti
 		defer release()
 		return s.Repo.PrepareSyncUpdateFromBase(ctx, e, base, fetched.Path, fetched.Version, opts.DryRun)
 	})
+}
+
+func (s *Services) syncRecordError(name string, err error) error {
+	if !os.IsNotExist(err) {
+		return err
+	}
+	stateRoot := filepath.Join(s.Cfg.Root, ".skm")
+	if _, statErr := os.Lstat(stateRoot); statErr == nil {
+		if _, formatErr := os.Lstat(filepath.Join(stateRoot, "format.json")); formatErr != nil {
+			return fmt.Errorf("unrecognized sync root %s: %w", stateRoot, formatErr)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return statErr
+	}
+	return fmt.Errorf("missing_baseline: %q has no saved upstream baseline; run skm sync baseline %s --help", name, name)
 }
 
 func syncReasonCode(err error) string {
