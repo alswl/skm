@@ -64,10 +64,15 @@ Git repository to preserve content, source associations, and complete baselines.
 transaction state, so skm adds exact ignore rules for them. skm never commits for
 you. Management directories are excluded from installation and discovery.
 
-Older imported skills without a baseline remain installable but cannot update
-safely. `skm sync baseline --help` describes historical restoration and an explicit
-new comparison point. Source-only sharing does not include fork content: opting
-into `share create --original-source` shares the community address with a warning.
+For skills imported by older skm releases without a saved baseline, the first
+`update` checks whether their content exactly matches a historical Git revision
+of the recorded source (or the current content of a non-Git source). When it
+does, skm establishes that baseline and continues the update automatically.
+`--dry-run` reports a match without writing. If no exact match can be proven,
+the skill stays unchanged and installable; `skm sync baseline --help` describes
+explicit recovery for locally edited or unavailable sources. Source-only sharing
+does not include fork content; `share create --original-source` shares the
+community address with a warning.
 An export references the maintained repository remote, including only what has
 actually been published there; `backup` saves an installation list, not contents.
 

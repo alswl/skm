@@ -54,7 +54,10 @@ fork 位于 `skills-fork/` 下，并镜像条目在 `skills/` 下的相对路径
 来源关联与原始基线。`.skm/cache/` 和 `.skm/work/` 分别保存可重建的缓存数据和进行中的事务状态；
 skm 自动加入精确忽略规则，不会替用户提交 Git。管理目录不进入安装或 Skill 扫描。
 
-旧导入项没有基线时仍能安装，但暂停自动更新。`skm sync baseline --help` 提供历史恢复或明确的新比较起点。
+旧版 skm 导入且未保存基线的 Skill，首次 `update` 会核对其内容是否与来源的某个历史 Git 提交
+（非 Git 来源则为当前内容）完全一致。匹配后自动建立基线并继续更新；`--dry-run` 只报告匹配，
+不改动仓库。若无法证明精确匹配，Skill 保持原样且仍可安装；本地改动或来源不可用时，
+可用 `skm sync baseline --help` 查看显式恢复方式。
 仅来源分享不包含 fork；`share create --original-source` 显式分享社区地址并保留提示。
 export 引用维护仓库远端，只有实际发布的内容才可由接收方获取；backup 只保存安装清单，不备份文件内容。
 

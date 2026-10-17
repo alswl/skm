@@ -9,6 +9,43 @@ import (
 	"github.com/alswl/skm/skm/pkg/dal"
 )
 
+// LegacyContentMatches verifies a pre-sync import against a raw source tree.
+// The old import metadata is management data, not part of the source content.
+func (r *Repository) LegacyContentMatches(e *common.Entry, source string) (bool, error) {
+	work, err := os.MkdirTemp("", "skm-legacy-match-*")
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = os.RemoveAll(work) }()
+	local := filepath.Join(work, "local")
+	if err = dal.CopySyncTree(e.Path, local); err != nil {
+		return false, err
+	}
+	if e.RepositoryPath == "" && e.Origin != nil {
+		if err = os.Remove(filepath.Join(local, "meta.json")); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	candidate := filepath.Join(work, "candidate")
+	if err = dal.CopySyncTree(source, candidate); err != nil {
+		return false, err
+	}
+	if _, err = os.Lstat(filepath.Join(candidate, "meta.json")); err == nil {
+		return false, fmt.Errorf("reserved upstream meta.json")
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	if err = normalizeStagedSkill(candidate, e.Name); err != nil {
+		return false, err
+	}
+	a, err := dal.TreeFingerprint(local)
+	if err != nil {
+		return false, err
+	}
+	b, err := dal.TreeFingerprint(candidate)
+	return a == b, err
+}
+
 func (r *Repository) AssociateBaseline(e *common.Entry, source string, origin *common.Origin, newStart bool) error {
 	oldRecord, rel, recordErr := r.SyncRecord(e)
 	if err := r.noAttempt(rel); err != nil {

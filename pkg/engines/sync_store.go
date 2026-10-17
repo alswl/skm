@@ -109,7 +109,7 @@ func (r *Repository) attachSync(e *common.Entry) *common.Entry {
 	return e
 }
 
-func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *common.Origin, force bool) error {
+func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *common.Origin, force bool, legacySource string) error {
 	rel, err := filepath.Rel(r.root, dest)
 	if err != nil {
 		return err
@@ -123,7 +123,18 @@ func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *commo
 	}
 	if expectedContent != "absent" {
 		existing := r.findByPath(dest)
-		if !force || existing == nil || existing.Origin != nil || existing.RepositoryPath != "" {
+		if legacySource != "" {
+			if existing == nil || existing.Origin == nil || existing.RepositoryPath != "" || existing.Kind != common.KindSkill || existing.Name != name {
+				return fmt.Errorf("legacy update requires an untracked imported skill")
+			}
+			matched, matchErr := r.LegacyContentMatches(existing, legacySource)
+			if matchErr != nil {
+				return matchErr
+			}
+			if !matched {
+				return fmt.Errorf("stale_input: legacy content changed after its source was matched")
+			}
+		} else if !force || existing == nil || existing.Origin != nil || existing.RepositoryPath != "" {
 			return fmt.Errorf("existing tracked destination: use update or sync baseline; force cannot discard customization")
 		}
 	}
@@ -173,4 +184,55 @@ func (r *Repository) trackedImport(staged, tmp, dest, name string, origin *commo
 		replacements = append(replacements, *snapshot)
 	}
 	return dal.CommitSync(r.root, rel, replacements)
+}
+
+// UpgradeLegacyImport accepts a verified old source and a prepared new source
+// in one transaction. The old tree must still match at the acceptance point.
+// The caller owns the repository lock and the source trees.
+func (r *Repository) UpgradeLegacyImport(e *common.Entry, oldSource, newSource string, origin *common.Origin, dryRun bool) (*UpdateResult, error) {
+	if e.Origin == nil || e.RepositoryPath != "" || e.Kind != common.KindSkill {
+		return nil, fmt.Errorf("legacy update requires an untracked imported skill")
+	}
+	kind, name, err := r.ProbeStaged(newSource)
+	if err != nil {
+		return nil, err
+	}
+	if kind != common.KindSkill || name != e.Name {
+		return nil, fmt.Errorf("invalid_candidate: fetched skill identity changed")
+	}
+	tmp, err := r.prepareImport(newSource, e.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	before, err := dal.DirHash(e.Path, func(rel string) bool { return rel == "meta.json" })
+	if err != nil {
+		return nil, err
+	}
+	after, err := dal.DirHash(tmp, nil)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := dal.SyncTree(newSource)
+	if err != nil {
+		return nil, err
+	}
+	version := origin.Revision
+	if version == "" {
+		version = "sha256:" + raw.Digest
+	}
+	result := &UpdateResult{Before: before, After: after, Changed: before != after, Outcome: "current", ActivePath: e.Path, BaselineVersion: version, UpstreamVersion: version}
+	if result.Changed {
+		result.Outcome = "updated"
+	}
+	if dryRun {
+		return result, nil
+	}
+	if err = r.trackedImport(newSource, tmp, e.Path, e.Name, origin, false, oldSource); err != nil {
+		result.Outcome = "blocked"
+		result.Accepted = dal.IsSyncAccepted(err)
+		return result, err
+	}
+	result.Accepted = true
+	return result, nil
 }

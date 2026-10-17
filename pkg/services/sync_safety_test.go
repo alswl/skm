@@ -180,6 +180,104 @@ func TestLegacyMissingBaselineAndExplicitMigration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "fork", st.Mode)
 }
+
+func TestLegacyGitImportRecoversHistoricalBaselineOnUpdate(t *testing.T) {
+	git := newGitSyncSource(t)
+	root := t.TempDir()
+	rel := "skills/github/review"
+	writeFile(t, root, filepath.Join(rel, "SKILL.md"), frontmatter("review", "Review"))
+	writeFile(t, root, filepath.Join(rel, "guide.txt"), "base\n")
+	provider := "github"
+	require.NoError(t, dal.WriteMeta(filepath.Join(root, rel), &common.Origin{Address: "https://github.com/example/review", ProviderID: &provider, RepositoryAddress: git.Path}))
+	s := newUpdateSvc(t, root)
+	before, err := dal.TreeFingerprint(root)
+	require.NoError(t, err)
+	preview, err := s.Update(context.Background(), "review", UpdateOptions{DryRun: true})
+	require.NoError(t, err)
+	require.Equal(t, "updated", preview.Outcome)
+	after, err := dal.TreeFingerprint(root)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	result, err := s.Update(context.Background(), "review", UpdateOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	require.Equal(t, "upstream\n", readSyncFile(t, currentSyncPath(t, s)))
+	st, err := s.SyncStatus("review")
+	require.NoError(t, err)
+	require.Equal(t, "upstream", st.Mode)
+	require.Equal(t, "valid", st.BaselineState)
+	require.NoDirExists(t, filepath.Join(root, "skills-fork/github/review"))
+}
+
+func TestLegacyGitImportKeepsUnknownLocalChanges(t *testing.T) {
+	git := newGitSyncSource(t)
+	root := t.TempDir()
+	rel := "skills/github/review"
+	writeFile(t, root, filepath.Join(rel, "SKILL.md"), frontmatter("review", "Review"))
+	writeFile(t, root, filepath.Join(rel, "guide.txt"), "my edits\n")
+	provider := "github"
+	require.NoError(t, dal.WriteMeta(filepath.Join(root, rel), &common.Origin{Address: "https://github.com/example/review", ProviderID: &provider, RepositoryAddress: git.Path}))
+	s := newUpdateSvc(t, root)
+	result, err := s.Update(context.Background(), "review", UpdateOptions{})
+	require.ErrorContains(t, err, "missing_baseline")
+	require.Equal(t, "missing_baseline", result.ReasonCode)
+	require.Equal(t, "my edits\n", readSyncFile(t, filepath.Join(root, rel, "guide.txt")))
+	require.FileExists(t, filepath.Join(root, rel, "meta.json"))
+	require.NoDirExists(t, filepath.Join(root, "skills-fork/github/review"))
+}
+
+func TestLegacyLocalImportRecoversOnlyIdenticalSource(t *testing.T) {
+	root, source := t.TempDir(), t.TempDir()
+	rel := "skills/local/review"
+	writeFile(t, source, "SKILL.md", frontmatter("review", "Review"))
+	writeFile(t, source, "guide.txt", "base\n")
+	writeFile(t, root, filepath.Join(rel, "SKILL.md"), frontmatter("review", "Review"))
+	writeFile(t, root, filepath.Join(rel, "guide.txt"), "base\n")
+	provider := "local"
+	require.NoError(t, dal.WriteMeta(filepath.Join(root, rel), &common.Origin{Address: source, ProviderID: &provider}))
+	s := newUpdateSvc(t, root)
+	result, err := s.Update(context.Background(), "review", UpdateOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	require.Equal(t, "current", result.Outcome)
+	st, err := s.SyncStatus("review")
+	require.NoError(t, err)
+	require.Equal(t, "upstream", st.Mode)
+	require.Equal(t, "valid", st.BaselineState)
+}
+
+func TestLegacyGitWebURLWithoutRevisionRecoversSubpath(t *testing.T) {
+	source, root := t.TempDir(), t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", source}, args...)...).CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	run("init", "-q")
+	run("branch", "-M", "master")
+	writeFile(t, source, "skills/review/SKILL.md", frontmatter("review", "Review"))
+	writeFile(t, source, "skills/review/guide.txt", "base\n")
+	run("add", ".")
+	run("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "base")
+	writeFile(t, source, "skills/review/guide.txt", "upstream\n")
+	run("add", ".")
+	run("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "upstream")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url."+source+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/example/review")
+	rel := "skills/github/example/review/review"
+	writeFile(t, root, filepath.Join(rel, "SKILL.md"), frontmatter("review", "Review"))
+	writeFile(t, root, filepath.Join(rel, "guide.txt"), "base\n")
+	writeFile(t, root, filepath.Join(rel, "meta.json"), `{"address":"https://github.com/example/review/tree/master/skills/review","mode_id":"github","path":"`+rel+`"}`)
+	s := newUpdateSvc(t, root)
+	result, err := s.Update(context.Background(), "review", UpdateOptions{})
+	require.NoError(t, err)
+	require.True(t, result.Accepted)
+	require.Equal(t, "upstream\n", readSyncFile(t, filepath.Join(root, rel, "guide.txt")))
+	st, err := s.SyncStatus("review")
+	require.NoError(t, err)
+	require.Equal(t, "valid", st.BaselineState)
+}
 func TestReservedSourceMetadataFailsWithoutDiscarding(t *testing.T) {
 	s, source, _ := syncFixture(t)
 	writeFile(t, source, "meta.json", `{"user":"data"}`)

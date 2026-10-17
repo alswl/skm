@@ -296,7 +296,25 @@ func (s *Services) SyncRecoverReport(ctx context.Context, dryRun bool) (*SyncRec
 func (s *Services) updateSkill(ctx context.Context, name string, opts UpdateOptions) (*engines.UpdateResult, error) {
 	return s.syncWrite(ctx, name, engines.SyncOptions{DryRun: opts.DryRun}, func(e *common.Entry) (*engines.UpdateResult, error) {
 		if _, _, err := s.Repo.SyncRecord(e); err != nil {
-			return nil, s.syncRecordError(name, err)
+			if !os.IsNotExist(err) || e.Origin == nil {
+				return nil, s.syncRecordError(name, err)
+			}
+			match, matchErr := s.matchLegacyBaseline(ctx, e)
+			if matchErr != nil {
+				return nil, matchErr
+			}
+			if match == nil {
+				return nil, s.syncRecordError(name, err)
+			}
+			defer match.Cleanup()
+			fetched, fetchErr := s.fetchFromOrigin(ctx, e, !opts.DryRun)
+			if fetchErr != nil {
+				return nil, fetchErr
+			}
+			defer fetched.Cleanup()
+			origin := match.Origin
+			origin.Revision = fetched.Version
+			return s.Repo.UpgradeLegacyImport(e, match.Path, fetched.Path, &origin, opts.DryRun)
 		}
 		st, err := s.Repo.SyncStatus(e)
 		if err != nil {

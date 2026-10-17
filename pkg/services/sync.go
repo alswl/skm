@@ -313,11 +313,15 @@ func cacheSubpath(root, subpath string) (string, error) {
 	if !filepath.IsLocal(subpath) {
 		return "", fmt.Errorf("historical_source_unavailable: unsafe source subpath")
 	}
-	path, err := filepath.EvalSymlinks(filepath.Join(root, subpath))
+	canonicalRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", err
 	}
-	rel, err := filepath.Rel(root, path)
+	path, err := filepath.EvalSymlinks(filepath.Join(canonicalRoot, subpath))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(canonicalRoot, path)
 	if err != nil || !filepath.IsLocal(rel) {
 		return "", fmt.Errorf("historical_source_unavailable: source subpath escapes cache")
 	}
