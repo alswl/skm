@@ -1,3 +1,16 @@
+## [0.7.1] - 2026-10-18
+
+### 🚀 Features
+
+- *(deploy)* Reuse initialized repositories and accept platform targets
+
+### 🐛 Bug Fixes
+
+- *(deploy)* Ignore repository-level symlinks during skill discovery
+
+### ⚙️ Miscellaneous Tasks
+
+- Prepare next version v0.7.0-dev
 ## [0.7.0] - 2026-10-17
 
 ### 🚀 Features
@@ -7,6 +20,7 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Prepare next version v0.6.1-dev
+- Bump version to v0.7.0
 ## [0.6.1] - 2026-10-15
 
 ### 🐛 Bug Fixes
