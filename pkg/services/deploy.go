@@ -90,7 +90,7 @@ func ValidateDeployOptions(opts DeployOptions) error {
 	return nil
 }
 
-// Deploy keeps acquisition separate from durable content: either a new personal
+// Deploy keeps acquisition separate from durable content: either a personal
 // repository owns it, or explicitly selected targets receive independent copies.
 func (s *Services) Deploy(ctx context.Context, opts DeployOptions) (*DeployResult, error) {
 	r := NewDeployResult(opts)
@@ -106,12 +106,13 @@ func (s *Services) Deploy(ctx context.Context, opts DeployOptions) (*DeployResul
 		r.Targets = append(r.Targets, t.Name)
 	}
 	destination := ""
+	createRepository := opts.Into != ""
 	if !opts.NoRepo {
-		destination = opts.Into
-		if destination == "" {
-			destination = "skm"
+		if createRepository {
+			destination, err = newDeployDirectory(opts.Into)
+		} else {
+			destination, err = existingDeployDirectory(s.Cfg.Root)
 		}
-		destination, err = newDeployDirectory(destination)
 		if err != nil {
 			return fail("invalid_destination", err)
 		}
@@ -130,6 +131,17 @@ func (s *Services) Deploy(ctx context.Context, opts DeployOptions) (*DeployResul
 	}
 	if err = preflightDeploy(source.path, destination, skills, targets, opts.Force); err != nil {
 		return fail("preflight_failed", err)
+	}
+	// A later conflict must not leave earlier skills imported.
+	if !opts.NoRepo && !createRepository && !opts.Force {
+		for _, e := range skills {
+			slot := filepath.Join(destination, "skills", source.provider, source.group, e.Name)
+			if _, err = os.Lstat(slot); err == nil {
+				return fail("preflight_failed", common.WithExitCode(fmt.Errorf("deploy: skill %q already exists at %q; use --force to replace it", e.Name, slot), common.ExitObject))
+			} else if !os.IsNotExist(err) {
+				return fail("preflight_failed", err)
+			}
+		}
 	}
 	r.Phase = "preflighted"
 	for _, e := range skills {
@@ -160,13 +172,15 @@ func (s *Services) Deploy(ctx context.Context, opts DeployOptions) (*DeployResul
 		return fail("cancelled", err)
 	}
 	if !opts.NoRepo {
-		if err = os.Mkdir(destination, 0o755); err != nil {
-			return fail("create_failed", err)
+		if createRepository {
+			if err = os.Mkdir(destination, 0o755); err != nil {
+				return fail("create_failed", err)
+			}
+			if _, err = engines.InitializeRepository(destination); err != nil {
+				return fail("create_failed", err)
+			}
 		}
-		r.Recovery = append(r.Recovery, "Repository content is retained. Complete imports with import --root; retry failed links with install NAME --root and explicit --target. deploy never resumes an existing directory.")
-		if _, err = engines.InitializeRepository(destination); err != nil {
-			return fail("create_failed", err)
-		}
+		r.Recovery = append(r.Recovery, "Repository content is retained. Retry failed links with install NAME --root and explicit --target; use deploy --root with --force to replace previously imported skills and target slots.")
 		repo := engines.NewRepository(destination)
 		for i, e := range skills {
 			op := &r.Operations[i]
@@ -175,7 +189,7 @@ func (s *Services) Deploy(ctx context.Context, opts DeployOptions) (*DeployResul
 			}
 			var imported *engines.RepositoryImportResult
 			if err == nil {
-				imported, err = repo.ImportStaged(ctx, e.Path, source.provider, source.group, false, source.origin(e.Path))
+				imported, err = repo.ImportStaged(ctx, e.Path, source.provider, source.group, !createRepository && opts.Force, source.origin(e.Path))
 			}
 			if err != nil {
 				op.Status = "failed"

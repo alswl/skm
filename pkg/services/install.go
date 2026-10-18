@@ -10,7 +10,7 @@ import (
 
 // InstallOptions controls an install/uninstall action.
 type InstallOptions struct {
-	// Targets names to act on; empty means all kind-matching targets.
+	// Targets names or platforms to act on; empty means all kind-matching targets.
 	Targets []string
 	Force   bool
 	DryRun  bool
@@ -133,25 +133,21 @@ func (s *Services) RemoveForeign(ctx context.Context, name string, targets []str
 	return result, nil
 }
 
-// selectTargets resolves explicit target names (empty = all kind-matching).
-// Unknown target names or targets that cannot receive the entry are argument
-// errors (exit 2 per exit-codes.md).
+// Invalid explicit selections are argument errors (exit 2 per exit-codes.md).
 func (s *Services) selectTargets(entry *common.Entry, names []string) ([]common.InstallTarget, error) {
 	if len(names) == 0 {
 		return s.Installer.Targets(entry), nil
 	}
-	var out []common.InstallTarget
-	for _, n := range names {
-		t, ok := s.Installer.TargetByName(n)
-		if !ok {
-			return nil, common.WithExitCode(fmt.Errorf("unknown target %q", n), common.ExitError)
-		}
-		if !s.Installer.Matches(entry, t) {
-			return nil, common.WithExitCode(fmt.Errorf("target %q does not accept a %s entry", n, entry.Kind), common.ExitError)
-		}
-		out = append(out, t)
+	targets, err := s.resolveTargets(entry.Kind, names)
+	if err != nil {
+		return nil, common.WithExitCode(err, common.ExitError)
 	}
-	return out, nil
+	for _, t := range targets {
+		if !s.Installer.Matches(entry, t) {
+			return nil, common.WithExitCode(fmt.Errorf("target %q does not accept a %s entry", t.Name, entry.Kind), common.ExitError)
+		}
+	}
+	return targets, nil
 }
 
 func desiredInstallState(action string) common.InstallState {

@@ -16,7 +16,7 @@ skm install NAME [flags]
 
 ```
   -h, --help             help for install
-      --target strings   target name(s); default all kind-matching
+      --target strings   target or platform name(s); default all kind-matching
 ```
 
 ### Options inherited from parent commands

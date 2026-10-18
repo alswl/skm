@@ -110,6 +110,53 @@ func TestDeployLibraryAndLocalUpdate(t *testing.T) {
 	require.ErrorContains(t, err, "already exists")
 }
 
+func TestDeployIntoInitializedRepositoryAndRefresh(t *testing.T) {
+	svc, opts, src, targets := deployFixture(t)
+	opts.Into = ""
+	_, err := svc.Deploy(context.Background(), opts)
+	require.ErrorContains(t, err, "skm init")
+	_, err = engines.InitializeRepository(svc.Cfg.Root)
+	require.NoError(t, err)
+	writeSvcFile(t, svc.Cfg.Root, "skills/local/unrelated/SKILL.md", "---\nname: unrelated\ndescription: keep\n---\nkeep")
+	r, err := svc.Deploy(context.Background(), opts)
+	require.NoError(t, err)
+	root, err := filepath.EvalSymlinks(svc.Cfg.Root)
+	require.NoError(t, err)
+	require.Equal(t, root, *r.Destination)
+	require.NoDirExists(t, filepath.Join(root, "skm"))
+	writeSvcFile(t, src, "nested/alpha/resource.txt", "refreshed")
+	opts.Force = true
+	r, err = svc.Deploy(context.Background(), opts)
+	require.NoError(t, err)
+	require.True(t, r.Success)
+	for _, target := range targets {
+		data, err := os.ReadFile(filepath.Join(target.Path, "alpha/resource.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "refreshed", string(data))
+	}
+	require.FileExists(t, filepath.Join(root, "skills/local/unrelated/SKILL.md"))
+}
+
+func TestDeployExistingRepositoryCollisionWritesNothing(t *testing.T) {
+	svc, opts, _, targets := deployFixture(t)
+	opts.Into = ""
+	_, err := engines.InitializeRepository(svc.Cfg.Root)
+	require.NoError(t, err)
+	writeSvcFile(t, svc.Cfg.Root, "skills/local/beta/SKILL.md", "---\nname: beta\ndescription: existing\n---\nkeep")
+	_, err = svc.Deploy(context.Background(), opts)
+	require.ErrorContains(t, err, "already exists")
+	require.NoDirExists(t, filepath.Join(svc.Cfg.Root, "skills/local/alpha"))
+	for _, target := range targets {
+		require.NoDirExists(t, target.Path)
+	}
+	opts.Only = []string{"alpha"}
+	opts.DryRun = true
+	r, err := svc.Deploy(context.Background(), opts)
+	require.NoError(t, err)
+	require.Equal(t, "planned", r.Phase)
+	require.NoDirExists(t, filepath.Join(svc.Cfg.Root, "skills/local/alpha"))
+}
+
 func TestDeployDirectCopiesAndExplicitRefresh(t *testing.T) {
 	svc, opts, src, targets := deployFixture(t)
 	library := opts.Into

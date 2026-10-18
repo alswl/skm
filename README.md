@@ -109,16 +109,26 @@ built-ins, and both are pluggable with plain executables — no Go, no rebuildin
 
 ## 🏁 Quick start
 
-When the unreleased deploy flow ships, install skm, refresh the current shell's
-command lookup, and install all of Matt Pocock's skills into your selected tools
-with one command:
+Install skm and refresh your shell's command lookup:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh && export PATH="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH" && hash -r && skm deploy --repo https://github.com/mattpocock/skills.git --target codex,claude-skills
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+export PATH="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH"
+hash -r
 ```
 
-skm installs to `~/.local/bin` by default (override with `SKM_INSTALL_DIR`). Deploy
-creates a local `./skm/` library first, then links the selected targets. See the
+skm installs to `~/.local/bin` by default (override with `SKM_INSTALL_DIR`).
+
+Optionally, try deploying a skill collection. This example uses Matt Pocock's
+skills; choose any source and targets that suit you:
+
+```bash
+skm init ./skm
+skm deploy --repo https://github.com/mattpocock/skills.git --root ./skm --target codex,claude
+```
+
+Deploy uses an initialized repository, discovered upward from cwd or selected with `--root`.
+Use `--into` to explicitly create a new library, or `--no-repo` for direct target copies. See the
 [deploy reference](docs/cli/skm_deploy.md) for details.
 
 ## 🚀 First run
@@ -170,6 +180,11 @@ skm status code-review
 skm backup create
 skm backup restore --force
 ```
+
+`deploy`, `install`, and `uninstall` accept target names or platforms through `--target`.
+For example, `--target claude` selects `claude-skills` for skills and `claude-commands` for
+commands. Exact target names take precedence; if a platform has several targets for the
+same kind, select one by name. Repeated selections of the same target are applied once.
 
 `backup create` snapshots which entries exist and where each one is installed; `backup restore`
 puts them back on those targets. It stores no file content — your repo is the source of truth for

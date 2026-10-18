@@ -35,7 +35,7 @@ skm [flags]
 * [skm batch-update](skm_batch-update.md)	 - Refresh all active entries that have an origin
 * [skm delete](skm_delete.md)	 - Permanently remove an entry (requires --force)
 * [skm delete-external](skm_delete-external.md)	 - Permanently remove external unmanaged skills (requires --force)
-* [skm deploy](skm_deploy.md)	 - Create a personal skill library and link it to selected targets, or copy with --no-repo
+* [skm deploy](skm_deploy.md)	 - Import skills into an initialized repository and link them to selected targets
 * [skm discover](skm_discover.md)	 - List external unmanaged skills in install targets
 * [skm export](skm_export.md)	 - Emit a quote-safe skm deploy command for installed assets
 * [skm fork](skm_fork.md)	 - Give a Skill its own editable copy in skills-fork/

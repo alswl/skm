@@ -100,9 +100,7 @@ func Load(rootFlag, configDir string) (*Config, error) {
 	}, nil
 }
 
-// LoadForDeploy builds a Config without requiring a repository root. The
-// deploy command operates on its --repo source (which may not exist yet on the
-// target machine), so no local repository is needed.
+// LoadForDeploy builds a Config without requiring a repository root.
 func LoadForDeploy(configDir string) (*Config, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir()

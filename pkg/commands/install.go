@@ -33,7 +33,7 @@ var installCmd = &cobra.Command{
 }
 
 func init() {
-	installCmd.Flags().StringSliceVar(&installTargets, "target", nil, "target name(s); default all kind-matching")
+	installCmd.Flags().StringSliceVar(&installTargets, "target", nil, "target or platform name(s); default all kind-matching")
 	rootCmd.AddCommand(installCmd)
 }
 

@@ -99,8 +99,6 @@ func servicesFor(cmd *cobra.Command) (*services.Services, error) {
 	return services.New(cfg, common.NewLogger(flagTiming))
 }
 
-// deployServicesFor builds Services for the deploy command without requiring a
-// local repository root (the deploy source is on the target machine).
 func deployServicesFor(cmd *cobra.Command) (*services.Services, error) {
 	cfg, err := config.LoadForDeploy(flagConfig)
 	if err != nil {

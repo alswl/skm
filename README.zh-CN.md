@@ -98,13 +98,27 @@ provider 决定资产从哪里来，target 决定它们装到哪里。两者都�
 
 ## 🏁 快速上手
 
-尚未发布的 deploy 流程上线后，一条命令即可安装 skm、刷新当前 shell 的命令查找，并将 Matt Pocock 的全部 skills 安装到你选择的工具：
+安装 skm 并刷新当前 shell 的命令查找：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh && export PATH="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH" && hash -r && skm deploy --repo https://github.com/mattpocock/skills.git --target codex,claude-skills
+curl -fsSL https://raw.githubusercontent.com/alswl/skm/master/install.sh | sh
+export PATH="${SKM_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH"
+hash -r
 ```
 
-skm 默认安装到 `~/.local/bin`（可用 `SKM_INSTALL_DIR` 覆盖）。deploy 会先创建本地 `./skm/` 技能库，再链接到指定 targets。详见 [deploy 文档](docs/cli/skm_deploy.md)。
+skm 默认安装到 `~/.local/bin`（可用 `SKM_INSTALL_DIR` 覆盖）。
+
+安装完成后，可选择一个技能集合试用部署。下面仅以 Matt Pocock 的 skills 为例，
+你可以换成自己的来源和目标工具：
+
+```bash
+skm init ./skm
+skm deploy --repo https://github.com/mattpocock/skills.git --root ./skm --target codex,claude
+```
+
+deploy 默认使用已初始化的仓库，
+可从当前目录向上查找，也可通过 `--root` 指定。`--into` 可显式创建新库，`--no-repo` 可直接复制到目标。
+详见 [deploy 文档](docs/cli/skm_deploy.md)。
 
 ## 🚀 首次运行
 
@@ -152,6 +166,10 @@ skm status code-review
 skm backup create
 skm backup restore --force
 ```
+
+`deploy`、`install` 和 `uninstall` 的 `--target` 支持具体目标名或平台名。
+例如 `--target claude` 会为技能选择 `claude-skills`，为命令选择 `claude-commands`。
+具体目标名优先；平台下有多个同类型目标时，需要明确指定目标名。同一目标被重复指定时只执行一次。
 
 `backup create` 记录当前有哪些条目、各自装在哪些目标上，`backup restore` 把它们按记录重新装回去。
 它不保存文件内容——内容以你的仓库为准——`--force` 允许重装时覆盖当前占用安装路径的文件。

@@ -204,6 +204,26 @@ func newDeployDirectory(path string) (string, error) {
 	return filepath.Join(parent, filepath.Base(abs)), nil
 }
 
+func existingDeployDirectory(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("deploy: no repository selected; initialize one with 'skm init [DIRECTORY]' first")
+	}
+	root, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("deploy: repository %q is unavailable; run 'skm init [DIRECTORY]' first: %w", path, err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	for _, tree := range []string{"skills", "commands"} {
+		if info, err := os.Stat(filepath.Join(root, tree)); err == nil && info.IsDir() {
+			return root, nil
+		}
+	}
+	return "", fmt.Errorf("deploy: %q is not an initialized repository; run 'skm init [DIRECTORY]' first", root)
+}
+
 func pathsOverlap(a, b string) bool {
 	rel, err := filepath.Rel(a, b)
 	if err == nil && (rel == "." || filepath.IsLocal(rel)) {
@@ -214,18 +234,15 @@ func pathsOverlap(a, b string) bool {
 }
 
 func (s *Services) deployTargets(names []string) ([]common.InstallTarget, error) {
+	targets, err := s.resolveTargets(common.KindSkill, names)
+	if err != nil {
+		return nil, fmt.Errorf("deploy: %w", err)
+	}
 	var out []common.InstallTarget
-	seen := map[string]bool{}
-	for _, name := range names {
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-		t, ok := s.Installer.TargetByName(name)
-		if !ok {
-			return nil, fmt.Errorf("deploy: unknown target %q", name)
-		}
+	for _, t := range targets {
+		name := t.Name
 		strategy, ok := t.EffectiveStrategy(common.KindSkill)
+		// A strategy declaration alone does not mean the target accepts this kind.
 		if !t.AcceptsKind(common.KindSkill) || !ok || strategy != common.StrategySkillSymlink {
 			return nil, fmt.Errorf("deploy: target %q requires built-in skill-symlink strategy", name)
 		}

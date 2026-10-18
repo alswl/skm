@@ -27,6 +27,6 @@ var uninstallCmd = &cobra.Command{
 }
 
 func init() {
-	uninstallCmd.Flags().StringSliceVar(&installTargets, "target", nil, "target name(s); default all kind-matching")
+	uninstallCmd.Flags().StringSliceVar(&installTargets, "target", nil, "target or platform name(s); default all kind-matching")
 	rootCmd.AddCommand(uninstallCmd)
 }

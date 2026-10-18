@@ -297,6 +297,10 @@ func TestE2ECLIDeployDualMode(t *testing.T) {
 	require.Equal(t, 2, code)
 	require.Equal(t, false, r["success"])
 	require.NoDirExists(t, filepath.Join(work, "skm"))
+	_, code = run("--target", "test-a,test-b")
+	require.Equal(t, 2, code, "default deploy requires an initialized repository")
+	initOut, err := exec.Command(binary, "init", work).CombinedOutput()
+	require.NoError(t, err, "init: %s", initOut)
 	r, code = run("--target", "test-a,test-b", "--dry-run")
 	require.Zero(t, code)
 	require.Equal(t, "planned", r["phase"])
@@ -306,7 +310,8 @@ func TestE2ECLIDeployDualMode(t *testing.T) {
 	require.Equal(t, true, r["success"])
 	names := r["skills"].([]any)
 	require.Len(t, names, 3)
-	library := filepath.Join(work, "skm")
+	library := work
+	require.NoDirExists(t, filepath.Join(work, "skm"))
 	for _, name := range names {
 		for _, target := range []string{a, b} {
 			link, err := filepath.EvalSymlinks(filepath.Join(target, name.(string)))
@@ -316,8 +321,10 @@ func TestE2ECLIDeployDualMode(t *testing.T) {
 			require.Equal(t, expected, link)
 		}
 	}
-	_, code = run("--target", "test-a", "--force")
+	_, code = run("--target", "test-a")
 	require.Equal(t, 1, code)
+	_, code = run("--target", "test-a", "--force")
+	require.Zero(t, code, "force refreshes the selected skills in the initialized repository")
 	// Direct mode replaces only explicitly selected slots and produces independent directories.
 	r, code = run("--target", "test-a", "--no-repo", "--force")
 	require.Zero(t, code)
