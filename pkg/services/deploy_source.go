@@ -102,9 +102,8 @@ func discoverDeploySkills(root string, only []string) ([]*common.Entry, error) {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() {
-			if d.Type()&os.ModeSymlink != 0 {
-				return fmt.Errorf("deploy: source traversal contains symlink %q", path)
-			}
+			// Repository-level links are not skill content. WalkDir never follows
+			// them; ValidateSkillTree still rejects links inside discovered skills.
 			return nil
 		}
 		marker := filepath.Join(path, "SKILL.md")

@@ -46,6 +46,23 @@ func deployFixture(t *testing.T) (*Services, DeployOptions, string, []common.Ins
 	return svc, DeployOptions{Repo: src, Into: filepath.Join(base, "library"), Targets: []string{"one", "two"}}, src, targets
 }
 
+func TestDeployIgnoresRepositorySymlinks(t *testing.T) {
+	svc, opts, src, targets := deployFixture(t)
+	writeSvcFile(t, src, "CLAUDE.md", "repository instructions")
+	require.NoError(t, os.Symlink("CLAUDE.md", filepath.Join(src, "AGENTS.md")))
+	require.NoError(t, os.Symlink("missing", filepath.Join(src, "dangling")))
+	external := t.TempDir()
+	writeSvcFile(t, external, "SKILL.md", "---\nname: external\ndescription: excluded\n---\nbody")
+	require.NoError(t, os.Symlink(external, filepath.Join(src, "linked-skill")))
+	r, err := svc.Deploy(context.Background(), opts)
+	require.NoError(t, err)
+	require.True(t, r.Success)
+	require.ElementsMatch(t, []string{"alpha", "beta", "gamma"}, r.Skills)
+	for _, target := range targets {
+		require.FileExists(t, filepath.Join(target.Path, "alpha/SKILL.md"))
+	}
+}
+
 func TestDeployLibraryAndLocalUpdate(t *testing.T) {
 	svc, opts, src, targets := deployFixture(t)
 	// A local .git directory must not invoke git pull, even without a remote.
@@ -154,6 +171,10 @@ func TestDeployPreflightZeroWrites(t *testing.T) {
 		}},
 		{"symlink-resource", func(t *testing.T, s *Services, o *DeployOptions, src string, ts []common.InstallTarget) {
 			require.NoError(t, os.Symlink("resource.txt", filepath.Join(src, "nested/alpha/link")))
+		}},
+		{"symlink-marker", func(t *testing.T, s *Services, o *DeployOptions, src string, ts []common.InstallTarget) {
+			require.NoError(t, os.Rename(filepath.Join(src, "nested/alpha/SKILL.md"), filepath.Join(src, "nested/alpha/definition.md")))
+			require.NoError(t, os.Symlink("definition.md", filepath.Join(src, "nested/alpha/SKILL.md")))
 		}},
 		{"source-overlap", func(t *testing.T, s *Services, o *DeployOptions, src string, ts []common.InstallTarget) {
 			o.Into = filepath.Join(src, "library")
