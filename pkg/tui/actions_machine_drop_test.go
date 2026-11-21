@@ -33,7 +33,7 @@ func TestMachineDropConfirmationKeepsLink(t *testing.T) {
 	m.confirm.OnYes()
 	done := m.machinePending().(machineDropDoneMsg)
 	require.NoError(t, done.err)
-	doc, err := config.LoadMachineDocument(filepath.Join(m.svc.Cfg.Root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(m.svc.Cfg.Root, "installations.yaml"))
 	require.NoError(t, err)
 	require.Empty(t, doc.Installs)
 	_, err = os.Readlink(link)

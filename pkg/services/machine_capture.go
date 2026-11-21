@@ -16,22 +16,22 @@ import (
 
 // MachineCapturePlan describes one selected existing installation.
 type MachineCapturePlan struct {
-	Action    string                `json:"action"`
-	Version   int                   `json:"version"`
-	Directory string                `json:"directory"`
-	Target    string                `json:"target"`
-	Path      string                `json:"path"`
-	Install   common.MachineInstall `json:"install"`
-	Digest    string                `json:"digest"`
-	Link      string                `json:"link"`
-	Content   string                `json:"content"`
-	Declared  bool                  `json:"declared"`
+	Action    string              `json:"action"`
+	Version   int                 `json:"version"`
+	Directory string              `json:"directory"`
+	Target    string              `json:"target"`
+	Path      string              `json:"path"`
+	Install   common.Installation `json:"install"`
+	Digest    string              `json:"digest"`
+	Link      string              `json:"link"`
+	Content   string              `json:"content"`
+	Declared  bool                `json:"declared"`
 }
 
 // PlanMachineCapture checks that the selected path is a matching library link.
 // An empty directory selects configured user-level targets.
 func (s *Services) PlanMachineCapture(directory, target, path string) (*MachineCapturePlan, error) {
-	var items []common.MachineObservation
+	var items []common.InstallationObservation
 	var err error
 	if directory == "" {
 		items, err = s.ScanMachineUser()
@@ -66,13 +66,13 @@ func (s *Services) PlanMachineCapture(directory, target, path string) (*MachineC
 		if item.Status != "installed" || item.Skill == "" {
 			return nil, fmt.Errorf("selected installation is not a matching library link")
 		}
-		scope := common.MachineScope{Kind: "directory", Name: directory}
+		scope := common.InstallationScope{Kind: "directory", Name: directory}
 		if directory == "" {
-			scope = common.MachineScope{Kind: "user"}
+			scope = common.InstallationScope{Kind: "user"}
 		}
 		plan := &MachineCapturePlan{
 			Action: "capture", Version: 1, Directory: directory, Target: target, Path: absolute,
-			Install: common.MachineInstall{
+			Install: common.Installation{
 				Skill: item.Skill, Target: target,
 				Scope: scope,
 			},
@@ -109,7 +109,7 @@ func (s *Services) PlanMachineCapture(directory, target, path string) (*MachineC
 		if err != nil {
 			return nil, err
 		}
-		doc, err := config.LoadMachineDocument(manifest)
+		doc, err := config.LoadInstallations(manifest)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +148,7 @@ func (s *Services) ApplyMachineCapture(ctx context.Context, plan MachineCaptureP
 	if err != nil {
 		return err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return err
 	}
@@ -158,5 +158,5 @@ func (s *Services) ApplyMachineCapture(ctx context.Context, plan MachineCaptureP
 		}
 	}
 	doc.Installs = append(doc.Installs, current.Install)
-	return config.WriteMachineYAML(manifest, doc, 0o644)
+	return config.WriteYAMLAtomic(manifest, doc, 0o644)
 }

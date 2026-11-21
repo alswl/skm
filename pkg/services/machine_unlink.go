@@ -102,7 +102,7 @@ func (s *Services) PlanMachineUnlink(directory, target, path string) (*MachineUn
 // name could identify the selected position. Unrelated skills do not prevent
 // unlink when their source or target is unavailable.
 func (s *Services) checkMachineUnlinkCoverage(path string) error {
-	doc, err := config.LoadMachineDocument(filepath.Join(s.Cfg.Root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(s.Cfg.Root, config.InstallationsFile))
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrMachineUnlinkCoverageUnknown, err)
 	}

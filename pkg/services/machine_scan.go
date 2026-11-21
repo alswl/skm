@@ -16,7 +16,7 @@ import (
 )
 
 // ScanMachineDirectory reads the two supported project skill directories.
-func (s *Services) ScanMachineDirectory(id string) ([]common.MachineObservation, error) {
+func (s *Services) ScanMachineDirectory(id string) ([]common.InstallationObservation, error) {
 	directories, err := s.ListDirectories()
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func (s *Services) ScanMachineDirectory(id string) ([]common.MachineObservation,
 }
 
 // ScanMachinePath scans an unregistered Git worktree root.
-func (s *Services) ScanMachinePath(path string) ([]common.MachineObservation, error) {
+func (s *Services) ScanMachinePath(path string) ([]common.InstallationObservation, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -67,13 +67,13 @@ func (s *Services) ScanMachinePath(path string) ([]common.MachineObservation, er
 	return s.scanMachinePath("", root, false)
 }
 
-func (s *Services) scanMachinePath(id, root string, desired bool) ([]common.MachineObservation, error) {
+func (s *Services) scanMachinePath(id, root string, desired bool) ([]common.InstallationObservation, error) {
 	targets := installer.MachineDirectoryTargets(root)
 	return s.scanMachineTargets(id, false, targets, desired)
 }
 
 // ScanMachineAll scans user targets and every registered directory.
-func (s *Services) ScanMachineAll() ([]common.MachineObservation, error) {
+func (s *Services) ScanMachineAll() ([]common.InstallationObservation, error) {
 	result, err := s.ScanMachineUser()
 	if err != nil {
 		return nil, err
@@ -84,12 +84,12 @@ func (s *Services) ScanMachineAll() ([]common.MachineObservation, error) {
 	}
 	for _, directory := range directories {
 		if directory.Path == "" {
-			result = append(result, common.MachineObservation{Scope: "directory", Directory: directory.ID, Status: "error", Error: "directory has no local path"})
+			result = append(result, common.InstallationObservation{Scope: "directory", Directory: directory.ID, Status: "error", Error: "directory has no local path"})
 			continue
 		}
 		items, err := s.ScanMachineDirectory(directory.ID)
 		if err != nil {
-			result = append(result, common.MachineObservation{Scope: "directory", Directory: directory.ID, Path: directory.Path, Status: "error", Error: err.Error()})
+			result = append(result, common.InstallationObservation{Scope: "directory", Directory: directory.ID, Path: directory.Path, Status: "error", Error: err.Error()})
 			continue
 		}
 		result = append(result, items...)
@@ -99,7 +99,7 @@ func (s *Services) ScanMachineAll() ([]common.MachineObservation, error) {
 
 // FilterMachineSkill selects observations for one library skill while keeping
 // diagnostics that could make the scan incomplete.
-func (s *Services) FilterMachineSkill(items []common.MachineObservation, skill string) ([]common.MachineObservation, error) {
+func (s *Services) FilterMachineSkill(items []common.InstallationObservation, skill string) ([]common.InstallationObservation, error) {
 	entry, err := s.ResolveEntry(skill)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (s *Services) FilterMachineSkill(items []common.MachineObservation, skill s
 		return nil, fmt.Errorf("skill %q not found", skill)
 	}
 	ref := s.MachineSkillReference(entry)
-	filtered := make([]common.MachineObservation, 0, len(items))
+	filtered := make([]common.InstallationObservation, 0, len(items))
 	for _, item := range items {
 		if item.Skill == ref || slices.Contains(item.ExpectedSkills, ref) || item.Status == "error" || item.Status == "recovery" {
 			filtered = append(filtered, item)
@@ -118,16 +118,16 @@ func (s *Services) FilterMachineSkill(items []common.MachineObservation, skill s
 }
 
 // ScanMachineUser reads configured user-level skill targets.
-func (s *Services) ScanMachineUser() ([]common.MachineObservation, error) {
+func (s *Services) ScanMachineUser() ([]common.InstallationObservation, error) {
 	return s.scanMachineUser(true)
 }
 
-func (s *Services) scanMachineUser(desired bool) ([]common.MachineObservation, error) {
+func (s *Services) scanMachineUser(desired bool) ([]common.InstallationObservation, error) {
 	targets := installer.MachineUserTargets(s.Cfg.Targets)
 	return s.scanMachineTargets("", true, targets, desired)
 }
 
-func (s *Services) scanMachineTargets(id string, user bool, targets []installer.MachineTarget, desired bool) ([]common.MachineObservation, error) {
+func (s *Services) scanMachineTargets(id string, user bool, targets []installer.MachineTarget, desired bool) ([]common.InstallationObservation, error) {
 	scope := "path"
 	if user {
 		scope = "user"
@@ -151,13 +151,13 @@ func (s *Services) scanMachineTargets(id string, user bool, targets []installer.
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]common.MachineObservation, 0)
+	result := make([]common.InstallationObservation, 0)
 	for _, diagnostic := range sourceDiagnostics {
-		result = append(result, common.MachineObservation{Scope: scope, Directory: id, Path: diagnostic.Path, Skill: diagnostic.Skill, Status: "error", Error: diagnostic.Error})
+		result = append(result, common.InstallationObservation{Scope: scope, Directory: id, Path: diagnostic.Path, Skill: diagnostic.Skill, Status: "error", Error: diagnostic.Error})
 	}
 	for _, target := range targets {
 		entries, err := os.ReadDir(target.Path)
@@ -165,7 +165,7 @@ func (s *Services) scanMachineTargets(id string, user bool, targets []installer.
 			continue
 		}
 		if err != nil {
-			result = append(result, common.MachineObservation{Scope: scope, Directory: id, Target: target.Name, Path: target.Path, Status: "error", Error: err.Error()})
+			result = append(result, common.InstallationObservation{Scope: scope, Directory: id, Target: target.Name, Path: target.Path, Status: "error", Error: err.Error()})
 			continue
 		}
 		for _, entry := range entries {
@@ -178,10 +178,10 @@ func (s *Services) scanMachineTargets(id string, user bool, targets []installer.
 						if _, err := os.Lstat(retained); os.IsNotExist(err) {
 							retained = path
 						} else if err != nil {
-							result = append(result, common.MachineObservation{Scope: scope, Directory: id, Target: target.Name, Path: path, Status: "error", Error: err.Error()})
+							result = append(result, common.InstallationObservation{Scope: scope, Directory: id, Target: target.Name, Path: path, Status: "error", Error: err.Error()})
 							continue
 						}
-						result = append(result, common.MachineObservation{Scope: scope, Directory: id, Target: target.Name, Path: retained, Status: "recovery", Error: "interrupted link removal; inspect retained object"})
+						result = append(result, common.InstallationObservation{Scope: scope, Directory: id, Target: target.Name, Path: retained, Status: "recovery", Error: "interrupted link removal; inspect retained object"})
 						continue
 					}
 				}
@@ -196,7 +196,7 @@ func (s *Services) scanMachineTargets(id string, user bool, targets []installer.
 			if slot.Status == "missing" {
 				slot.Status, slot.Error = "error", "slot disappeared during scan"
 			}
-			item := common.MachineObservation{Scope: scope, Directory: id, Target: target.Name, Path: path, Status: slot.Status, Skill: slot.Skill, Error: slot.Error}
+			item := common.InstallationObservation{Scope: scope, Directory: id, Target: target.Name, Path: path, Status: slot.Status, Skill: slot.Skill, Error: slot.Error}
 			if item.Skill != "" {
 				if user {
 					item.Declared = machineUserCovered(doc, item.Target, item.Skill)
@@ -222,7 +222,7 @@ func (s *Services) scanMachineTargets(id string, user bool, targets []installer.
 }
 
 // appendMachineDesired adds currently absent declared locations to a fresh scan.
-func (s *Services) appendMachineDesired(items []common.MachineObservation, request MachineRestoreRequest) ([]common.MachineObservation, error) {
+func (s *Services) appendMachineDesired(items []common.InstallationObservation, request MachineRestoreRequest) ([]common.InstallationObservation, error) {
 	plan, err := s.planMachineRestoreScoped(request, false)
 	if err != nil {
 		return nil, err
@@ -277,7 +277,7 @@ func (s *Services) appendMachineDesired(items []common.MachineObservation, reque
 			if len(request.Directories) == 1 {
 				directory = request.Directories[0]
 			}
-			items = append(items, common.MachineObservation{Scope: scope, Directory: directory, Target: desired.Target, Path: desired.Path, Skill: desired.Skill, Status: status, Error: desired.Error, Declared: true})
+			items = append(items, common.InstallationObservation{Scope: scope, Directory: directory, Target: desired.Target, Path: desired.Path, Skill: desired.Skill, Status: status, Error: desired.Error, Declared: true})
 		}
 	}
 	return items, nil

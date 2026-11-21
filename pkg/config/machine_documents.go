@@ -17,17 +17,20 @@ import (
 
 const machineVersion = 1
 
+// InstallationsFile is the versioned installation declaration at the library root.
+const InstallationsFile = "installations.yaml"
+
 var machineName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
-// MachineDocument stores the versioned desired installations.
-type MachineDocument struct {
-	Version     int                                `yaml:"version" json:"version"`
-	Directories map[string]common.MachineDirectory `yaml:"directories" json:"directories"`
-	Installs    []common.MachineInstall            `yaml:"installs" json:"installs"`
+// InstallationsDocument stores the versioned desired installations.
+type InstallationsDocument struct {
+	Version     int                         `yaml:"version" json:"version"`
+	Directories map[string]common.Directory `yaml:"directories" json:"directories"`
+	Installs    []common.Installation       `yaml:"installs" json:"installs"`
 }
 
-// MachinePaths stores the machine-specific paths of registered directories.
-type MachinePaths struct {
+// DirectoryPaths stores the machine-specific paths of registered directories.
+type DirectoryPaths struct {
 	Version int               `yaml:"version" json:"version"`
 	Paths   map[string]string `yaml:"paths" json:"paths"`
 }
@@ -55,9 +58,9 @@ func readMachineYAML(path string, out any) (bool, error) {
 	return true, nil
 }
 
-// LoadMachineDocument loads and validates the versioned declaration.
-func LoadMachineDocument(path string) (MachineDocument, error) {
-	var doc MachineDocument
+// LoadInstallations loads and validates the versioned declaration.
+func LoadInstallations(path string) (InstallationsDocument, error) {
+	var doc InstallationsDocument
 	found, err := readMachineYAML(path, &doc)
 	if err != nil {
 		return doc, err
@@ -67,7 +70,7 @@ func LoadMachineDocument(path string) (MachineDocument, error) {
 		return doc, nil
 	}
 	if doc.Version != machineVersion {
-		return doc, fmt.Errorf("unsupported machine version %d", doc.Version)
+		return doc, fmt.Errorf("unsupported installations version %d", doc.Version)
 	}
 	for id, directory := range doc.Directories {
 		if !machineName.MatchString(id) {
@@ -87,8 +90,8 @@ func LoadMachineDocument(path string) (MachineDocument, error) {
 		directory.Tags = tags
 		doc.Directories[id] = directory
 	}
-	installs := make([]common.MachineInstall, 0, len(doc.Installs))
-	seenInstalls := make(map[common.MachineInstall]bool)
+	installs := make([]common.Installation, 0, len(doc.Installs))
+	seenInstalls := make(map[common.Installation]bool)
 	for _, install := range doc.Installs {
 		clean := filepath.Clean(install.Skill)
 		if install.Skill == "" || filepath.IsAbs(install.Skill) || clean != install.Skill ||
@@ -129,9 +132,9 @@ func LoadMachineDocument(path string) (MachineDocument, error) {
 	return doc, nil
 }
 
-// LoadMachinePaths loads local paths and checks their directory references.
-func LoadMachinePaths(path string, doc MachineDocument) (MachinePaths, error) {
-	var paths MachinePaths
+// LoadDirectoryPaths loads local paths and checks their directory references.
+func LoadDirectoryPaths(path string, doc InstallationsDocument) (DirectoryPaths, error) {
+	var paths DirectoryPaths
 	found, err := readMachineYAML(path, &paths)
 	if err != nil {
 		return paths, err
@@ -141,7 +144,7 @@ func LoadMachinePaths(path string, doc MachineDocument) (MachinePaths, error) {
 		return paths, nil
 	}
 	if paths.Version != machineVersion {
-		return paths, fmt.Errorf("unsupported machine paths version %d", paths.Version)
+		return paths, fmt.Errorf("unsupported directory paths version %d", paths.Version)
 	}
 	seen := make(map[string]string)
 	for id, local := range paths.Paths {
@@ -192,8 +195,8 @@ func machineCanonicalMissing(path string) (string, error) {
 	}
 }
 
-// MachinePathsFile returns the local state path for a canonical library root.
-func MachinePathsFile(configDir, root string) (string, error) {
+// DirectoryPathsFile returns the local state path for a canonical library root.
+func DirectoryPathsFile(configDir, root string) (string, error) {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -203,11 +206,11 @@ func MachinePathsFile(configDir, root string) (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256([]byte(canonical))
-	return filepath.Join(configDir, "machines", hex.EncodeToString(sum[:])+".yaml"), nil
+	return filepath.Join(configDir, "directory-paths", hex.EncodeToString(sum[:])+".yaml"), nil
 }
 
-// WriteMachineYAML replaces a machine configuration document atomically.
-func WriteMachineYAML(path string, value any, mode os.FileMode) error {
+// WriteYAMLAtomic replaces a YAML document atomically.
+func WriteYAMLAtomic(path string, value any, mode os.FileMode) error {
 	data, err := yaml.Marshal(value)
 	if err != nil {
 		return err
@@ -216,7 +219,7 @@ func WriteMachineYAML(path string, value any, mode os.FileMode) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(dir, ".machine-*")
+	file, err := os.CreateTemp(dir, ".installations-*")
 	if err != nil {
 		return err
 	}

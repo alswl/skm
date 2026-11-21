@@ -13,7 +13,7 @@ import (
 
 // MachineBatchResult reports independent installation outcomes.
 type MachineBatchResult struct {
-	Items []common.MachinePlanItem `json:"items"`
+	Items []common.InstallationPlanItem `json:"items"`
 }
 
 // ApplyMachineBatch re-plans under the library lock, merges the confirmed
@@ -29,13 +29,13 @@ func (s *Services) ApplyMachineBatch(ctx context.Context, selected MachineBatchP
 		return nil, err
 	}
 	if selected.Action != "add" || selected.Version != 1 || current.Digest != selected.Digest {
-		return nil, fmt.Errorf("machine plan is stale; create a new preview")
+		return nil, fmt.Errorf("installation plan is stale; create a new preview")
 	}
 	manifest, _, err := s.machineFiles()
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -44,14 +44,14 @@ func (s *Services) ApplyMachineBatch(ctx context.Context, selected MachineBatchP
 			doc.Installs = append(doc.Installs, declaration.Install)
 		}
 	}
-	if err := config.WriteMachineYAML(manifest, doc, 0o644); err != nil {
+	if err := config.WriteYAMLAtomic(manifest, doc, 0o644); err != nil {
 		return nil, err
 	}
 	return s.executeMachineBatchItems(current, nil), nil
 }
 
 func (s *Services) executeMachineBatchItems(current *MachineBatchPlan, seen map[string]bool) *MachineBatchResult {
-	result := &MachineBatchResult{Items: append([]common.MachinePlanItem(nil), current.Items...)}
+	result := &MachineBatchResult{Items: append([]common.InstallationPlanItem(nil), current.Items...)}
 	for i := range result.Items {
 		item := &result.Items[i]
 		if seen != nil && item.Path != "" {

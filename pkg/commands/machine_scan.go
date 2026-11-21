@@ -30,7 +30,7 @@ func newMachineScanCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var items []common.MachineObservation
+			var items []common.InstallationObservation
 			if scanUser {
 				items, err = svc.ScanMachineUser()
 			} else if scanDirectory != "" {
@@ -50,7 +50,7 @@ func newMachineScanCommand() *cobra.Command {
 				}
 			}
 			if flagJSON {
-				diagnostics := []common.MachineObservation{}
+				diagnostics := []common.InstallationObservation{}
 				for _, item := range items {
 					if item.Status == "error" || item.Status == "recovery" {
 						diagnostics = append(diagnostics, item)

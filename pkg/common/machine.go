@@ -5,27 +5,27 @@ import "errors"
 // ErrMachineRenameUnavailable indicates unlink cannot be safely previewed.
 var ErrMachineRenameUnavailable = errors.New("exclusive rename capability unavailable")
 
-// MachineDirectory identifies a registered directory. Tags are names, not
+// Directory identifies a registered directory. Tags are names, not
 // separate persisted entities or identifiers.
-type MachineDirectory struct {
+type Directory struct {
 	Tags []string `yaml:"tags" json:"tags"`
 }
 
-// MachineScope identifies where a skill should be installed.
-type MachineScope struct {
+// InstallationScope identifies where a skill should be installed.
+type InstallationScope struct {
 	Kind string `yaml:"kind" json:"kind"`
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 }
 
-// MachineInstall describes a desired skill installation.
-type MachineInstall struct {
-	Skill  string       `yaml:"skill" json:"skill"`
-	Target string       `yaml:"target" json:"target"`
-	Scope  MachineScope `yaml:"scope" json:"scope"`
+// Installation describes a desired skill installation.
+type Installation struct {
+	Skill  string            `yaml:"skill" json:"skill"`
+	Target string            `yaml:"target" json:"target"`
+	Scope  InstallationScope `yaml:"scope" json:"scope"`
 }
 
-// MachineObservation describes a current on-disk location.
-type MachineObservation struct {
+// InstallationObservation describes a current on-disk location.
+type InstallationObservation struct {
 	Scope          string   `json:"scope"`
 	Directory      string   `json:"directory"`
 	Target         string   `json:"target"`
@@ -37,8 +37,8 @@ type MachineObservation struct {
 	Declared       bool     `json:"declared"`
 }
 
-// MachinePlanItem describes an installation at one physical location.
-type MachinePlanItem struct {
+// InstallationPlanItem describes an installation at one physical location.
+type InstallationPlanItem struct {
 	Directory string `json:"directory"`
 	Target    string `json:"target"`
 	Skill     string `json:"skill"`

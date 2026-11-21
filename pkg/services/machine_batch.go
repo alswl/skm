@@ -23,8 +23,8 @@ type MachineBatchRequest struct {
 }
 
 type machineBatchDeclaration struct {
-	Install common.MachineInstall `json:"install"`
-	Exists  bool                  `json:"exists"`
+	Install common.Installation `json:"install"`
+	Exists  bool                `json:"exists"`
 }
 
 type machineBatchSource struct {
@@ -36,15 +36,15 @@ type machineBatchSource struct {
 // MachineBatchPlan is a read-only snapshot; paths in Items are never trusted
 // as instructions when applying it.
 type MachineBatchPlan struct {
-	Action       string                    `json:"action"`
-	Version      int                       `json:"version"`
-	Request      MachineBatchRequest       `json:"request"`
-	Directories  []MachineDirectoryInfo    `json:"directories"`
-	Declarations []machineBatchDeclaration `json:"declarations"`
-	Relevant     []common.MachineInstall   `json:"relevant_declarations,omitempty"`
-	Sources      []machineBatchSource      `json:"sources"`
-	Items        []common.MachinePlanItem  `json:"items"`
-	Digest       string                    `json:"digest"`
+	Action       string                        `json:"action"`
+	Version      int                           `json:"version"`
+	Request      MachineBatchRequest           `json:"request"`
+	Directories  []MachineDirectoryInfo        `json:"directories"`
+	Declarations []machineBatchDeclaration     `json:"declarations"`
+	Relevant     []common.Installation         `json:"relevant_declarations,omitempty"`
+	Sources      []machineBatchSource          `json:"sources"`
+	Items        []common.InstallationPlanItem `json:"items"`
+	Digest       string                        `json:"digest"`
 }
 
 func machineUniqueStrings(in []string) []string {
@@ -113,7 +113,7 @@ func (s *Services) PlanMachineBatch(request MachineBatchRequest) (*MachineBatchP
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (s *Services) PlanMachineBatch(request MachineBatchRequest) (*MachineBatchP
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[common.MachineInstall]bool)
+	seen := make(map[common.Installation]bool)
 	for _, skill := range request.Skills {
 		entry, err := s.ResolveEntry(skill)
 		if err != nil || entry == nil || entry.Kind != common.KindSkill || entry.Status != common.StatusActive {
@@ -134,18 +134,18 @@ func (s *Services) PlanMachineBatch(request MachineBatchRequest) (*MachineBatchP
 		}
 		plan.Sources = append(plan.Sources, machineBatchSource{Skill: ref, Path: entry.Path, Content: hash})
 		for _, target := range request.Targets {
-			scopes := make([]common.MachineScope, 0, len(request.Tags)+len(request.Directories))
+			scopes := make([]common.InstallationScope, 0, len(request.Tags)+len(request.Directories))
 			for _, tag := range request.Tags {
-				scopes = append(scopes, common.MachineScope{Kind: "tag", Name: tag})
+				scopes = append(scopes, common.InstallationScope{Kind: "tag", Name: tag})
 			}
 			for _, id := range request.Directories {
-				scopes = append(scopes, common.MachineScope{Kind: "directory", Name: id})
+				scopes = append(scopes, common.InstallationScope{Kind: "directory", Name: id})
 			}
 			if request.User {
-				scopes = append(scopes, common.MachineScope{Kind: "user"})
+				scopes = append(scopes, common.InstallationScope{Kind: "user"})
 			}
 			for _, scope := range scopes {
-				install := common.MachineInstall{Skill: ref, Target: target, Scope: scope}
+				install := common.Installation{Skill: ref, Target: target, Scope: scope}
 				if !seen[install] {
 					seen[install] = true
 					plan.Declarations = append(plan.Declarations, machineBatchDeclaration{Install: install, Exists: slices.Contains(doc.Installs, install)})

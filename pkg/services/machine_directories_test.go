@@ -49,13 +49,13 @@ func TestMachineDirectoryRegistrationRetriesAfterPathWriteFailure(t *testing.T) 
 	require.NoError(t, err, string(output))
 	svc := &Services{Cfg: &config.Config{Root: library, ConfigDir: configDir}}
 	err = svc.registerDirectories(context.Background(), map[string]string{"project": project}, []string{"team"}, func(path string, value any, mode os.FileMode) error {
-		if path != filepath.Join(library, "machine.yaml") {
+		if path != filepath.Join(library, "installations.yaml") {
 			return errors.New("injected local path failure")
 		}
-		return config.WriteMachineYAML(path, value, mode)
+		return config.WriteYAMLAtomic(path, value, mode)
 	})
 	require.ErrorContains(t, err, "directories registered, but local paths could not be saved")
-	doc, err := config.LoadMachineDocument(filepath.Join(library, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(library, "installations.yaml"))
 	require.NoError(t, err)
 	require.Equal(t, []string{"team"}, doc.Directories["project"].Tags)
 	require.NoError(t, svc.RegisterDirectories(context.Background(), map[string]string{"project": project}, []string{"team"}))
@@ -73,5 +73,5 @@ func TestMachineDirectoryBatchValidationWritesNothing(t *testing.T) {
 	svc := &Services{Cfg: &config.Config{Root: library, ConfigDir: configDir}}
 	err = svc.RegisterDirectories(context.Background(), map[string]string{"valid": project, "INVALID": project}, []string{"team"})
 	require.Error(t, err)
-	require.NoFileExists(t, filepath.Join(library, "machine.yaml"))
+	require.NoFileExists(t, filepath.Join(library, "installations.yaml"))
 }

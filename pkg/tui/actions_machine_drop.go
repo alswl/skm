@@ -11,7 +11,7 @@ import (
 
 type machineDeclarationsMsg struct {
 	sequence uint64
-	items    []common.MachineInstall
+	items    []common.Installation
 	err      error
 }
 type machineDropPlanMsg struct {
@@ -64,7 +64,7 @@ func (m *model) acceptMachineDeclarations(msg machineDeclarationsMsg) {
 		items = append(items, pages.PickerItem{Label: fmt.Sprintf("%s  %s  %s", install.Skill, install.Target, scope), Value: fmt.Sprint(i)})
 	}
 	if len(items) == 0 {
-		m.setStatus("no machine declarations")
+		m.setStatus("no installation declarations")
 		return
 	}
 	m.picker = &pages.Picker{Title: "drop declaration", Hint: "enter select  esc cancel", Single: true, Items: items, OnConfirm: func(selected []pages.PickerItem) {

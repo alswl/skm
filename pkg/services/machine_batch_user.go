@@ -60,11 +60,11 @@ func (s *Services) machineUserRoot(name string) (string, string, error) {
 	}
 }
 
-func (s *Services) previewMachineBatchItems(request MachineBatchRequest, directories []MachineDirectoryInfo) ([]common.MachinePlanItem, error) {
+func (s *Services) previewMachineBatchItems(request MachineBatchRequest, directories []MachineDirectoryInfo) ([]common.InstallationPlanItem, error) {
 	if !request.User {
 		return s.previewMachineDirectories(request.Skills, request.Targets, directories)
 	}
-	items := make([]common.MachinePlanItem, 0)
+	items := make([]common.InstallationPlanItem, 0)
 	seen := make(map[string]int)
 	claims := make(map[string]bool)
 	for _, target := range request.Targets {
@@ -104,11 +104,11 @@ func (s *Services) previewMachineBatchItems(request MachineBatchRequest, directo
 					continue
 				}
 				previous.Status, previous.Error = "conflict", "multiple skills select this location"
-				items = append(items, common.MachinePlanItem{Target: target, Skill: ref, Path: path, Status: "conflict", Error: previous.Error})
+				items = append(items, common.InstallationPlanItem{Target: target, Skill: ref, Path: path, Status: "conflict", Error: previous.Error})
 				continue
 			}
 			seen[path] = len(items)
-			item := common.MachinePlanItem{Target: target, Skill: ref, Path: path}
+			item := common.InstallationPlanItem{Target: target, Skill: ref, Path: path}
 			slot := installer.InspectMachineSlot(path, sources)
 			switch slot.Status {
 			case "missing":

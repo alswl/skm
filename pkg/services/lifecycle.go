@@ -212,9 +212,9 @@ func (s *Services) rejectDeclaredSkill(action string, entry *common.Entry) error
 	if entry.Kind != common.KindSkill {
 		return nil
 	}
-	doc, err := config.LoadMachineDocument(filepath.Join(s.Cfg.Root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(s.Cfg.Root, config.InstallationsFile))
 	if err != nil {
-		return fmt.Errorf("%s: read machine declarations: %w", action, err)
+		return fmt.Errorf("%s: read installation declarations: %w", action, err)
 	}
 	ref := s.Repo.RelPath(entry.Path)
 	upstream := ""
@@ -223,7 +223,7 @@ func (s *Services) rejectDeclaredSkill(action string, entry *common.Entry) error
 	}
 	for _, install := range doc.Installs {
 		if install.Skill == ref || (upstream != "" && install.Skill == upstream) {
-			return common.WithExitCode(fmt.Errorf("%s: skill %q is referenced by machine declarations; remove them first", action, ref), common.ExitObject)
+			return common.WithExitCode(fmt.Errorf("%s: skill %q is referenced by installation declarations; remove them first", action, ref), common.ExitObject)
 		}
 	}
 	return nil

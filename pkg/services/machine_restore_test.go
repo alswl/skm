@@ -24,33 +24,33 @@ func TestMachineRestoreThreeScopes(t *testing.T) {
 	output, err := exec.Command("git", "init", "-q", project).CombinedOutput()
 	require.NoError(t, err, string(output))
 	require.NoError(t, svc.RegisterDirectories(context.Background(), map[string]string{"project": project}, []string{"team"}))
-	doc, err := config.LoadMachineDocument(filepath.Join(root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(root, "installations.yaml"))
 	require.NoError(t, err)
 	ref := "skills/local/review"
-	doc.Installs = []common.MachineInstall{
-		{Skill: ref, Target: "user-client", Scope: common.MachineScope{Kind: "user"}},
-		{Skill: ref, Target: "codex", Scope: common.MachineScope{Kind: "directory", Name: "project"}},
-		{Skill: ref, Target: "codex", Scope: common.MachineScope{Kind: "tag", Name: "team"}},
+	doc.Installs = []common.Installation{
+		{Skill: ref, Target: "user-client", Scope: common.InstallationScope{Kind: "user"}},
+		{Skill: ref, Target: "codex", Scope: common.InstallationScope{Kind: "directory", Name: "project"}},
+		{Skill: ref, Target: "codex", Scope: common.InstallationScope{Kind: "tag", Name: "team"}},
 	}
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	plan, err := svc.PlanMachineRestore(true)
 	require.NoError(t, err)
 	// Reordering equivalent declarations must not stale a reviewed plan.
 	doc.Installs[0], doc.Installs[2] = doc.Installs[2], doc.Installs[0]
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	reordered, err := svc.PlanMachineRestore(true)
 	require.NoError(t, err)
 	require.Equal(t, plan.Digest, reordered.Digest)
 	doc.Installs[0], doc.Installs[2] = doc.Installs[2], doc.Installs[0]
 	// A declaration edit invalidates the complete preview before any link is created.
 	doc.Installs = doc.Installs[:2]
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	_, err = svc.ApplyMachineRestore(context.Background(), *plan)
 	require.Error(t, err)
 	_, err = os.Lstat(filepath.Join(userDir, "review"))
 	require.True(t, os.IsNotExist(err))
-	doc.Installs = append(doc.Installs, common.MachineInstall{Skill: ref, Target: "codex", Scope: common.MachineScope{Kind: "tag", Name: "team"}})
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	doc.Installs = append(doc.Installs, common.Installation{Skill: ref, Target: "codex", Scope: common.InstallationScope{Kind: "tag", Name: "team"}})
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	plan, err = svc.PlanMachineRestore(true)
 	require.NoError(t, err)
 	result, err := svc.ApplyMachineRestore(context.Background(), *plan)
@@ -94,13 +94,13 @@ func TestMachineRestoreScopeUsesCoveredDirectories(t *testing.T) {
 		require.NoError(t, err, string(output))
 		require.NoError(t, svc.RegisterDirectories(context.Background(), map[string]string{id: project}, []string{"team"}))
 	}
-	doc, err := config.LoadMachineDocument(filepath.Join(root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(root, "installations.yaml"))
 	require.NoError(t, err)
-	doc.Installs = []common.MachineInstall{
-		{Skill: "skills/local/review", Target: "codex", Scope: common.MachineScope{Kind: "tag", Name: "team"}},
-		{Skill: "skills/local/review", Target: "user-client", Scope: common.MachineScope{Kind: "user"}},
+	doc.Installs = []common.Installation{
+		{Skill: "skills/local/review", Target: "codex", Scope: common.InstallationScope{Kind: "tag", Name: "team"}},
+		{Skill: "skills/local/review", Target: "user-client", Scope: common.InstallationScope{Kind: "user"}},
 	}
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	plan, err := svc.PlanMachineRestoreScoped(MachineRestoreRequest{Directories: []string{"a"}, AllowUnignored: true})
 	require.NoError(t, err)
 	require.Len(t, plan.Plans, 1)
@@ -141,18 +141,18 @@ func TestMachineRestoreAcrossLibraryCheckouts(t *testing.T) {
 		require.NoError(t, err, string(output))
 	}
 	require.NoError(t, first.RegisterDirectories(context.Background(), map[string]string{"project": projects[0]}, []string{"team"}))
-	doc, err := config.LoadMachineDocument(filepath.Join(firstRoot, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(firstRoot, "installations.yaml"))
 	require.NoError(t, err)
 	ref := "skills/local/review"
-	doc.Installs = []common.MachineInstall{
-		{Skill: ref, Target: "client", Scope: common.MachineScope{Kind: "user"}},
-		{Skill: ref, Target: "codex", Scope: common.MachineScope{Kind: "directory", Name: "project"}},
-		{Skill: ref, Target: "claude", Scope: common.MachineScope{Kind: "tag", Name: "team"}},
+	doc.Installs = []common.Installation{
+		{Skill: ref, Target: "client", Scope: common.InstallationScope{Kind: "user"}},
+		{Skill: ref, Target: "codex", Scope: common.InstallationScope{Kind: "directory", Name: "project"}},
+		{Skill: ref, Target: "claude", Scope: common.InstallationScope{Kind: "tag", Name: "team"}},
 	}
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(firstRoot, "machine.yaml"), doc, 0o644))
-	data, err := os.ReadFile(filepath.Join(firstRoot, "machine.yaml"))
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(firstRoot, "installations.yaml"), doc, 0o644))
+	data, err := os.ReadFile(filepath.Join(firstRoot, "installations.yaml"))
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(secondRoot, "machine.yaml"), data, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(secondRoot, "installations.yaml"), data, 0o644))
 	before, err := second.PlanMachineRestore(true)
 	require.NoError(t, err)
 	missingPaths := 0
@@ -197,11 +197,11 @@ func TestMachineRestoreReportsUnavailableSkillAndContinues(t *testing.T) {
 	userDir := filepath.Join(t.TempDir(), "skills")
 	svc, err := New(&config.Config{Root: root, ConfigDir: t.TempDir(), Targets: []common.InstallTarget{skillTarget("client", userDir)}}, common.NewLogger(false))
 	require.NoError(t, err)
-	doc := config.MachineDocument{Version: 1, Installs: []common.MachineInstall{
-		{Skill: "skills/local/review", Target: "client", Scope: common.MachineScope{Kind: "user"}},
-		{Skill: "skills/local/missing", Target: "client", Scope: common.MachineScope{Kind: "user"}},
+	doc := config.InstallationsDocument{Version: 1, Installs: []common.Installation{
+		{Skill: "skills/local/review", Target: "client", Scope: common.InstallationScope{Kind: "user"}},
+		{Skill: "skills/local/missing", Target: "client", Scope: common.InstallationScope{Kind: "user"}},
 	}}
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	plan, err := svc.PlanMachineRestore(false)
 	require.NoError(t, err)
 	require.Len(t, plan.Plans, 2)
@@ -238,8 +238,8 @@ func TestMachineRestoreReportsUndeclaredWithoutExtendingApply(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Join(root, "skills", "local", "manual"), manual))
 	svc, err := New(&config.Config{Root: root, ConfigDir: t.TempDir(), Targets: []common.InstallTarget{skillTarget("client", userDir)}}, common.NewLogger(false))
 	require.NoError(t, err)
-	doc := config.MachineDocument{Version: 1, Installs: []common.MachineInstall{{Skill: "skills/local/review", Target: "client", Scope: common.MachineScope{Kind: "user"}}}}
-	require.NoError(t, config.WriteMachineYAML(filepath.Join(root, "machine.yaml"), doc, 0o644))
+	doc := config.InstallationsDocument{Version: 1, Installs: []common.Installation{{Skill: "skills/local/review", Target: "client", Scope: common.InstallationScope{Kind: "user"}}}}
+	require.NoError(t, config.WriteYAMLAtomic(filepath.Join(root, "installations.yaml"), doc, 0o644))
 	plan, err := svc.PlanMachineRestore(false)
 	require.NoError(t, err)
 	require.Len(t, plan.Observations, 1)

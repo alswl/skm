@@ -12,7 +12,7 @@ import (
 
 // machineBatchCoverage incorporates declarations that cover selected physical
 // positions, including those with another scope or target alias.
-func (s *Services) machineBatchCoverage(doc config.MachineDocument, items []common.MachinePlanItem) ([]common.MachineInstall, error) {
+func (s *Services) machineBatchCoverage(doc config.InstallationsDocument, items []common.InstallationPlanItem) ([]common.Installation, error) {
 	byPath := make(map[string][]int)
 	names := make(map[string]bool)
 	for i, item := range items {
@@ -28,7 +28,7 @@ func (s *Services) machineBatchCoverage(doc config.MachineDocument, items []comm
 	if err != nil {
 		return nil, err
 	}
-	var relevant []common.MachineInstall
+	var relevant []common.Installation
 	for _, install := range doc.Installs {
 		if !names[filepath.Base(install.Skill)] {
 			continue

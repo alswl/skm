@@ -18,15 +18,15 @@ import (
 
 // MachineRestorePlan describes a fresh reconciliation of saved declarations.
 type MachineRestorePlan struct {
-	Action         string                      `json:"action"`
-	Version        int                         `json:"version"`
-	AllowUnignored bool                        `json:"allow_unignored"`
-	Request        MachineRestoreRequest       `json:"request"`
-	Selection      []string                    `json:"selection,omitempty"`
-	Declarations   []common.MachineInstall     `json:"declarations"`
-	Observations   []common.MachineObservation `json:"observations,omitempty"`
-	Plans          []MachineBatchPlan          `json:"plans"`
-	Digest         string                      `json:"digest"`
+	Action         string                           `json:"action"`
+	Version        int                              `json:"version"`
+	AllowUnignored bool                             `json:"allow_unignored"`
+	Request        MachineRestoreRequest            `json:"request"`
+	Selection      []string                         `json:"selection,omitempty"`
+	Declarations   []common.Installation            `json:"declarations"`
+	Observations   []common.InstallationObservation `json:"observations,omitempty"`
+	Plans          []MachineBatchPlan               `json:"plans"`
+	Digest         string                           `json:"digest"`
 }
 
 // MachineRestoreRequest limits reconciliation by physical target scope.
@@ -57,11 +57,11 @@ func (s *Services) planMachineRestoreScoped(request MachineRestoreRequest, inclu
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
-	plan := &MachineRestorePlan{Action: "restore", Version: 1, AllowUnignored: request.AllowUnignored, Request: request, Plans: []MachineBatchPlan{}, Declarations: []common.MachineInstall{}}
+	plan := &MachineRestorePlan{Action: "restore", Version: 1, AllowUnignored: request.AllowUnignored, Request: request, Plans: []MachineBatchPlan{}, Declarations: []common.Installation{}}
 	unresolved := map[string]bool{}
 	filtered := request.User || len(request.Directories) != 0 || len(request.Tags) != 0
 	if len(request.Tags) != 0 {
@@ -80,7 +80,7 @@ func (s *Services) planMachineRestoreScoped(request MachineRestoreRequest, inclu
 			plan.Selection = append(plan.Selection, id)
 		}
 	}
-	declarations := append([]common.MachineInstall(nil), doc.Installs...)
+	declarations := append([]common.Installation(nil), doc.Installs...)
 	sort.Slice(declarations, func(i, j int) bool {
 		a, b := declarations[i], declarations[j]
 		if a.Skill != b.Skill {
@@ -129,7 +129,7 @@ func (s *Services) planMachineRestoreScoped(request MachineRestoreRequest, inclu
 		batch, err := s.PlanMachineBatch(batchRequest)
 		if err != nil {
 			unresolved[filepath.Base(declaration.Skill)] = true
-			batch = &MachineBatchPlan{Action: "add", Version: 1, Request: batchRequest, Items: []common.MachinePlanItem{{Directory: declaration.Scope.Name, Target: declaration.Target, Skill: declaration.Skill, Status: "error", Error: err.Error()}}}
+			batch = &MachineBatchPlan{Action: "add", Version: 1, Request: batchRequest, Items: []common.InstallationPlanItem{{Directory: declaration.Scope.Name, Target: declaration.Target, Skill: declaration.Skill, Status: "error", Error: err.Error()}}}
 		}
 		plan.Plans = append(plan.Plans, *batch)
 		plan.Declarations = append(plan.Declarations, declaration)
@@ -172,9 +172,9 @@ func (s *Services) planMachineRestoreScoped(request MachineRestoreRequest, inclu
 	return plan, nil
 }
 
-func (s *Services) scanMachineUndeclared(request MachineRestoreRequest, selection []string) ([]common.MachineObservation, error) {
-	var result []common.MachineObservation
-	appendUndeclared := func(items []common.MachineObservation) {
+func (s *Services) scanMachineUndeclared(request MachineRestoreRequest, selection []string) ([]common.InstallationObservation, error) {
+	var result []common.InstallationObservation
+	appendUndeclared := func(items []common.InstallationObservation) {
 		for _, item := range items {
 			if (item.Status == "installed" && !item.Declared) || item.Status == "error" || item.Status == "recovery" {
 				result = append(result, item)
@@ -228,9 +228,9 @@ func (s *Services) ApplyMachineRestore(ctx context.Context, selected MachineRest
 		return nil, err
 	}
 	if selected.Action != "restore" || selected.Version != 1 || selected.Digest != current.Digest {
-		return nil, fmt.Errorf("machine plan is stale; create a new preview")
+		return nil, fmt.Errorf("installation plan is stale; create a new preview")
 	}
-	result := &MachineBatchResult{Items: []common.MachinePlanItem{}}
+	result := &MachineBatchResult{Items: []common.InstallationPlanItem{}}
 	seen := make(map[string]bool)
 	for i := range current.Plans {
 		batchResult := s.executeMachineBatchItems(&current.Plans[i], seen)

@@ -179,30 +179,30 @@ skm backup restore --force
 
 ## 管理多个目录的 Skills
 
-`skm machine` 把期望安装关系保存在技能库根目录的 `machine.yaml`。目录 ID 和标签随技能库版本化；
+`skm plan` 和 `skm apply` 通过技能库根目录的 `installations.yaml` 管理期望安装关系。目录 ID 和标签随技能库版本化；
 本机路径保存在 skm 配置目录，换机器或另一个 checkout 后需要重新设置。实际安装每次从磁盘扫描，
 不保存安装历史。
 
 ```bash
-skm machine directory discover ~/src
-skm machine directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
-skm machine directory tag --directory web --add frontend
-skm machine directory list --tag backend
+skm directory discover ~/src
+skm directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
+skm directory tag --directory web --add frontend
+skm directory list --tag backend
 
 # 检查技能、客户端和目标目录后再应用。
-skm machine plan --add code-review --target codex --target claude --tag backend --json > plan.json
-skm machine apply --plan plan.json
-skm machine scan --directory api --json
+skm plan --add code-review --target codex --target claude --tag backend --json > plan.json
+skm apply --plan plan.json
+skm scan --directory api --json
 ```
 
 目录级客户端支持 Codex（`.agents/skills`）和 Claude Code（`.claude/skills`）；用户级安装使用
 `--user` 和已配置的目标名。预览会提示未被 Git 忽略的项目链接；明确接受后可加 `--allow-unignored`。
 已有占位和 Git 跟踪文件会受到保护。
 
-换机器后检出技能库，逐个执行 `skm machine directory path api ~/src/api` 绑定本机路径，再保存并
-应用 `skm machine plan --json` 的结果。已有库链接可用 `skm machine plan --capture PATH --target
+换机器后检出技能库，逐个执行 `skm directory path api ~/src/api` 设置本机路径，再保存并
+应用 `skm plan --json` 的结果。已有库链接可用 `skm plan --capture PATH --target
 codex --directory api --json` 生成收录计划。使用 `--drop` 撤回声明会保留链接；如需移除未被声明
-覆盖的链接，另行预览并应用 `--unlink PATH --target codex --directory api`。TUI 的机器目录页也提供
+覆盖的链接，另行预览并应用 `--unlink PATH --target codex --directory api`。TUI 的目录页也提供
 发现、打标、扫描和确认操作。
 
 卸载预览要求文件系统能确认支持排他重命名。Linux 内核 4.9 及以上支持识别 ext2/3/4、Btrfs、

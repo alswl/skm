@@ -13,7 +13,7 @@ import (
 )
 
 // PreviewMachineTags expands selected tags and checks current disk state.
-func (s *Services) PreviewMachineTags(skills, targets, tags []string) ([]common.MachinePlanItem, error) {
+func (s *Services) PreviewMachineTags(skills, targets, tags []string) ([]common.InstallationPlanItem, error) {
 	directories, err := s.SelectMachineDirectories(tags)
 	if err != nil {
 		return nil, err
@@ -21,13 +21,13 @@ func (s *Services) PreviewMachineTags(skills, targets, tags []string) ([]common.
 	return s.previewMachineDirectories(skills, targets, directories)
 }
 
-func (s *Services) previewMachineDirectories(skills, targets []string, directories []MachineDirectoryInfo) ([]common.MachinePlanItem, error) {
+func (s *Services) previewMachineDirectories(skills, targets []string, directories []MachineDirectoryInfo) ([]common.InstallationPlanItem, error) {
 	for _, target := range targets {
 		if target != "codex" && target != "claude" {
 			return nil, fmt.Errorf("unsupported directory target %q", target)
 		}
 	}
-	result := make([]common.MachinePlanItem, 0)
+	result := make([]common.InstallationPlanItem, 0)
 	seen := make(map[string]int)
 	claims := make(map[string]bool)
 	for _, skill := range skills {
@@ -52,7 +52,7 @@ func (s *Services) previewMachineDirectories(skills, targets []string, directori
 						break
 					}
 				}
-				item := common.MachinePlanItem{Directory: directory.ID, Target: target, Skill: ref}
+				item := common.InstallationPlanItem{Directory: directory.ID, Target: target, Skill: ref}
 				if directory.Path == "" {
 					item.Status = "missing_path"
 					result = append(result, item)

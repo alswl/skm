@@ -16,13 +16,13 @@ import (
 )
 
 type machinePlanDocument struct {
-	Version     int                      `json:"version"`
-	Action      string                   `json:"action"`
-	Request     json.RawMessage          `json:"request"`
-	Digest      string                   `json:"digest"`
-	Items       []common.MachinePlanItem `json:"items"`
-	Diagnostics []common.MachinePlanItem `json:"diagnostics"`
-	Summary     map[string]int           `json:"summary"`
+	Version     int                           `json:"version"`
+	Action      string                        `json:"action"`
+	Request     json.RawMessage               `json:"request"`
+	Digest      string                        `json:"digest"`
+	Items       []common.InstallationPlanItem `json:"items"`
+	Diagnostics []common.InstallationPlanItem `json:"diagnostics"`
+	Summary     map[string]int                `json:"summary"`
 }
 
 type machineLinkRequest struct {
@@ -31,12 +31,12 @@ type machineLinkRequest struct {
 	Path      string `json:"path"`
 }
 
-func makeMachinePlan(action, digest string, request any, items []common.MachinePlanItem) (*machinePlanDocument, error) {
+func makeMachinePlan(action, digest string, request any, items []common.InstallationPlanItem) (*machinePlanDocument, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	doc := &machinePlanDocument{Version: 1, Action: action, Request: data, Digest: digest, Items: []common.MachinePlanItem{}, Diagnostics: []common.MachinePlanItem{}, Summary: map[string]int{}}
+	doc := &machinePlanDocument{Version: 1, Action: action, Request: data, Digest: digest, Items: []common.InstallationPlanItem{}, Diagnostics: []common.InstallationPlanItem{}, Summary: map[string]int{}}
 	seen := map[string]bool{}
 	for _, item := range items {
 		key := item.Path + "\x00" + item.Skill
@@ -80,10 +80,10 @@ func readMachinePlan(data []byte) (*machinePlanDocument, error) {
 		return nil, fmt.Errorf("read plan: %w", err)
 	}
 	if plan.Version != 1 || len(plan.Request) == 0 || len(plan.Digest) != 64 {
-		return nil, fmt.Errorf("invalid machine plan version, request or digest")
+		return nil, fmt.Errorf("invalid installation plan version, request or digest")
 	}
 	if _, err := hex.DecodeString(plan.Digest); err != nil {
-		return nil, fmt.Errorf("invalid machine plan digest: %w", err)
+		return nil, fmt.Errorf("invalid installation plan digest: %w", err)
 	}
 	return &plan, nil
 }
@@ -93,8 +93,8 @@ func newMachinePlanCommand() *cobra.Command {
 	var capturePaths, planTargets, planTags, planDirectories, addSkills []string
 	var dropUser, allowUnignored bool
 	plan := &cobra.Command{
-		Use: "plan", Short: "Preview machine installation changes", Args: cobra.NoArgs,
-		Long: `Preview installations required by machine.yaml, or a selected declaration change.
+		Use: "plan", Short: "Preview installation changes", Args: cobra.NoArgs,
+		Long: `Preview installations required by installations.yaml, or a selected declaration change.
 
 Use --add with skills, targets, and exactly one scope type (--user, --directory,
 or --tag). Use --capture for existing matching links, --drop for an exact
@@ -135,7 +135,7 @@ on Linux, unrecognized filesystem types are blocked during preview.`,
 				if err != nil {
 					return err
 				}
-				var items []common.MachinePlanItem
+				var items []common.InstallationPlanItem
 				for _, batch := range result.Plans {
 					items = append(items, batch.Items...)
 				}
@@ -144,7 +144,7 @@ on Linux, unrecognized filesystem types are blocked during preview.`,
 					if status == "installed" {
 						status = "undeclared"
 					}
-					items = append(items, common.MachinePlanItem{Directory: observation.Directory, Target: observation.Target, Skill: observation.Skill, Path: observation.Path, Status: status, Error: observation.Error})
+					items = append(items, common.InstallationPlanItem{Directory: observation.Directory, Target: observation.Target, Skill: observation.Skill, Path: observation.Path, Status: status, Error: observation.Error})
 				}
 				doc, err := makeMachinePlan("restore", result.Digest, result.Request, items)
 				if err != nil {
@@ -237,7 +237,7 @@ on Linux, unrecognized filesystem types are blocked during preview.`,
 							return marshalErr
 						}
 						sum := sha256.Sum256(append([]byte("blocked-unlink\x00"), data...))
-						doc, planErr := makeMachinePlan("unlink", hex.EncodeToString(sum[:]), request, []common.MachinePlanItem{{Directory: captureDirectory, Target: captureTarget, Path: unlinkPath, Status: "conflict", Error: err.Error()}})
+						doc, planErr := makeMachinePlan("unlink", hex.EncodeToString(sum[:]), request, []common.InstallationPlanItem{{Directory: captureDirectory, Target: captureTarget, Path: unlinkPath, Status: "conflict", Error: err.Error()}})
 						if planErr != nil {
 							return planErr
 						}
@@ -245,24 +245,24 @@ on Linux, unrecognized filesystem types are blocked during preview.`,
 					}
 					return err
 				}
-				doc, err := makeMachinePlan("unlink", result.Digest, machineLinkRequest{Directory: result.Directory, Target: result.Target, Path: result.Path}, []common.MachinePlanItem{{Directory: result.Directory, Target: result.Target, Skill: result.Skill, Path: result.Path, Status: "unlink"}})
+				doc, err := makeMachinePlan("unlink", result.Digest, machineLinkRequest{Directory: result.Directory, Target: result.Target, Path: result.Path}, []common.InstallationPlanItem{{Directory: result.Directory, Target: result.Target, Skill: result.Skill, Path: result.Path, Status: "unlink"}})
 				if err != nil {
 					return err
 				}
 				return printJSON(cmd, doc)
 			}
-			var scope common.MachineScope
+			var scope common.InstallationScope
 			switch {
 			case captureDirectory != "" && dropTag == "" && !dropUser:
-				scope = common.MachineScope{Kind: "directory", Name: captureDirectory}
+				scope = common.InstallationScope{Kind: "directory", Name: captureDirectory}
 			case captureDirectory == "" && dropTag != "" && !dropUser:
-				scope = common.MachineScope{Kind: "tag", Name: dropTag}
+				scope = common.InstallationScope{Kind: "tag", Name: dropTag}
 			case captureDirectory == "" && dropTag == "" && dropUser:
-				scope = common.MachineScope{Kind: "user"}
+				scope = common.InstallationScope{Kind: "user"}
 			default:
 				return fmt.Errorf("select exactly one scope")
 			}
-			install := common.MachineInstall{Skill: dropSkill, Target: captureTarget, Scope: scope}
+			install := common.Installation{Skill: dropSkill, Target: captureTarget, Scope: scope}
 			result, err := svc.PlanMachineDrop(install)
 			if err != nil {
 				entry, resolveErr := svc.ResolveEntry(dropSkill)
@@ -278,7 +278,7 @@ on Linux, unrecognized filesystem types are blocked during preview.`,
 			if err != nil {
 				return err
 			}
-			doc, err := makeMachinePlan("drop", result.Digest, result.Install, []common.MachinePlanItem{{Target: result.Install.Target, Skill: result.Install.Skill, Status: "drop"}})
+			doc, err := makeMachinePlan("drop", result.Digest, result.Install, []common.InstallationPlanItem{{Target: result.Install.Target, Skill: result.Install.Skill, Status: "drop"}})
 			if err != nil {
 				return err
 			}
@@ -301,7 +301,7 @@ on Linux, unrecognized filesystem types are blocked during preview.`,
 func newMachineApplyCommand() *cobra.Command {
 	var planFile string
 	apply := &cobra.Command{
-		Use: "apply", Short: "Apply a reviewed machine plan", Args: cobra.NoArgs,
+		Use: "apply", Short: "Apply a reviewed installation plan", Args: cobra.NoArgs,
 		Long: `Recheck the selected request against current declarations and disk state,
 then apply the reviewed plan. A stale plan must be generated again. Individual
 installation conflicts are reported without overwriting existing objects.`,
@@ -321,7 +321,7 @@ installation conflicts are reported without overwriting existing objects.`,
 			if err != nil {
 				return err
 			}
-			var single common.MachinePlanItem
+			var single common.InstallationPlanItem
 			switch doc.Action {
 			case "unlink":
 				var request machineLinkRequest
@@ -329,7 +329,7 @@ installation conflicts are reported without overwriting existing objects.`,
 					return common.WithExitCode(err, common.ExitError)
 				}
 				selected := services.MachineUnlinkPlan{Action: "unlink", Version: doc.Version, Directory: request.Directory, Target: request.Target, Path: request.Path, Digest: doc.Digest}
-				single = common.MachinePlanItem{Directory: request.Directory, Target: request.Target, Path: request.Path, Status: "unlinked"}
+				single = common.InstallationPlanItem{Directory: request.Directory, Target: request.Target, Path: request.Path, Status: "unlinked"}
 				err = svc.ApplyMachineUnlink(cmd.Context(), selected)
 			case "restore":
 				var request services.MachineRestoreRequest
@@ -419,12 +419,12 @@ installation conflicts are reported without overwriting existing objects.`,
 				}
 				return nil
 			case "drop":
-				var install common.MachineInstall
+				var install common.Installation
 				if err := decodeMachineJSON(doc.Request, &install); err != nil {
 					return common.WithExitCode(err, common.ExitError)
 				}
 				selected := services.MachineDropPlan{Action: "drop", Version: doc.Version, Install: install, Digest: doc.Digest}
-				single = common.MachinePlanItem{Target: install.Target, Skill: install.Skill, Status: "dropped"}
+				single = common.InstallationPlanItem{Target: install.Target, Skill: install.Skill, Status: "dropped"}
 				err = svc.ApplyMachineDrop(cmd.Context(), selected)
 			default:
 				return common.WithExitCode(fmt.Errorf("unsupported plan action %q", doc.Action), common.ExitError)
@@ -433,7 +433,7 @@ installation conflicts are reported without overwriting existing objects.`,
 				single.Status, single.Error = "error", err.Error()
 			}
 			if flagJSON {
-				if printErr := printJSON(cmd, services.MachineBatchResult{Items: []common.MachinePlanItem{single}}); printErr != nil {
+				if printErr := printJSON(cmd, services.MachineBatchResult{Items: []common.InstallationPlanItem{single}}); printErr != nil {
 					return printErr
 				}
 			} else if err == nil {

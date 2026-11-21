@@ -21,12 +21,12 @@ type MachineCapturesRequest struct {
 }
 
 type MachineCapturesPlan struct {
-	Action   string                   `json:"action"`
-	Version  int                      `json:"version"`
-	Request  MachineCapturesRequest   `json:"request"`
-	Captures []MachineCapturePlan     `json:"captures"`
-	Items    []common.MachinePlanItem `json:"items"`
-	Digest   string                   `json:"digest"`
+	Action   string                        `json:"action"`
+	Version  int                           `json:"version"`
+	Request  MachineCapturesRequest        `json:"request"`
+	Captures []MachineCapturePlan          `json:"captures"`
+	Items    []common.InstallationPlanItem `json:"items"`
+	Digest   string                        `json:"digest"`
 }
 
 // PlanMachineCaptures independently inspects each explicitly selected link.
@@ -42,9 +42,9 @@ func (s *Services) PlanMachineCaptures(request MachineCapturesRequest) (*Machine
 	} else if request.Target != "codex" && request.Target != "claude" {
 		return nil, fmt.Errorf("unsupported directory target %q", request.Target)
 	}
-	plan := &MachineCapturesPlan{Action: "capture", Version: 1, Request: request, Captures: []MachineCapturePlan{}, Items: []common.MachinePlanItem{}}
+	plan := &MachineCapturesPlan{Action: "capture", Version: 1, Request: request, Captures: []MachineCapturePlan{}, Items: []common.InstallationPlanItem{}}
 	for _, path := range request.Paths {
-		item := common.MachinePlanItem{Directory: request.Directory, Target: request.Target, Path: path}
+		item := common.InstallationPlanItem{Directory: request.Directory, Target: request.Target, Path: path}
 		capture, err := s.PlanMachineCapture(request.Directory, request.Target, path)
 		if err != nil {
 			item.Status, item.Error = "error", err.Error()
@@ -81,7 +81,7 @@ func (s *Services) ApplyMachineCaptures(ctx context.Context, selected MachineCap
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (s *Services) ApplyMachineCaptures(ctx context.Context, selected MachineCap
 		}
 	}
 	if changed {
-		if err := config.WriteMachineYAML(manifest, doc, 0o644); err != nil {
+		if err := config.WriteYAMLAtomic(manifest, doc, 0o644); err != nil {
 			return nil, err
 		}
 	}

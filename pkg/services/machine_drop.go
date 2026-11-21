@@ -14,19 +14,19 @@ import (
 
 // MachineDropPlan identifies an exact declaration to remove.
 type MachineDropPlan struct {
-	Action  string                `json:"action"`
-	Version int                   `json:"version"`
-	Install common.MachineInstall `json:"install"`
-	Digest  string                `json:"digest"`
+	Action  string              `json:"action"`
+	Version int                 `json:"version"`
+	Install common.Installation `json:"install"`
+	Digest  string              `json:"digest"`
 }
 
 // ListMachineDeclarations returns current desired relationships.
-func (s *Services) ListMachineDeclarations() ([]common.MachineInstall, error) {
+func (s *Services) ListMachineDeclarations() ([]common.Installation, error) {
 	manifest, _, err := s.machineFiles()
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -34,12 +34,12 @@ func (s *Services) ListMachineDeclarations() ([]common.MachineInstall, error) {
 }
 
 // PlanMachineDrop previews removal of one existing declaration.
-func (s *Services) PlanMachineDrop(install common.MachineInstall) (*MachineDropPlan, error) {
+func (s *Services) PlanMachineDrop(install common.Installation) (*MachineDropPlan, error) {
 	manifest, _, err := s.machineFiles()
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -81,16 +81,16 @@ func (s *Services) ApplyMachineDrop(ctx context.Context, plan MachineDropPlan) e
 	if err != nil {
 		return err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return err
 	}
-	installs := make([]common.MachineInstall, 0, len(doc.Installs))
+	installs := make([]common.Installation, 0, len(doc.Installs))
 	for _, existing := range doc.Installs {
 		if existing != plan.Install {
 			installs = append(installs, existing)
 		}
 	}
 	doc.Installs = installs
-	return config.WriteMachineYAML(manifest, doc, 0o644)
+	return config.WriteYAMLAtomic(manifest, doc, 0o644)
 }

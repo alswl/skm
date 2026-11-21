@@ -11,7 +11,7 @@ import (
 type machineSkillScanMsg struct {
 	sequence uint64
 	ref      string
-	items    []common.MachineObservation
+	items    []common.InstallationObservation
 	err      error
 }
 
@@ -38,7 +38,7 @@ func (m *model) startMachineSkillScan() {
 	seq, svc := m.detailMachineSequence, m.svc
 	m.machinePending = func() tea.Msg {
 		all, err := svc.ScanMachineAll()
-		var items []common.MachineObservation
+		var items []common.InstallationObservation
 		if err == nil {
 			items, err = svc.FilterMachineSkill(all, ref)
 		}
@@ -60,7 +60,7 @@ func (m model) detailContent() string {
 	}
 	var out strings.Builder
 	out.WriteString(m.detail)
-	out.WriteString("\n\nMachine installations\n")
+	out.WriteString("\n\nInstallations\n")
 	switch {
 	case m.detailMachineLoading:
 		out.WriteString("  Scanning…\n")

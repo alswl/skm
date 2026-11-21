@@ -195,21 +195,21 @@ portable, and installed in every tool at once.
 
 ## Manage skills across directories
 
-`skm machine` records desired installations in `machine.yaml` at the skills library root.
+`skm plan` and `skm apply` manage desired installations in `installations.yaml` at the skills library root.
 Directory IDs and tags travel with the library; local paths live in the skm configuration
 directory and must be set again for another checkout or machine. Actual installations are
 scanned from disk, not saved as installation history.
 
 ```bash
-skm machine directory discover ~/src
-skm machine directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
-skm machine directory tag --directory web --add frontend
-skm machine directory list --tag backend
+skm directory discover ~/src
+skm directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
+skm directory tag --directory web --add frontend
+skm directory list --tag backend
 
 # Review the selected skills, clients and directories before applying.
-skm machine plan --add code-review --target codex --target claude --tag backend --json > plan.json
-skm machine apply --plan plan.json
-skm machine scan --directory api --json
+skm plan --add code-review --target codex --target claude --tag backend --json > plan.json
+skm apply --plan plan.json
+skm scan --directory api --json
 ```
 
 Directory targets are Codex (`.agents/skills`) and Claude Code (`.claude/skills`); use
@@ -217,12 +217,12 @@ Directory targets are Codex (`.agents/skills`) and Claude Code (`.claude/skills`
 unignored project links; add `--allow-unignored` when you explicitly accept them. Existing
 objects and tracked files remain protected.
 
-On a new machine, check out the library, use `skm machine directory path api ~/src/api` for
-each directory, then save and apply `skm machine plan --json`. To record an existing library
-link, use `skm machine plan --capture PATH --target codex --directory api --json` and apply
+On a new machine, check out the library, use `skm directory path api ~/src/api` for
+each directory, then save and apply `skm plan --json`. To record an existing library
+link, use `skm plan --capture PATH --target codex --directory api --json` and apply
 that plan. Dropping a declaration with `--drop` leaves its link in place; use a separate
 `--unlink PATH --target codex --directory api` plan to remove a selected, uncovered link.
-The TUI machine directory page provides discovery, tags, scanning and reviewed actions too.
+The TUI directories page provides discovery, tags, scanning and reviewed actions too.
 
 Unlink previews require a filesystem with verified exclusive rename support. On Linux,
 skm recognizes ext2/3/4, Btrfs, tmpfs and XFS on kernel 4.9 or later; other filesystem

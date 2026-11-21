@@ -20,7 +20,7 @@ type machineDirectoryState struct {
 	allDirectories []services.MachineDirectoryInfo
 	cursor         int
 	scanning       bool
-	items          []common.MachineObservation
+	items          []common.InstallationObservation
 	err            error
 	tagEditing     bool
 	tagInput       string
@@ -44,7 +44,7 @@ type machineDirectoriesMsg struct {
 type machineScanMsg struct {
 	sequence uint64
 	scope    string
-	items    []common.MachineObservation
+	items    []common.InstallationObservation
 	err      error
 }
 
@@ -119,7 +119,7 @@ func (m *model) startMachineScan() tea.Cmd {
 	m.machine.err = nil
 	seq, scope, svc := m.machine.sequence, m.machineScope(), m.svc
 	return func() tea.Msg {
-		var items []common.MachineObservation
+		var items []common.InstallationObservation
 		var err error
 		if scope == "" {
 			items, err = svc.ScanMachineUser()
@@ -334,7 +334,7 @@ func (m model) machineView() string {
 	if m.machine.result != "" {
 		fmt.Fprintf(&body, "\n%s\n", m.machine.result)
 	}
-	return m.framedPage("machine directories", body.String(), "j/k select  f filter  a discover  p path  enter capture  i install  R restore  d drop  u unlink  t/T tag  v retry  r refresh")
+	return m.framedPage("directories", body.String(), "j/k select  f filter  a discover  p path  enter capture  i install  R restore  d drop  u unlink  t/T tag  v retry  r refresh")
 }
 
 func filterMachineDirectories(all []services.MachineDirectoryInfo, tag string) []services.MachineDirectoryInfo {
@@ -389,7 +389,7 @@ func (m *model) acceptMachineTagDone(msg machineTagDoneMsg) tea.Cmd {
 }
 
 func (m *model) openMachineCapturePicker() {
-	var candidates []common.MachineObservation
+	var candidates []common.InstallationObservation
 	var options []pages.PickerItem
 	for _, item := range m.machine.items {
 		if item.Status != "installed" || item.Skill == "" {

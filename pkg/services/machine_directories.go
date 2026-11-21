@@ -63,8 +63,8 @@ func (s *Services) DiscoverDirectoriesReport(ctx context.Context, parent string)
 }
 
 func (s *Services) machineFiles() (string, string, error) {
-	paths, err := config.MachinePathsFile(s.Cfg.ConfigDir, s.Cfg.Root)
-	return filepath.Join(s.Cfg.Root, "machine.yaml"), paths, err
+	paths, err := config.DirectoryPathsFile(s.Cfg.ConfigDir, s.Cfg.Root)
+	return filepath.Join(s.Cfg.Root, config.InstallationsFile), paths, err
 }
 
 // ListDirectories reads the declaration and machine-local paths.
@@ -73,11 +73,11 @@ func (s *Services) ListDirectories() ([]MachineDirectoryInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	doc, err := config.LoadMachineDocument(manifestPath)
+	doc, err := config.LoadInstallations(manifestPath)
 	if err != nil {
 		return nil, err
 	}
-	paths, err := config.LoadMachinePaths(pathsPath, doc)
+	paths, err := config.LoadDirectoryPaths(pathsPath, doc)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func (s *Services) ListDirectories() ([]MachineDirectoryInfo, error) {
 
 // RegisterDirectories registers Git roots and their tags in a single batch.
 func (s *Services) RegisterDirectories(ctx context.Context, directories map[string]string, tags []string) error {
-	return s.registerDirectories(ctx, directories, tags, config.WriteMachineYAML)
+	return s.registerDirectories(ctx, directories, tags, config.WriteYAMLAtomic)
 }
 
 func (s *Services) registerDirectories(ctx context.Context, directories map[string]string, tags []string, write func(string, any, os.FileMode) error) error {
@@ -112,16 +112,16 @@ func (s *Services) registerDirectories(ctx context.Context, directories map[stri
 	if err != nil {
 		return err
 	}
-	doc, err := config.LoadMachineDocument(manifestPath)
+	doc, err := config.LoadInstallations(manifestPath)
 	if err != nil {
 		return err
 	}
-	paths, err := config.LoadMachinePaths(pathsPath, doc)
+	paths, err := config.LoadDirectoryPaths(pathsPath, doc)
 	if err != nil {
 		return err
 	}
 	if doc.Directories == nil {
-		doc.Directories = make(map[string]common.MachineDirectory)
+		doc.Directories = make(map[string]common.Directory)
 	}
 	if paths.Paths == nil {
 		paths.Paths = make(map[string]string)
@@ -202,7 +202,7 @@ func (s *Services) TagDirectories(ctx context.Context, ids, add, remove []string
 	if err != nil {
 		return err
 	}
-	doc, err := config.LoadMachineDocument(manifest)
+	doc, err := config.LoadInstallations(manifest)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (s *Services) TagDirectories(ctx context.Context, ids, add, remove []string
 		entry.Tags = tags
 		doc.Directories[id] = entry
 	}
-	return config.WriteMachineYAML(manifest, doc, 0o644)
+	return config.WriteYAMLAtomic(manifest, doc, 0o644)
 }
 
 // SetDirectoryPath associates a registered directory with a local Git root.
@@ -242,14 +242,14 @@ func (s *Services) SetDirectoryPath(ctx context.Context, id, path string) error 
 	if err != nil {
 		return err
 	}
-	doc, err := config.LoadMachineDocument(manifestPath)
+	doc, err := config.LoadInstallations(manifestPath)
 	if err != nil {
 		return err
 	}
 	if _, ok := doc.Directories[id]; !ok {
 		return fmt.Errorf("unknown directory %q", id)
 	}
-	paths, err := config.LoadMachinePaths(pathsPath, doc)
+	paths, err := config.LoadDirectoryPaths(pathsPath, doc)
 	if err != nil {
 		return err
 	}
@@ -278,5 +278,5 @@ func (s *Services) SetDirectoryPath(ctx context.Context, id, path string) error 
 		paths.Paths = make(map[string]string)
 	}
 	paths.Paths[id] = canonical
-	return config.WriteMachineYAML(pathsPath, paths, 0o600)
+	return config.WriteYAMLAtomic(pathsPath, paths, 0o600)
 }

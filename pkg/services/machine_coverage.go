@@ -7,7 +7,7 @@ import (
 
 // machineDirectoryCovered checks whether any declaration selects the given
 // skill and target for a registered directory.
-func machineDirectoryCovered(doc config.MachineDocument, directory, target, skill string) bool {
+func machineDirectoryCovered(doc config.InstallationsDocument, directory, target, skill string) bool {
 	entry, ok := doc.Directories[directory]
 	if !ok {
 		return false
@@ -31,9 +31,9 @@ func machineDirectoryCovered(doc config.MachineDocument, directory, target, skil
 }
 
 // machineUserCovered checks a user-level target independently of directories.
-func machineUserCovered(doc config.MachineDocument, target, skill string) bool {
-	wanted := common.MachineInstall{
-		Skill: skill, Target: target, Scope: common.MachineScope{Kind: "user"},
+func machineUserCovered(doc config.InstallationsDocument, target, skill string) bool {
+	wanted := common.Installation{
+		Skill: skill, Target: target, Scope: common.InstallationScope{Kind: "user"},
 	}
 	for _, install := range doc.Installs {
 		if install == wanted {

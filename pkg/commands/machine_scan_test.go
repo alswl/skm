@@ -18,7 +18,7 @@ func TestMachineScanPathKeepsLibraryRootSeparate(t *testing.T) {
 	link := filepath.Join(project, ".agents", "skills", "skill-a")
 	require.NoError(t, os.MkdirAll(filepath.Dir(link), 0o755))
 	require.NoError(t, os.Symlink(filepath.Join(root, "skills", "local", "skill-a"), link))
-	response, err := runCmd(t, "machine", "scan", "--path", project, "--skill", "skill-a", "--json", "--root", root, "--config", cfg)
+	response, err := runCmd(t, "scan", "--path", project, "--skill", "skill-a", "--json", "--root", root, "--config", cfg)
 	require.NoError(t, err)
 	var report struct {
 		Items []struct {

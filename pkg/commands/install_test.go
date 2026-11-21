@@ -56,22 +56,24 @@ func runCmdWithStderr(t *testing.T, args ...string) (stdout, stderr string, err 
 	deployFlags.targets, deployFlags.only = nil, nil
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 	deployCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
-	if machine, _, err := rootCmd.Find([]string{"machine"}); err == nil {
-		var resetMachineFlags func(*cobra.Command)
-		resetMachineFlags = func(cmd *cobra.Command) {
-			cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
-				if value, ok := f.Value.(pflag.SliceValue); ok {
-					_ = value.Replace(nil)
-				} else {
-					_ = f.Value.Set(f.DefValue)
-				}
-				f.Changed = false
-			})
-			for _, child := range cmd.Commands() {
-				resetMachineFlags(child)
+	var resetInstallationFlags func(*cobra.Command)
+	resetInstallationFlags = func(cmd *cobra.Command) {
+		cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
+			if value, ok := f.Value.(pflag.SliceValue); ok {
+				_ = value.Replace(nil)
+			} else {
+				_ = f.Value.Set(f.DefValue)
 			}
+			f.Changed = false
+		})
+		for _, child := range cmd.Commands() {
+			resetInstallationFlags(child)
 		}
-		resetMachineFlags(machine)
+	}
+	for _, name := range []string{"directory", "scan", "plan", "apply"} {
+		if command, _, err := rootCmd.Find([]string{name}); err == nil {
+			resetInstallationFlags(command)
+		}
 	}
 	flagRoot, flagConfig = "", ""
 	flagJSON, flagTiming, flagDryRun, flagForce = false, false, false, false

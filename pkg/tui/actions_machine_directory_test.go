@@ -22,8 +22,8 @@ func TestMachineScanLatestRequestWins(t *testing.T) {
 	m.machine.cursor = 2
 	require.NotNil(t, m.startMachineScan())
 	second := m.machine.sequence
-	m.acceptMachineScan(machineScanMsg{sequence: second, scope: "b", items: []common.MachineObservation{{Path: "b/skill"}}})
-	m.acceptMachineScan(machineScanMsg{sequence: first, scope: "a", items: []common.MachineObservation{{Path: "a/skill"}}})
+	m.acceptMachineScan(machineScanMsg{sequence: second, scope: "b", items: []common.InstallationObservation{{Path: "b/skill"}}})
+	m.acceptMachineScan(machineScanMsg{sequence: first, scope: "a", items: []common.InstallationObservation{{Path: "a/skill"}}})
 	require.False(t, m.machine.scanning)
 	require.Equal(t, "b/skill", m.machine.items[0].Path)
 	require.NotNil(t, m.startMachineScan())
@@ -31,7 +31,7 @@ func TestMachineScanLatestRequestWins(t *testing.T) {
 	require.ErrorContains(t, m.machine.err, "probe failed")
 	require.Empty(t, m.machine.items)
 	m.machine.open = false
-	m.acceptMachineScan(machineScanMsg{sequence: m.machine.sequence, scope: "b", items: []common.MachineObservation{{Path: "late"}}})
+	m.acceptMachineScan(machineScanMsg{sequence: m.machine.sequence, scope: "b", items: []common.InstallationObservation{{Path: "late"}}})
 	require.Empty(t, m.machine.items)
 }
 
@@ -129,7 +129,7 @@ func TestMachineDirectoryLateScanAndCaptureOnlySelectedScope(t *testing.T) {
 	m.confirm.OnYes()
 	done := m.machinePending().(machineCaptureDoneMsg)
 	require.NoError(t, done.err)
-	doc, err := config.LoadMachineDocument(filepath.Join(m.svc.Cfg.Root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(m.svc.Cfg.Root, "installations.yaml"))
 	require.NoError(t, err)
 	require.Len(t, doc.Installs, 1)
 	require.Equal(t, "b", doc.Installs[0].Scope.Name)
@@ -177,7 +177,7 @@ func TestMachineDirectoryCaptureUser(t *testing.T) {
 	done := m.machinePending().(machineCaptureDoneMsg)
 	require.NoError(t, done.err)
 	require.NotNil(t, m.acceptMachineCaptureDone(done))
-	doc, err := config.LoadMachineDocument(filepath.Join(m.svc.Cfg.Root, "machine.yaml"))
+	doc, err := config.LoadInstallations(filepath.Join(m.svc.Cfg.Root, "installations.yaml"))
 	require.NoError(t, err)
 	require.Len(t, doc.Installs, 1)
 	require.Equal(t, "user", doc.Installs[0].Scope.Kind)

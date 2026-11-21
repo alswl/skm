@@ -78,7 +78,7 @@ func (m *model) globalActions() []entryAction {
 			m.showTargets = true
 			m.targetsCursor = 0
 		}},
-		{Key: "M", Label: "machine directories", Enabled: true, Run: m.openMachineDirectories},
+		{Key: "M", Label: "directories", Enabled: true, Run: m.openMachineDirectories},
 		{Key: "J", Label: "job queue", Enabled: true, Run: func() {
 			m.showTasks = true
 			m.tasksCursor = 0

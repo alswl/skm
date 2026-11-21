@@ -87,7 +87,7 @@ func TestPreviewMachineTagsRejectsTrackedLinkAndInvalidTarget(t *testing.T) {
 
 func TestMachinePlanDeterministicAndReadOnly(t *testing.T) {
 	f := newMachineFixture(t)
-	manifest := filepath.Join(f.root, "machine.yaml")
+	manifest := filepath.Join(f.root, "installations.yaml")
 	before, err := os.ReadFile(manifest)
 	require.NoError(t, err)
 	first, err := f.svc.PlanMachineBatch(MachineBatchRequest{Skills: []string{"review", "review"}, Targets: []string{"codex", "claude"}, Tags: []string{"team", "unused"}})

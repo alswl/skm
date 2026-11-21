@@ -9,15 +9,15 @@ import (
 )
 
 func TestMachineCoverage(t *testing.T) {
-	doc := config.MachineDocument{
-		Directories: map[string]common.MachineDirectory{
+	doc := config.InstallationsDocument{
+		Directories: map[string]common.Directory{
 			"a": {Tags: []string{"team", "go"}},
 			"b": {Tags: []string{"go"}},
 		},
-		Installs: []common.MachineInstall{
-			{Skill: "skills/local/a", Target: "codex", Scope: common.MachineScope{Kind: "tag", Name: "team"}},
-			{Skill: "skills/local/a", Target: "codex", Scope: common.MachineScope{Kind: "directory", Name: "b"}},
-			{Skill: "skills/local/a", Target: "codex", Scope: common.MachineScope{Kind: "user"}},
+		Installs: []common.Installation{
+			{Skill: "skills/local/a", Target: "codex", Scope: common.InstallationScope{Kind: "tag", Name: "team"}},
+			{Skill: "skills/local/a", Target: "codex", Scope: common.InstallationScope{Kind: "directory", Name: "b"}},
+			{Skill: "skills/local/a", Target: "codex", Scope: common.InstallationScope{Kind: "user"}},
 		},
 	}
 	require.True(t, machineDirectoryCovered(doc, "a", "codex", "skills/local/a"))

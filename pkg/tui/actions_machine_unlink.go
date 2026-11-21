@@ -24,7 +24,7 @@ type machineUnlinkDoneMsg struct {
 }
 
 func (m *model) openMachineUnlinkPicker() {
-	var candidates []common.MachineObservation
+	var candidates []common.InstallationObservation
 	var items []pages.PickerItem
 	for _, item := range m.machine.items {
 		if item.Status != "installed" || item.Skill == "" {

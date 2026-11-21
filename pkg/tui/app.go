@@ -94,7 +94,7 @@ type model struct {
 	detailInstalled       bool   // whether the entry is installed in any matching target (cached in Update)
 	detailMachineSequence uint64
 	detailMachineLoading  bool
-	detailMachineItems    []common.MachineObservation
+	detailMachineItems    []common.InstallationObservation
 	detailMachineError    error
 
 	// req-2 §1 modals and task center.
