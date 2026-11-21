@@ -40,6 +40,8 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.normalizeSelected()
 	case key.Matches(msg, k.Claim):
 		m.claimAndRepairSelected()
+	case key.Matches(msg, k.PlanInstall):
+		m.planSelectedSkill()
 	case key.Matches(msg, k.Install):
 		m.installSelected()
 	case key.Matches(msg, k.Update):
@@ -73,7 +75,7 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	switch {
-	case msg.String() == "M":
+	case key.Matches(msg, k.Directories):
 		m.openMachineDirectories()
 	case key.Matches(msg, k.Quit):
 		return tea.Quit
@@ -124,6 +126,8 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		m.openImportPrompt()
 	case key.Matches(msg, k.Claim):
 		m.claimAndRepairSelected()
+	case key.Matches(msg, k.PlanInstall):
+		m.planSelectedSkill()
 	case key.Matches(msg, k.Install):
 		m.installSelected()
 	case key.Matches(msg, k.Update):
@@ -615,20 +619,17 @@ func (m model) listHint() string {
 // read, so View stays pure and cheap (see installStates).
 func (m model) listBindings() []pages.HintItem {
 	install := false
-	claim := false
 	if len(m.filtered) > 0 {
 		e := m.filtered[m.cursor]
 		install = e.Status == common.StatusActive && len(m.installs.forEntry(e.Path)) > 0
-		claim = e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
 	}
 	return []pages.HintItem{
-		{Keys: "j/k", Label: "up/down", Enabled: true},
+		{Keys: "M", Label: "directories", Enabled: true},
 		{Keys: "/", Label: "search", Enabled: true},
-		{Keys: "i", Label: "installs", Enabled: install},
-		{Keys: "m", Label: "import", Enabled: true},
-		{Keys: "c", Label: "claim", Enabled: claim},
+		{Keys: "i", Label: "user installs", Enabled: install},
+		{Keys: "I", Label: "plan", Enabled: m.canPlanSelectedSkill()},
 		{Keys: "x", Label: "actions", Enabled: true},
-		{Keys: "q", Label: "quit", Enabled: true},
+		{Keys: "m", Label: "import", Enabled: true},
 	}
 }
 
@@ -662,7 +663,7 @@ func (m model) detailBindings() []pages.HintItem {
 	return []pages.HintItem{
 		{Keys: "j/k", Label: "scroll", Enabled: len(components.SplitLines(m.detail)) > rows},
 		{Keys: "esc/q", Label: "back", Enabled: true},
-		{Keys: "i", Label: "installs", Enabled: e.Status == common.StatusActive && m.detailTargets > 0},
+		{Keys: "i", Label: "user installs", Enabled: e.Status == common.StatusActive && m.detailTargets > 0},
 		{Keys: "p", Label: "update", Enabled: m.svc.Updatable(e)},
 		{Keys: "a", Label: "archive", Enabled: true},
 		{Keys: "d", Label: "delete", Enabled: true},

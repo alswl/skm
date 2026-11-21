@@ -202,8 +202,10 @@ skm scan --directory api --json
 换机器后检出技能库，逐个执行 `skm directory path api ~/src/api` 设置本机路径，再保存并
 应用 `skm plan --json` 的结果。已有库链接可用 `skm plan --capture PATH --target
 codex --directory api --json` 生成收录计划。使用 `--drop` 撤回声明会保留链接；如需移除未被声明
-覆盖的链接，另行预览并应用 `--unlink PATH --target codex --directory api`。TUI 的目录页也提供
-发现、打标、扫描和确认操作。
+覆盖的链接，另行预览并应用 `--unlink PATH --target codex --directory api`。
+
+TUI 技能列表按 `M` 打开目录页。选中技能后，按 `I` 规划该技能的安装，按 `i` 管理现有用户级安装。
+目录页按 `a` 发现仓库，按 `i` 开始批量安装计划，按 `x` 查看扫描和声明相关操作。
 
 卸载预览要求文件系统能确认支持排他重命名。Linux 内核 4.9 及以上支持识别 ext2/3/4、Btrfs、
 tmpfs 和 XFS；其他文件系统无法通过只读检查确认时，预览会阻止卸载。

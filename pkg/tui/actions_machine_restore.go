@@ -21,16 +21,15 @@ type machineRestoreDoneMsg struct {
 }
 
 func (m *model) openMachineRestore() {
-	m.picker = &pages.Picker{Title: "unignored project links", Hint: "enter select  esc cancel", Single: true, Items: []pages.PickerItem{{Label: "Block unignored links", Value: "block"}, {Label: "Allow unignored links", Value: "allow"}}, OnConfirm: func(selected []pages.PickerItem) {
-		if len(selected) == 0 || !m.machine.open {
-			return
-		}
-		svc, allow := m.svc, selected[0].Value == "allow"
-		m.queueMachinePreview(func(seq uint64) tea.Msg {
-			plan, err := svc.PlanMachineRestore(allow)
-			return machineRestorePlanMsg{sequence: seq, plan: plan, err: err}
-		})
-	}}
+	m.requestMachineRestore(false)
+}
+
+func (m *model) requestMachineRestore(allow bool) {
+	svc := m.svc
+	m.queueMachinePreview(func(seq uint64) tea.Msg {
+		plan, err := svc.PlanMachineRestore(allow)
+		return machineRestorePlanMsg{sequence: seq, plan: plan, err: err}
+	})
 }
 
 func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
@@ -49,7 +48,7 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 	plan := *msg.plan
 	seen := map[string]bool{}
 	var detail strings.Builder
-	count, blocked := 0, 0
+	count, blocked, gitVisible := 0, 0, 0
 	for _, batch := range plan.Plans {
 		for _, item := range batch.Items {
 			key := item.Path + "\x00" + item.Skill
@@ -61,10 +60,13 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 			}
 			seen[key] = true
 			count++
+			if item.Status == "unignored" {
+				gitVisible++
+			}
 			if item.Status != "installed" && item.Status != "install" && (item.Status != "unignored" || !plan.Request.AllowUnignored) {
 				blocked++
 			}
-			fmt.Fprintf(&detail, "%s  %s  %s  %s\n", item.Status, item.Target, item.Skill, item.Path)
+			fmt.Fprintf(&detail, "%s  %s  %s  %s\n", installationPreviewStatus(item.Status, plan.Request.AllowUnignored), item.Target, item.Skill, item.Path)
 		}
 	}
 	undeclared := 0
@@ -76,7 +78,7 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 		}
 		fmt.Fprintf(&detail, "%s  %s  %s  %s\n", status, item.Target, item.Skill, item.Path)
 	}
-	m.confirm = &pages.Confirm{Prompt: fmt.Sprintf("Restore %d locations from %d declarations? %d blocked, %d undeclared", count, len(plan.Plans), blocked, undeclared), Diff: detail.String(), OnYes: func() {
+	m.confirm = &pages.Confirm{Prompt: fmt.Sprintf("Restore %d locations from %d declarations?\n%d blocked, %d undeclared", count, len(plan.Plans), blocked, undeclared), Diff: detail.String(), OnYes: func() {
 		if !m.machine.open || msg.sequence != m.machine.sequence {
 			return
 		}
@@ -88,6 +90,14 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 			return machineRestoreDoneMsg{sequence: seq, result: result, err: err}
 		}
 	}}
+	if gitVisible > 0 && !plan.Request.AllowUnignored {
+		m.confirm.Prompt += "\nSome links would appear in git status and are skipped."
+		m.confirm.OnIncludeGitVisible = func() {
+			if m.machine.open && msg.sequence == m.machine.sequence {
+				m.requestMachineRestore(true)
+			}
+		}
+	}
 }
 
 func (m *model) acceptMachineRestoreDone(msg machineRestoreDoneMsg) tea.Cmd {

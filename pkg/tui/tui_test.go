@@ -312,7 +312,7 @@ func TestInstallStatusMessageReportsActualChanges(t *testing.T) {
 func TestListFooterShowsInstallAndImportBindings(t *testing.T) {
 	m := newTestModel(t)
 	hint := m.listHint()
-	require.Contains(t, hint, "[i] installs")
+	require.Contains(t, hint, "[i] user installs")
 	require.Contains(t, hint, "[m] import")
 	require.NotContains(t, hint, "[u] uninstall")
 }
@@ -333,7 +333,7 @@ func TestActionsMenuListsOnlyAvailableEntryActions(t *testing.T) {
 	for _, it := range m.picker.Items {
 		labels = append(labels, it.Label)
 	}
-	require.Contains(t, labels, "[i] installs", "install is offered for an active entry with targets")
+	require.Contains(t, labels, "[i] user installs", "install is offered for an active entry with targets")
 	require.Contains(t, labels, "[a] archive", "archive is always offered")
 	require.Contains(t, labels, "[d] delete", "delete is always offered")
 	require.NotContains(t, labels, "[p] update", "update is not offered: the fixture entry has no origin")
@@ -350,7 +350,7 @@ func TestActionsMenuRunsSelectedAction(t *testing.T) {
 
 	idx := -1
 	for i, it := range m.picker.Items {
-		if it.Label == "[i] installs" {
+		if it.Label == "[i] user installs" {
 			idx = i
 		}
 	}
@@ -390,7 +390,7 @@ func TestActionsMenuIncludesGlobalListActions(t *testing.T) {
 	require.Contains(t, labels, "[o] discover")
 	require.Contains(t, labels, "[m] import")
 	require.Contains(t, labels, "[P] batch update")
-	require.Contains(t, labels, "[t] targets")
+	require.Contains(t, labels, "[t] user target settings")
 	require.Contains(t, labels, "[J] job queue")
 }
 
@@ -426,7 +426,7 @@ func TestActionsMenuOmitsGlobalActionsFromDetail(t *testing.T) {
 	_ = m.handleKey(runeKey('x'))
 	require.NotNil(t, m.picker)
 	for _, it := range m.picker.Items {
-		require.NotContains(t, []string{"[o] discover", "[m] import", "[P] batch update", "[t] targets", "[J] job queue"}, it.Label)
+		require.NotContains(t, []string{"[o] discover", "[m] import", "[P] batch update", "[t] user target settings", "[J] job queue"}, it.Label)
 	}
 }
 

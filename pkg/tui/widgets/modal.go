@@ -76,18 +76,22 @@ func (p *Picker) Selection() []PickerItem {
 
 // Confirm is a yes/no modal guarding a destructive action (FR-040).
 type Confirm struct {
-	Prompt     string
-	OnYes      func()
-	Diff       string
-	ShowDiff   bool
-	DiffOffset int
+	Prompt              string
+	OnIncludeGitVisible func()
+	OnYes               func()
+	Diff                string
+	ShowDiff            bool
+	DiffOffset          int
 }
 
 // PickerView renders the active picker as a full-screen framed page.
 func PickerView(width, height int, status string, p *Picker) string {
 	inner := maxInt(20, width) - 2
 	var body strings.Builder
-	for i, it := range p.Items {
+	rows := maxInt(1, maxInt(10, height)-6)
+	start := maxInt(0, p.Cursor-rows+1)
+	for i := start; i < minInt(len(p.Items), start+rows); i++ {
+		it := p.Items[i]
 		mark := "[ ]"
 		switch {
 		case p.Single && it.Checked:
@@ -111,7 +115,7 @@ func PickerView(width, height int, status string, p *Picker) string {
 
 // ConfirmView renders the active confirmation as a full-screen framed page.
 func ConfirmView(width, height int, status string, c *Confirm) string {
-	body := components.StylePrompt.Render(c.Prompt)
+	body := components.StylePrompt.Render(lipgloss.NewStyle().Width(maxInt(20, width) - 2).Render(c.Prompt))
 	hint := "[y] yes   [n/esc/q] no"
 	if c.Diff != "" {
 		hint += "   [d] diff"
@@ -128,6 +132,9 @@ func ConfirmView(width, height int, status string, c *Confirm) string {
 		}
 		body = strings.Join(lines[offset:minInt(len(lines), offset+rows)], "\n")
 		hint = "[d] back   [j/k] scroll   [y] apply   [n/esc/q] cancel"
+	}
+	if c.OnIncludeGitVisible != nil {
+		hint += "  [g] include Git-visible links"
 	}
 	return FramedPage(width, height, " skm · confirm ", body, status, hint)
 }

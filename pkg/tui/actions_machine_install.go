@@ -120,17 +120,7 @@ func (m *model) openMachineInstallTargets(request services.MachineBatchRequest) 
 			return
 		}
 		request.Targets = pickerValues(selected)
-		if request.User {
-			m.requestMachineInstallPlan(request)
-			return
-		}
-		m.picker = &pages.Picker{Title: "unignored project links", Hint: "enter select  esc cancel", Single: true, Items: []pages.PickerItem{{Label: "Block unignored links", Value: "block"}, {Label: "Allow unignored links", Value: "allow"}}, OnConfirm: func(choice []pages.PickerItem) {
-			if len(choice) == 0 {
-				return
-			}
-			request.AllowUnignored = choice[0].Value == "allow"
-			m.requestMachineInstallPlan(request)
-		}}
+		m.requestMachineInstallPlan(request)
 	}}
 }
 
@@ -164,7 +154,7 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 	var detail strings.Builder
 	for _, item := range plan.Items {
 		counts[item.Status]++
-		fmt.Fprintf(&detail, "%s  %s  %s  %s\n", item.Status, item.Target, item.Skill, item.Path)
+		fmt.Fprintf(&detail, "%s  %s  %s  %s\n", installationPreviewStatus(item.Status, plan.Request.AllowUnignored), item.Target, item.Skill, item.Path)
 	}
 	installable := counts["install"]
 	if plan.Request.AllowUnignored {
@@ -176,7 +166,7 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 	} else if len(plan.Request.Directories) != 0 {
 		scope = "directories " + strings.Join(plan.Request.Directories, ", ")
 	}
-	prompt := fmt.Sprintf("Apply %d locations across %d directories (%s)? install %d, already installed %d, blocked %d", len(plan.Items), len(plan.Directories), scope, installable, counts["installed"], len(plan.Items)-installable-counts["installed"])
+	prompt := fmt.Sprintf("Apply %d locations across %d directories (%s)?\nInstall %d · already installed %d · blocked %d", len(plan.Items), len(plan.Directories), scope, installable, counts["installed"], len(plan.Items)-installable-counts["installed"])
 	m.confirm = &pages.Confirm{Prompt: prompt, Diff: detail.String(), OnYes: func() {
 		if !m.machine.open || msg.sequence != m.machine.sequence {
 			return
@@ -189,6 +179,39 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 			return machineInstallDoneMsg{sequence: seq, result: result, err: err}
 		}
 	}}
+	if counts["unignored"] > 0 && !plan.Request.AllowUnignored {
+		m.confirm.Prompt += "\nSome links would appear in git status and are skipped."
+		m.confirm.OnIncludeGitVisible = func() {
+			if m.machine.open && msg.sequence == m.machine.sequence {
+				request := plan.Request
+				request.AllowUnignored = true
+				m.requestMachineInstallPlan(request)
+			}
+		}
+	}
+}
+
+func installationPreviewStatus(status string, allow bool) string {
+	if status != "unignored" {
+		return status
+	}
+	if allow {
+		return "install (visible in git status)"
+	}
+	return "blocked (visible in git status)"
+}
+
+func (m *model) canPlanSelectedSkill() bool {
+	return m.cursor < len(m.filtered) && m.filtered[m.cursor].Kind == common.KindSkill && m.filtered[m.cursor].Status == common.StatusActive
+}
+
+func (m *model) planSelectedSkill() {
+	if !m.canPlanSelectedSkill() {
+		return
+	}
+	skill := m.svc.Repo.RelPath(m.filtered[m.cursor].Path)
+	m.openMachineDirectories()
+	m.machine.requestedSkill = skill
 }
 
 func (m *model) acceptMachineInstallDone(msg machineInstallDoneMsg) tea.Cmd {

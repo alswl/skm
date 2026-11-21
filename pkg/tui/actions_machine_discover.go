@@ -88,7 +88,7 @@ func (m *model) acceptMachineDiscover(msg machineDiscoverMsg) {
 	items := []pages.PickerItem{}
 	for _, path := range msg.paths {
 		if !registered[path] {
-			items = append(items, pages.PickerItem{Label: path, Value: path})
+			items = append(items, pages.PickerItem{Label: fmt.Sprintf("%s  (%s)", filepath.Base(path), filepath.Dir(path)), Value: path})
 		}
 	}
 	if len(items) == 0 {
@@ -104,6 +104,7 @@ func (m *model) acceptMachineDiscover(msg machineDiscoverMsg) {
 			used[dir.ID] = true
 		}
 		entries := map[string]string{}
+		firstID := ""
 		for _, item := range selected {
 			base := machineDirectoryID(filepath.Base(item.Value))
 			id := base
@@ -115,6 +116,9 @@ func (m *model) acceptMachineDiscover(msg machineDiscoverMsg) {
 				}
 				id = prefix + ending
 			}
+			if firstID == "" {
+				firstID = id
+			}
 			used[id] = true
 			entries[id] = item.Value
 		}
@@ -123,7 +127,7 @@ func (m *model) acceptMachineDiscover(msg machineDiscoverMsg) {
 		seq, svc, ctx := m.machine.sequence, m.svc, m.ctx
 		m.machinePending = func() tea.Msg {
 			err := svc.RegisterDirectories(ctx, entries, nil)
-			return machineRegisterDoneMsg{sequence: seq, err: err}
+			return machineRegisterDoneMsg{sequence: seq, scope: firstID, err: err}
 		}
 	}}
 }

@@ -40,6 +40,10 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 // handleConfirmKey drives the active confirmation modal.
 func (m *model) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
+	case msg.String() == "g" && m.confirm.OnIncludeGitVisible != nil:
+		include := m.confirm.OnIncludeGitVisible
+		m.confirm = nil
+		include()
 	case msg.String() == "d" && m.confirm.Diff != "":
 		m.confirm.ShowDiff = !m.confirm.ShowDiff
 		m.confirm.DiffOffset = 0

@@ -44,7 +44,8 @@ func (m *model) entryActions() []entryAction {
 		out = append(out, entryAction{Key: "enter", Label: "detail", Enabled: true, Run: m.openDetail})
 	}
 	out = append(out,
-		entryAction{Key: "i", Label: "installs", Enabled: install, Run: m.installSelected},
+		entryAction{Key: "i", Label: "user installs", Enabled: install, Run: m.installSelected},
+		entryAction{Key: "I", Label: "plan skill installation", Enabled: m.canPlanSelectedSkill(), Run: m.planSelectedSkill},
 		entryAction{Key: "p", Label: "update", Enabled: update, Run: m.updateSelected},
 		entryAction{Key: "n", Label: "normalize", Enabled: normalize, Run: m.normalizeSelected},
 		entryAction{Key: "c", Label: "claim → self-build", Enabled: claim, Run: m.claimAndRepairSelected},
@@ -74,7 +75,7 @@ func (m *model) globalActions() []entryAction {
 			m.openImportPrompt()
 		}},
 		{Key: "P", Label: "batch update", Enabled: true, Run: m.batchUpdate},
-		{Key: "t", Label: "targets", Enabled: true, Run: func() {
+		{Key: "t", Label: "user target settings", Enabled: true, Run: func() {
 			m.showTargets = true
 			m.targetsCursor = 0
 		}},

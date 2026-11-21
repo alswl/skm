@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
@@ -31,6 +32,7 @@ type machineDirectoryState struct {
 	pathEditing    string
 	pathInput      string
 	requestedScope string
+	requestedSkill string
 	result         string
 	retryPreview   func()
 }
@@ -86,6 +88,8 @@ func (m *model) acceptMachineDirectories(msg machineDirectoriesMsg) tea.Cmd {
 	}
 	m.machine.loadingList = false
 	m.machine.err = msg.err
+	skill := m.machine.requestedSkill
+	m.machine.requestedSkill = ""
 	if msg.err != nil {
 		return nil
 	}
@@ -101,7 +105,11 @@ func (m *model) acceptMachineDirectories(msg machineDirectoriesMsg) tea.Cmd {
 		}
 		m.machine.requestedScope = ""
 	}
-	return m.startMachineScan()
+	scan := m.startMachineScan()
+	if skill != "" {
+		m.openMachineInstallScope([]string{skill})
+	}
+	return scan
 }
 
 func (m *model) machineScope() string {
@@ -213,7 +221,7 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 			m.machine.cursor--
 			return m.startMachineScan()
 		}
-	case key.Matches(msg, m.keys.Refresh):
+	case msg.String() == "r":
 		if !m.machine.loadingList {
 			return m.startMachineScan()
 		}
@@ -242,6 +250,8 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 		if !m.machine.loadingList && !m.machine.scanning && m.machine.err == nil {
 			m.openMachineUnlinkPicker()
 		}
+	case msg.String() == "x" && !m.machine.loadingList:
+		m.openDirectoryActions()
 	case msg.String() == "a":
 		m.machine.pathEditing, m.machine.pathInput = "discover", ""
 	case msg.String() == "p":
@@ -266,6 +276,19 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 
 func (m model) machineView() string {
 	var body strings.Builder
+	if m.machine.tagEditing {
+		fmt.Fprintf(&body, "Tag (prefix - to remove): %s\n", m.machine.tagInput)
+	}
+	if m.machine.filterEditing {
+		fmt.Fprintf(&body, "Filter tag (empty clears): %s\n", m.machine.filterInput)
+	}
+	if m.machine.pathEditing != "" {
+		label := "Local directory path"
+		if m.machine.pathEditing == "discover" {
+			label = "Search for Git directories under"
+		}
+		fmt.Fprintf(&body, "%s: %s\n", label, m.machine.pathInput)
+	}
 	if m.machine.loadingList {
 		body.WriteString("Loading directories…\n")
 	} else {
@@ -315,26 +338,21 @@ func (m model) machineView() string {
 				if item.Skill != "" && !item.Declared {
 					declared = " (undeclared)"
 				}
-				fmt.Fprintf(&body, "%s  %s%s  %s\n", item.Target, item.Status, declared, item.Path)
+				label := item.Skill
+				if label == "" {
+					label = filepath.Base(item.Path)
+				}
+				fmt.Fprintf(&body, "%s  %s%s  %s\n", item.Target, item.Status, declared, label)
 			}
 		}
 	}
 	if m.machine.loadingList && m.machine.err != nil {
 		fmt.Fprintf(&body, "Error: %s\n", m.machine.err)
 	}
-	if m.machine.tagEditing {
-		fmt.Fprintf(&body, "\nTag (+ by default, - to remove): %s", m.machine.tagInput)
-	}
-	if m.machine.filterEditing {
-		fmt.Fprintf(&body, "\nFilter tag (empty clears): %s", m.machine.filterInput)
-	}
-	if m.machine.pathEditing != "" {
-		fmt.Fprintf(&body, "\nPath: %s", m.machine.pathInput)
-	}
 	if m.machine.result != "" {
 		fmt.Fprintf(&body, "\n%s\n", m.machine.result)
 	}
-	return m.framedPage("directories", body.String(), "j/k select  f filter  a discover  p path  enter capture  i install  R restore  d drop  u unlink  t/T tag  v retry  r refresh")
+	return m.framedPage("directories", body.String(), "[j/k] select  [a] discover  [i] install  [x] actions  [esc] back")
 }
 
 func filterMachineDirectories(all []services.MachineDirectoryInfo, tag string) []services.MachineDirectoryInfo {
@@ -459,4 +477,36 @@ func (m *model) acceptMachineCaptureDone(msg machineCaptureDoneMsg) tea.Cmd {
 	}
 	m.setStatus("installation captured")
 	return m.startMachineScan()
+}
+
+func (m *model) openDirectoryActions() {
+	items := []pages.PickerItem{
+		{Label: "Filter by tag [f]", Value: "f"},
+		{Label: "Tag directories [T]", Value: "T"},
+		{Label: "Refresh scan [r]", Value: "r"},
+	}
+	if m.machine.cursor > 0 {
+		items = append(items, pages.PickerItem{Label: "Edit tags for selected directory [t]", Value: "t"}, pages.PickerItem{Label: "Set local path [p]", Value: "p"})
+	}
+	if !m.machine.scanning {
+		if m.machine.err == nil && len(m.machine.items) > 0 {
+			items = append(items, pages.PickerItem{Label: "Capture existing installation [enter]", Value: "enter"}, pages.PickerItem{Label: "Unlink installation [u]", Value: "u"})
+		}
+		items = append(items, pages.PickerItem{Label: "Restore from declarations [R]", Value: "R"}, pages.PickerItem{Label: "Drop declaration [d]", Value: "d"})
+		if m.machine.retryPreview != nil {
+			items = append(items, pages.PickerItem{Label: "Preview again [v]", Value: "v"})
+		}
+	}
+	m.picker = &pages.Picker{Title: "directory actions", Single: true, Hint: "enter select  esc back", Items: items, OnConfirm: func(selected []pages.PickerItem) {
+		if len(selected) == 0 {
+			return
+		}
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(selected[0].Value)}
+		if selected[0].Value == "enter" {
+			msg = tea.KeyMsg{Type: tea.KeyEnter}
+		}
+		if cmd := m.handleMachineKey(msg); cmd != nil {
+			m.machinePending = cmd
+		}
+	}}
 }

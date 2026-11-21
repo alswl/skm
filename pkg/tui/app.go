@@ -489,7 +489,7 @@ func (m *model) openInstallsPicker(entry *common.Entry) {
 	name := entry.Name
 	ref := m.svc.Repo.RelPath(entry.Path)
 	m.picker = &pages.Picker{
-		Title: "Installs · " + name,
+		Title: "User Installs · " + name,
 		Hint:  "[space] cycle state  [enter] apply  [esc/q] cancel",
 		Items: items,
 		OnConfirm: func(sel []pages.PickerItem) {
