@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/tui/components"
 )
 
 // T045/T046: §1 audit found the TUI surface (target/provider/kind pickers,
@@ -498,7 +499,7 @@ func TestDetailViewScrollsWithJK(t *testing.T) {
 	require.True(t, strings.HasPrefix(strings.Split(m.detailView(), "\n")[1], "│line 0"), "k scrolls back up")
 
 	// Clamp at the bottom: scrolling past the last window stops there.
-	maxOffset := len(long) - (m.height - 4)
+	maxOffset := len(components.SplitLines(m.detailContent())) - (m.height - 4)
 	for i := 0; i < maxOffset+5; i++ {
 		_ = m.handleKey(runeKey('j'))
 	}

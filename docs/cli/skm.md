@@ -44,6 +44,7 @@ skm [flags]
 * [skm init](skm_init.md)	 - Initialize an empty skills repository
 * [skm install](skm_install.md)	 - Install a skill or command into kind-matching targets
 * [skm list](skm_list.md)	 - List the repository catalog
+* [skm machine](skm_machine.md)	 - Manage machine skill installations
 * [skm normalize](skm_normalize.md)	 - Move a non-standard entry into a provider location
 * [skm plugin](skm_plugin.md)	 - Manage installed provider/target plugins
 * [skm provider](skm_provider.md)	 - Manage acquisition providers (built-in and plugin)

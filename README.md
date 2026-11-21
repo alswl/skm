@@ -193,6 +193,41 @@ that — and `--force` lets the reinstall overwrite whatever occupies an install
 Then `git init && git commit` the repository and you're done — your skills are now versioned,
 portable, and installed in every tool at once.
 
+## Manage skills across directories
+
+`skm machine` records desired installations in `machine.yaml` at the skills library root.
+Directory IDs and tags travel with the library; local paths live in the skm configuration
+directory and must be set again for another checkout or machine. Actual installations are
+scanned from disk, not saved as installation history.
+
+```bash
+skm machine directory discover ~/src
+skm machine directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
+skm machine directory tag --directory web --add frontend
+skm machine directory list --tag backend
+
+# Review the selected skills, clients and directories before applying.
+skm machine plan --add code-review --target codex --target claude --tag backend --json > plan.json
+skm machine apply --plan plan.json
+skm machine scan --directory api --json
+```
+
+Directory targets are Codex (`.agents/skills`) and Claude Code (`.claude/skills`); use
+`--user` and configured target names for user-level installations. The preview flags
+unignored project links; add `--allow-unignored` when you explicitly accept them. Existing
+objects and tracked files remain protected.
+
+On a new machine, check out the library, use `skm machine directory path api ~/src/api` for
+each directory, then save and apply `skm machine plan --json`. To record an existing library
+link, use `skm machine plan --capture PATH --target codex --directory api --json` and apply
+that plan. Dropping a declaration with `--drop` leaves its link in place; use a separate
+`--unlink PATH --target codex --directory api` plan to remove a selected, uncovered link.
+The TUI machine directory page provides discovery, tags, scanning and reviewed actions too.
+
+Unlink previews require a filesystem with verified exclusive rename support. On Linux,
+skm recognizes ext2/3/4, Btrfs, tmpfs and XFS on kernel 4.9 or later; other filesystem
+types are blocked because their support cannot be established without modifying the filesystem.
+
 ## ⚙️ Configuration
 
 Settings resolve **flag > environment variable > settings file > default**, so anything you can put

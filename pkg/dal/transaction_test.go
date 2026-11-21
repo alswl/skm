@@ -107,3 +107,27 @@ func TestLockNameStablePerRoot(t *testing.T) {
 	require.Equal(t, a, b)
 	require.NotEqual(t, a, LockName("/a/b/other"))
 }
+
+func TestNestedRepositoryLockDoesNotReleaseOwner(t *testing.T) {
+	root := t.TempDir()
+	owner, err := AcquireLock(context.Background(), root)
+	require.NoError(t, err)
+	defer owner.Release()
+	nested, err := AcquireLockWait(owner.Context(context.Background()), root, time.Millisecond)
+	require.NoError(t, err)
+	nested.Release()
+	_, err = AcquireLockWait(context.Background(), root, time.Millisecond)
+	require.Error(t, err)
+}
+
+func TestRepositoryLockUsesPhysicalRoot(t *testing.T) {
+	root := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	require.NoError(t, os.Symlink(root, alias))
+	require.Equal(t, LockName(root), LockName(alias))
+	owner, err := AcquireLock(context.Background(), root)
+	require.NoError(t, err)
+	defer owner.Release()
+	_, err = AcquireLockWait(context.Background(), alias, time.Millisecond)
+	require.Error(t, err)
+}

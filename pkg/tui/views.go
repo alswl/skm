@@ -29,8 +29,9 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, k.ClearSearch), key.Matches(msg, k.Quit):
 		m.showDetail = false // Esc/q back to the list (Enter does not close detail)
+		m.detailMachineSequence++
 	case key.Matches(msg, k.MoveDown):
-		lines := components.SplitLines(m.detail)
+		lines := components.SplitLines(m.detailContent())
 		maxOffset := maxInt(0, len(lines)-maxInt(1, maxInt(10, m.height)-4))
 		m.detailOffset = clampInt(m.detailOffset+1, 0, maxOffset)
 	case key.Matches(msg, k.MoveUp):
@@ -54,6 +55,7 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, k.ActionsMenu):
 		m.openActionsMenu()
 	case key.Matches(msg, k.Refresh):
+		m.startMachineSkillScan()
 		return scanCmd(m.svc, scanManual, 0)
 	}
 	return nil
@@ -71,6 +73,8 @@ func (m *model) handleListKey(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 	switch {
+	case msg.String() == "M":
+		m.openMachineDirectories()
 	case key.Matches(msg, k.Quit):
 		return tea.Quit
 	case key.Matches(msg, k.Cancel):
@@ -167,6 +171,8 @@ func (m *model) View() string {
 		return m.targetWizardView()
 	case m.showTargets:
 		return m.targetsView()
+	case m.machine.open:
+		return m.machineView()
 	case m.showDetail:
 		return m.detailView()
 	default:
@@ -571,7 +577,7 @@ func (m model) detailView() string {
 	if len(m.filtered) > 0 {
 		title = " skm · " + m.filtered[m.cursor].Name + " · detail "
 	}
-	lines := components.SplitLines(m.detail)
+	lines := components.SplitLines(m.detailContent())
 	offset := clampInt(m.detailOffset, 0, maxInt(0, len(lines)-rows))
 	var sb strings.Builder
 	sb.WriteString(components.FrameTop(inner, title) + "\n")

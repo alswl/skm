@@ -87,11 +87,15 @@ type model struct {
 	spinner  spinner.Model
 	spinning bool // true while a spinner.Tick loop is in flight; keeps exactly one loop running
 
-	showDetail      bool   // true renders the full-screen detail page (Enter/v)
-	detail          string // detail page content, built lazily in openDetail
-	detailOffset    int    // scroll offset (lines) into the detail content; j/k scroll it
-	detailTargets   int    // number of kind-matching targets (cached in Update; View must stay pure)
-	detailInstalled bool   // whether the entry is installed in any matching target (cached in Update)
+	showDetail            bool   // true renders the full-screen detail page (Enter/v)
+	detail                string // detail page content, built lazily in openDetail
+	detailOffset          int    // scroll offset (lines) into the detail content; j/k scroll it
+	detailTargets         int    // number of kind-matching targets (cached in Update; View must stay pure)
+	detailInstalled       bool   // whether the entry is installed in any matching target (cached in Update)
+	detailMachineSequence uint64
+	detailMachineLoading  bool
+	detailMachineItems    []common.MachineObservation
+	detailMachineError    error
 
 	// req-2 §1 modals and task center.
 	picker       *pages.Picker        // active multi/single-select modal (nil when closed)
@@ -102,9 +106,11 @@ type model struct {
 	forceRetries map[int64]forceRetry // job id -> force-retry offer, for jobs that failed needing --force
 
 	// 002-open-provider-target US2: Target configuration editor.
-	showTargets   bool          // target list/editor view (t)
-	targetsCursor int           // cursor into svc.Cfg.Targets
-	targetWizard  *targetWizard // active add/edit text-entry step (nil when idle)
+	showTargets    bool          // target list/editor view (t)
+	targetsCursor  int           // cursor into svc.Cfg.Targets
+	targetWizard   *targetWizard // active add/edit text-entry step (nil when idle)
+	machine        machineDirectoryState
+	machinePending tea.Cmd
 
 	// Provider filter tabs (Tab/Shift+Tab): providerTabs[0] is always
 	// tabAll; providerTabs[providerTabIdx] is the active filter.
@@ -274,7 +280,9 @@ func (m *model) Init() tea.Cmd {
 // spin for every background task, not just the startup scan.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
-	return model, tea.Batch(cmd, m.spinnerCmd())
+	pending := m.machinePending
+	m.machinePending = nil
+	return model, tea.Batch(cmd, pending, m.spinnerCmd())
 }
 
 // spinnerActive reports whether anything the user is waiting on is in flight.
@@ -308,6 +316,49 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		cmd := m.handleKey(msg)
 		return m, cmd
+	case machineDirectoriesMsg:
+		return m, m.acceptMachineDirectories(msg)
+	case machineScanMsg:
+		m.acceptMachineScan(msg)
+		return m, nil
+	case machineSkillScanMsg:
+		m.acceptMachineSkillScan(msg)
+		return m, nil
+	case machineCapturePlanMsg:
+		m.acceptMachineCapturePlan(msg)
+		return m, nil
+	case machineCaptureDoneMsg:
+		return m, m.acceptMachineCaptureDone(msg)
+	case machineTagDoneMsg:
+		return m, m.acceptMachineTagDone(msg)
+	case machineInstallPlanMsg:
+		m.acceptMachineInstallPlan(msg)
+		return m, nil
+	case machineInstallDoneMsg:
+		return m, m.acceptMachineInstallDone(msg)
+	case machineUnlinkPlanMsg:
+		m.acceptMachineUnlinkPlan(msg)
+		return m, nil
+	case machineUnlinkDoneMsg:
+		return m, m.acceptMachineUnlinkDone(msg)
+	case machineDiscoverMsg:
+		m.acceptMachineDiscover(msg)
+		return m, nil
+	case machineRegisterDoneMsg:
+		return m, m.acceptMachineRegisterDone(msg)
+	case machineDeclarationsMsg:
+		m.acceptMachineDeclarations(msg)
+		return m, nil
+	case machineDropPlanMsg:
+		m.acceptMachineDropPlan(msg)
+		return m, nil
+	case machineDropDoneMsg:
+		return m, m.acceptMachineDropDone(msg)
+	case machineRestorePlanMsg:
+		m.acceptMachineRestorePlan(msg)
+		return m, nil
+	case machineRestoreDoneMsg:
+		return m, m.acceptMachineRestoreDone(msg)
 	case jobDoneMsg:
 		// handleJobDone only returns the follow-up rescan (or nil); this is
 		// the one place that re-arms the queue's result listener, so each job
@@ -377,6 +428,9 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	}
 	if m.showTargets {
 		return m.handleTargetsKey(msg)
+	}
+	if m.machine.open {
+		return m.handleMachineKey(msg)
 	}
 	if m.showDetail {
 		return m.handleDetailKey(msg)

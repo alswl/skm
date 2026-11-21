@@ -29,15 +29,28 @@ import (
 // single heap-allocated model.
 type probeModel struct {
 	model *model
-	snap  chan model
+	snap  chan probeSnapshot
+}
+
+type probeInput struct {
+	id      uint64
+	message tea.Msg
+}
+type probeSnapshot struct {
+	id    uint64
+	state model
 }
 
 func (p probeModel) Init() tea.Cmd { return p.model.Init() }
 
 func (p probeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var id uint64
+	if input, ok := msg.(probeInput); ok {
+		id, msg = input.id, input.message
+	}
 	m, cmd := p.model.Update(msg)
 	live := m.(*model)
-	p.snap <- *live
+	p.snap <- probeSnapshot{id: id, state: *live}
 	return probeModel{model: live, snap: p.snap}, cmd
 }
 
@@ -54,14 +67,16 @@ func (blockingInput) Read([]byte) (int, error) {
 
 // programProbe is a running tea.Program with scripted-key + snapshot access.
 type programProbe struct {
-	t  *testing.T
-	p  *tea.Program
-	ch chan model
+	t    *testing.T
+	p    *tea.Program
+	ch   chan probeSnapshot
+	next uint64
+	last *model
 }
 
 func startProgram(t *testing.T, m *model) *programProbe {
 	t.Helper()
-	ch := make(chan model, 512)
+	ch := make(chan probeSnapshot, 512)
 	prog := tea.NewProgram(probeModel{model: m, snap: ch},
 		tea.WithInput(blockingInput{}), // keys arrive via Program.Send, not stdin
 		tea.WithOutput(io.Discard),
@@ -111,27 +126,39 @@ func startProgram(t *testing.T, m *model) *programProbe {
 // send delivers a message and returns the model snapshot of that Update.
 func (pp *programProbe) send(msg tea.Msg) model {
 	pp.t.Helper()
-	pp.p.Send(msg)
-	select {
-	case s := <-pp.ch:
-		return s
-	case <-time.After(5 * time.Second):
-		pp.t.Fatal("no model snapshot after message")
-		return model{}
+	pp.next++
+	id := pp.next
+	pp.p.Send(probeInput{id: id, message: msg})
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case s := <-pp.ch:
+			pp.last = &s.state
+			if s.id == id {
+				return s.state
+			}
+		case <-timeout:
+			pp.t.Fatal("no model snapshot after message")
+			return model{}
+		}
 	}
 }
 
 // wait drains snapshots until pred holds (used for async job results).
 func (pp *programProbe) wait(pred func(model) bool, failMsg string) model {
 	pp.t.Helper()
+	if pp.last != nil && pred(*pp.last) {
+		return *pp.last
+	}
 	deadline := time.After(5 * time.Second)
 	var last model
 	for {
 		select {
-		case s := <-pp.ch:
-			last = s
-			if pred(s) {
-				return s
+		case snapshot := <-pp.ch:
+			last = snapshot.state
+			pp.last = &last
+			if pred(last) {
+				return last
 			}
 		case <-deadline:
 			pp.t.Fatalf("%s\nlast: showDetail=%v status=%q picker=%v confirm=%v offset=%d",
