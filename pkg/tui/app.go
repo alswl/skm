@@ -324,6 +324,20 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case machineSkillScanMsg:
 		m.acceptMachineSkillScan(msg)
 		return m, nil
+	case detailUnlinkPreviewMsg:
+		m.acceptDetailUnlinkPreview(msg)
+		return m, nil
+	case detailUnlinkResultMsg:
+		if m.showDetail && m.detailMachineSequence == msg.sequence {
+			if msg.err != nil {
+				m.setStatus(msg.err.Error())
+			} else {
+				m.setStatus("link removed")
+			}
+			m.startMachineSkillScan()
+			return m, scanCmd(m.svc, scanAfterJob, 0)
+		}
+		return m, nil
 	case machineCapturePlanMsg:
 		m.acceptMachineCapturePlan(msg)
 		return m, nil

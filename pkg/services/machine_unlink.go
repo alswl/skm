@@ -125,7 +125,7 @@ func (s *Services) checkMachineUnlinkCoverage(path string) error {
 				return fmt.Errorf("%w for target %q: %w", ErrMachineUnlinkCoverageUnknown, declaration.Target, err)
 			}
 			if filepath.Join(target, name) == path {
-				return ErrMachineUnlinkCovered
+				return fmt.Errorf("%w: %s on user target %q", ErrMachineUnlinkCovered, declaration.Skill, declaration.Target)
 			}
 			continue
 		}
@@ -154,7 +154,16 @@ func (s *Services) checkMachineUnlinkCoverage(path string) error {
 				candidate = filepath.Join(parent, name)
 			}
 			if candidate == path {
-				return ErrMachineUnlinkCovered
+				if declaration.Scope.Kind == "tag" {
+					count := 0
+					for _, dir := range directories {
+						if containsMachineTag(dir.Tags, declaration.Scope.Name) {
+							count++
+						}
+					}
+					return fmt.Errorf("%w: tag %q (%d matching directories), %s on %s", ErrMachineUnlinkCovered, declaration.Scope.Name, count, declaration.Skill, declaration.Target)
+				}
+				return fmt.Errorf("%w: %s on %s in directory %q", ErrMachineUnlinkCovered, declaration.Skill, declaration.Target, declaration.Scope.Name)
 			}
 		}
 	}

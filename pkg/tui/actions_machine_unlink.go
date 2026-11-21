@@ -69,7 +69,7 @@ func (m *model) acceptMachineUnlinkPlan(msg machineUnlinkPlanMsg) {
 		return
 	}
 	plan := *msg.plan
-	m.confirm = &pages.Confirm{Prompt: fmt.Sprintf("Unlink %s from %s at %s?", plan.Skill, plan.Target, plan.Path), OnYes: func() {
+	m.confirm = &pages.Confirm{Prompt: unlinkPrompt(plan), OnYes: func() {
 		if !m.machine.open || msg.sequence != m.machine.sequence || msg.scope != m.machineScope() {
 			return
 		}

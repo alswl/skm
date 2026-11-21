@@ -61,8 +61,11 @@ func (m *model) fixSelected() {
 		m.prepareOrphanDanglingFix()
 		return
 	}
+	m.prepareSelectedFix(entry, m.svc.Repo.RelPath(entry.Path), broken)
+}
+
+func (m *model) prepareSelectedFix(entry *common.Entry, ref string, broken []string) {
 	name := entry.Name
-	ref := m.svc.Repo.RelPath(entry.Path)
 	m.submitJob("prepare fix "+name, func(ctx context.Context) (any, error) {
 		return m.prepareFixPreview(ctx, entry, ref, broken), nil
 	})

@@ -40,6 +40,8 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.normalizeSelected()
 	case key.Matches(msg, k.Claim):
 		m.claimAndRepairSelected()
+	case msg.String() == "l":
+		m.openDetailInstallations()
 	case key.Matches(msg, k.PlanInstall):
 		m.planSelectedSkill()
 	case key.Matches(msg, k.Install):
@@ -663,6 +665,7 @@ func (m model) detailBindings() []pages.HintItem {
 	return []pages.HintItem{
 		{Keys: "j/k", Label: "scroll", Enabled: len(components.SplitLines(m.detail)) > rows},
 		{Keys: "esc/q", Label: "back", Enabled: true},
+		{Keys: "l", Label: "install locations", Enabled: e.Kind == common.KindSkill},
 		{Keys: "i", Label: "user installs", Enabled: e.Status == common.StatusActive && m.detailTargets > 0},
 		{Keys: "p", Label: "update", Enabled: m.svc.Updatable(e)},
 		{Keys: "a", Label: "archive", Enabled: true},

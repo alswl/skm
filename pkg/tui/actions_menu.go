@@ -43,6 +43,9 @@ func (m *model) entryActions() []entryAction {
 	if !m.showDetail {
 		out = append(out, entryAction{Key: "enter", Label: "detail", Enabled: true, Run: m.openDetail})
 	}
+	if m.showDetail {
+		out = append(out, entryAction{Key: "l", Label: "installation locations", Enabled: e.Kind == common.KindSkill, Run: m.openDetailInstallations})
+	}
 	out = append(out,
 		entryAction{Key: "i", Label: "user installs", Enabled: install, Run: m.installSelected},
 		entryAction{Key: "I", Label: "plan skill installation", Enabled: m.canPlanSelectedSkill(), Run: m.planSelectedSkill},

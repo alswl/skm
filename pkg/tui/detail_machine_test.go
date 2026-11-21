@@ -32,4 +32,28 @@ func TestMachineSkillDetailFindsDirectoryAfterTagRemoval(t *testing.T) {
 	require.False(t, m.detailMachineLoading)
 	require.Contains(t, m.detailContent(), link)
 	require.Contains(t, m.detailContent(), "project")
+
+	m.openDetailInstallations()
+	require.NotNil(t, m.picker)
+	var position int
+	for i, item := range m.picker.Items {
+		if item.Label == "project / codex · installed" {
+			position = i
+			break
+		}
+	}
+	require.Equal(t, "project / codex · installed", m.picker.Items[position].Label)
+	m.picker.OnConfirm(m.picker.Items[position : position+1])
+	require.Equal(t, "unlink", m.picker.Items[1].Value)
+	m.picker.OnConfirm(m.picker.Items[1:2])
+	preview := m.machinePending().(detailUnlinkPreviewMsg)
+	require.NoError(t, preview.err)
+	m.picker = nil
+	m.acceptDetailUnlinkPreview(preview)
+	require.Contains(t, m.confirm.Prompt, "codex")
+	m.confirm.OnYes()
+	result := m.machinePending().(detailUnlinkResultMsg)
+	require.NoError(t, result.err)
+	_, err = os.Lstat(link)
+	require.True(t, os.IsNotExist(err))
 }
