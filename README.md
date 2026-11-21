@@ -226,6 +226,8 @@ In the TUI, press `M` from the skill list to open Directories. Press `I` on a sk
 to plan its installation or `i` to manage its existing user installs. In Directories,
 `a` discovers repositories, `i` starts a batch plan, and `x` shows scan and declaration actions.
 
+See the [TUI wireflows](docs/tui-wireflows.md) for screens and step-by-step actions.
+
 Unlink previews require a filesystem with verified exclusive rename support. On Linux,
 skm recognizes ext2/3/4, Btrfs, tmpfs and XFS on kernel 4.9 or later; other filesystem
 types are blocked because their support cannot be established without modifying the filesystem.
