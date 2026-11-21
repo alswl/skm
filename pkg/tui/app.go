@@ -462,8 +462,7 @@ func (m *model) clearSearch() {
 	}
 }
 
-// installSelected opens one installs picker. Its checked state is the desired
-// state for each target: checked means installed; unchecked means removed.
+// installSelected starts installation for the highlighted entry.
 func (m *model) installSelected() {
 	if m.cursor >= len(m.filtered) {
 		return
@@ -471,6 +470,10 @@ func (m *model) installSelected() {
 	entry := m.filtered[m.cursor]
 	if entry.Status != common.StatusActive {
 		m.setStatus(fmt.Sprintf("%s is %s; only active entries can be installed", entry.Name, entry.Status))
+		return
+	}
+	if entry.Kind == common.KindSkill {
+		m.planSelectedSkill()
 		return
 	}
 	m.openInstallsPicker(entry)

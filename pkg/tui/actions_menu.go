@@ -29,7 +29,7 @@ func (m *model) entryActions() []entryAction {
 		return nil
 	}
 	e := m.filtered[m.cursor]
-	install := e.Status == common.StatusActive && len(m.installs.forEntry(e.Path)) > 0
+	install := e.Status == common.StatusActive && (e.Kind == common.KindSkill || len(m.installs.forEntry(e.Path)) > 0)
 	update := m.svc.Updatable(e)
 	normalize := e.Status == common.StatusNonStandard || e.Status == common.StatusActive
 	claim := e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
@@ -47,8 +47,7 @@ func (m *model) entryActions() []entryAction {
 		out = append(out, entryAction{Key: "l", Label: "installation locations", Enabled: e.Kind == common.KindSkill, Run: m.openDetailInstallations})
 	}
 	out = append(out,
-		entryAction{Key: "i", Label: "user installs", Enabled: install, Run: m.installSelected},
-		entryAction{Key: "I", Label: "plan skill installation", Enabled: m.canPlanSelectedSkill(), Run: m.planSelectedSkill},
+		entryAction{Key: "i", Label: "install", Enabled: install, Run: m.installSelected},
 		entryAction{Key: "p", Label: "update", Enabled: update, Run: m.updateSelected},
 		entryAction{Key: "n", Label: "normalize", Enabled: normalize, Run: m.normalizeSelected},
 		entryAction{Key: "c", Label: "claim → self-build", Enabled: claim, Run: m.claimAndRepairSelected},

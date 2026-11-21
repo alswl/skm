@@ -161,3 +161,45 @@ func TestMachineInstallCanRepreviewStalePlan(t *testing.T) {
 	require.NoError(t, refreshed.err)
 	require.Equal(t, "conflict", refreshed.plan.Items[0].Status)
 }
+
+func TestUnifiedInstallFromSkillKeepsOriginAndLocalPreference(t *testing.T) {
+	m := newTestModel(t)
+	m.svc.Cfg.UserSkillInstallLocalOnly = true
+	m.openDetail()
+	m.handleKey(runeKey('i'))
+	m.acceptMachineDirectories(m.machinePending().(machineDirectoriesMsg))
+	require.Equal(t, "installation scope", m.picker.Title)
+	m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter}) // User
+	require.Equal(t, "select clients", m.picker.Title)
+	for i := range m.picker.Items {
+		m.picker.Items[i].Checked = m.picker.Items[i].Value == "t"
+	}
+	m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := m.machinePending().(machineInstallPlanMsg)
+	require.NoError(t, msg.err)
+	require.True(t, msg.plan.Request.LocalOnly)
+	m.acceptMachineInstallPlan(msg)
+	require.Contains(t, m.confirm.Prompt, "Local only")
+	m.handleConfirmKey(runeKey('w'))
+	msg = m.machinePending().(machineInstallPlanMsg)
+	require.NoError(t, msg.err)
+	require.False(t, msg.plan.Request.LocalOnly)
+	m.acceptMachineInstallPlan(msg)
+	require.Contains(t, m.confirm.Prompt, "New installation declarations: 1")
+	m.handleConfirmKey(runeKey('w'))
+	msg = m.machinePending().(machineInstallPlanMsg)
+	require.NoError(t, msg.err)
+	m.acceptMachineInstallPlan(msg)
+	m.handleConfirmKey(runeKey('y'))
+	done := m.machinePending().(machineInstallDoneMsg)
+	require.NoError(t, done.err)
+	m.acceptMachineInstallDone(done)
+	require.True(t, m.showDetail)
+	require.False(t, m.machine.open)
+	target, ok := m.svc.Installer.TargetByName("t")
+	require.True(t, ok)
+	require.FileExists(t, filepath.Join(target.Path, "skill-a", "SKILL.md"))
+	declarations, err := m.svc.ListMachineDeclarations()
+	require.NoError(t, err)
+	require.Empty(t, declarations)
+}

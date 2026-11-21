@@ -22,13 +22,32 @@ type PickerItem struct {
 // set, wires a secondary destructive action (discover delete) to the Delete
 // key. (FR-036/037/038)
 type Picker struct {
-	Title     string
-	Hint      string
-	Items     []PickerItem
-	Cursor    int
-	Single    bool
-	OnConfirm func(sel []PickerItem)
-	OnDelete  func(sel []PickerItem)
+	Title      string
+	Hint       string
+	Items      []PickerItem
+	Cursor     int
+	Single     bool
+	Searchable bool
+	Searching  bool
+	Query      string
+	allItems   []PickerItem
+	OnCancel   func()
+	OnConfirm  func(sel []PickerItem)
+	OnDelete   func(sel []PickerItem)
+}
+
+func (p *Picker) Filter(query string) {
+	if p.allItems == nil {
+		p.allItems = append([]PickerItem(nil), p.Items...)
+	}
+	p.Query = query
+	p.Items = nil
+	for _, item := range p.allItems {
+		if strings.Contains(strings.ToLower(item.Label), strings.ToLower(query)) {
+			p.Items = append(p.Items, item)
+		}
+	}
+	p.Cursor = 0
 }
 
 // MoveCursor moves the highlighted row by delta, clamped to the item range.
@@ -78,6 +97,8 @@ func (p *Picker) Selection() []PickerItem {
 type Confirm struct {
 	Prompt              string
 	OnIncludeGitVisible func()
+	OnToggleDeclaration func()
+	OnCancel            func()
 	OnYes               func()
 	Diff                string
 	ShowDiff            bool
@@ -110,7 +131,11 @@ func PickerView(width, height int, status string, p *Picker) string {
 			body.WriteString(components.FitCell("    "+row, inner, lipgloss.NewStyle()) + "\n")
 		}
 	}
-	return FramedPage(width, height, " skm · "+p.Title+" ", strings.TrimRight(body.String(), "\n"), status, p.Hint)
+	hint := p.Hint
+	if p.Searching {
+		hint = "Search: " + p.Query + "  [enter] select  [esc] clear"
+	}
+	return FramedPage(width, height, " skm · "+p.Title+" ", strings.TrimRight(body.String(), "\n"), status, hint)
 }
 
 // ConfirmView renders the active confirmation as a full-screen framed page.
@@ -132,6 +157,9 @@ func ConfirmView(width, height int, status string, c *Confirm) string {
 		}
 		body = strings.Join(lines[offset:minInt(len(lines), offset+rows)], "\n")
 		hint = "[d] back   [j/k] scroll   [y] apply   [n/esc/q] cancel"
+	}
+	if c.OnToggleDeclaration != nil {
+		hint += "  [w] declaration"
 	}
 	if c.OnIncludeGitVisible != nil {
 		hint += "  [g] include Git-visible links"

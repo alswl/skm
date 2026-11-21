@@ -14,27 +14,28 @@ import (
 )
 
 type machineDirectoryState struct {
-	open           bool
-	sequence       uint64
-	loadingList    bool
-	directories    []services.MachineDirectoryInfo
-	allDirectories []services.MachineDirectoryInfo
-	cursor         int
-	scanning       bool
-	items          []common.InstallationObservation
-	err            error
-	tagEditing     bool
-	tagInput       string
-	tagDirectories []string
-	filterEditing  bool
-	filterInput    string
-	filter         string
-	pathEditing    string
-	pathInput      string
-	requestedScope string
-	requestedSkill string
-	result         string
-	retryPreview   func()
+	open             bool
+	sequence         uint64
+	loadingList      bool
+	directories      []services.MachineDirectoryInfo
+	allDirectories   []services.MachineDirectoryInfo
+	cursor           int
+	scanning         bool
+	items            []common.InstallationObservation
+	err              error
+	tagEditing       bool
+	tagInput         string
+	tagDirectories   []string
+	filterEditing    bool
+	filterInput      string
+	filter           string
+	pathEditing      string
+	pathInput        string
+	requestedScope   string
+	requestedSkill   string
+	installFromSkill bool
+	result           string
+	retryPreview     func()
 }
 
 type machineDirectoriesMsg struct {
@@ -71,6 +72,8 @@ type machineTagDoneMsg struct {
 
 func (m *model) openMachineDirectories() {
 	m.machine.open = true
+	m.machine.installFromSkill = false
+	m.machine.requestedSkill = ""
 	m.machine.retryPreview = nil
 	m.machine.sequence++
 	m.machine.loadingList = true
@@ -210,6 +213,7 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Quit):
 		m.machine.open = false
+		m.machine.installFromSkill = false
 		m.machine.sequence++
 	case key.Matches(msg, m.keys.MoveDown):
 		if !m.machine.loadingList && m.machine.cursor < len(m.machine.directories) {

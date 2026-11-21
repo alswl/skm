@@ -204,8 +204,9 @@ skm scan --directory api --json
 codex --directory api --json` 生成收录计划。使用 `--drop` 撤回声明会保留链接；如需移除未被声明
 覆盖的链接，另行预览并应用 `--unlink PATH --target codex --directory api`。
 
-TUI 技能列表按 `M` 打开目录页。选中技能后，按 `I` 规划该技能的安装，按 `i` 管理现有用户级安装。
-目录页按 `a` 发现仓库，按 `i` 开始批量安装计划，按 `x` 查看扫描和声明相关操作。
+TUI 技能列表按 `M` 打开目录页。选中技能后按 `i`，可选用户级客户端、目录或标签。目录页按 `i` 会带入当前目录或标签筛选，再选择技能。技能详情按 `l` 管理已有安装。
+
+用户级 Skill 安装默认写入声明。在本机 `config.yaml` 中设置 `user_skill_install_local_only: true`，可默认只安装到本机。也可以在用户级预览按 `w` 切换本次是否写入声明。
 
 [查看 TUI 页面和逐步操作](docs/tui-wireflows.md)。
 

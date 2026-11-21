@@ -45,10 +45,26 @@ func (m *model) openMachineInstallSkills() {
 
 func (m *model) openMachineInstallScope(skills []string) {
 	items := []pages.PickerItem{{Label: "user", Value: "user"}, {Label: "directory tags", Value: "tag"}}
+	cursor := 0
 	if m.machine.cursor > 0 {
 		items = append(items, pages.PickerItem{Label: "directory " + m.machineScope(), Value: "directory"})
+		cursor = 2
 	}
-	m.picker = &pages.Picker{Title: "installation scope", Hint: "enter select  esc cancel", Single: true, Items: items, OnConfirm: func(selected []pages.PickerItem) {
+	if len(m.machine.allDirectories) > 0 {
+		items = append(items, pages.PickerItem{Label: "choose directory", Value: "choose-directory"})
+	}
+	if m.machine.filter != "" && !m.machine.installFromSkill {
+		cursor = 1
+	}
+	if m.machine.installFromSkill && m.cursor < len(m.filtered) {
+		for _, target := range m.svc.Cfg.Targets {
+			if strategy, ok := target.EffectiveStrategy(common.KindSkill); ok && target.AcceptsKind(common.KindSkill) && strategy != common.StrategySkillSymlink {
+				items = append(items, pages.PickerItem{Label: "custom user installs", Value: "custom"})
+				break
+			}
+		}
+	}
+	m.picker = &pages.Picker{Title: "installation scope", Hint: "enter select  esc cancel", Single: true, Items: items, Cursor: cursor, OnCancel: m.cancelSkillInstall, OnConfirm: func(selected []pages.PickerItem) {
 		if len(selected) == 0 {
 			return
 		}
@@ -56,14 +72,37 @@ func (m *model) openMachineInstallScope(skills []string) {
 		switch selected[0].Value {
 		case "user":
 			request.User = true
+			request.LocalOnly = m.svc.Cfg.UserSkillInstallLocalOnly
 		case "directory":
 			request.Directories = []string{m.machineScope()}
+		case "choose-directory":
+			m.openInstallationDirectoryPicker(request)
+			return
+		case "custom":
+			entry := m.filtered[m.cursor]
+			m.cancelSkillInstall()
+			m.openInstallsPicker(entry)
+			return
 		case "tag":
 			m.openMachineInstallTags(request)
 			return
 		default:
 			return
 		}
+		m.openMachineInstallTargets(request)
+	}}
+}
+
+func (m *model) openInstallationDirectoryPicker(request services.MachineBatchRequest) {
+	items := make([]pages.PickerItem, 0, len(m.machine.allDirectories))
+	for _, directory := range m.machine.allDirectories {
+		items = append(items, pages.PickerItem{Label: directory.ID + "  " + strings.Join(directory.Tags, ", "), Value: directory.ID})
+	}
+	m.picker = &pages.Picker{Title: "select directory", Searchable: true, Hint: "enter select  / search  esc cancel", Single: true, Items: items, OnCancel: m.cancelSkillInstall, OnConfirm: func(selected []pages.PickerItem) {
+		if len(selected) == 0 {
+			return
+		}
+		request.Directories = pickerValues(selected)
 		m.openMachineInstallTargets(request)
 	}}
 }
@@ -81,15 +120,22 @@ func (m *model) openMachineInstallTags(request services.MachineBatchRequest) {
 	}
 	sort.Strings(tags)
 	items := make([]pages.PickerItem, 0, len(tags))
+	cursor := 0
 	for _, tag := range tags {
-		items = append(items, pages.PickerItem{Label: fmt.Sprintf("%s  (%d directories)", tag, counts[tag]), Value: tag})
+		checked := !m.machine.installFromSkill && tag == m.machine.filter
+		if checked {
+			cursor = len(items)
+		}
+		items = append(items, pages.PickerItem{Label: fmt.Sprintf("%s  (%d directories)", tag, counts[tag]), Value: tag, Checked: checked})
 	}
 	if len(items) == 0 {
+		m.openMachineInstallScope(request.Skills)
 		m.setStatus("no directory tags available")
 		return
 	}
-	m.picker = &pages.Picker{Title: "select tags", Hint: "space select  enter next  esc cancel", Items: items, OnConfirm: func(selected []pages.PickerItem) {
+	m.picker = &pages.Picker{Title: "select tags", Hint: "space select  enter next  esc cancel", Items: items, Cursor: cursor, OnCancel: m.cancelSkillInstall, OnConfirm: func(selected []pages.PickerItem) {
 		if len(selected) == 0 {
+			m.openMachineInstallTags(request)
 			m.setStatus("no tags selected")
 			return
 		}
@@ -111,11 +157,16 @@ func (m *model) openMachineInstallTargets(request services.MachineBatchRequest) 
 		items = []pages.PickerItem{{Label: "Codex", Value: "codex"}, {Label: "Claude Code", Value: "claude"}}
 	}
 	if len(items) == 0 {
+		m.cancelSkillInstall()
 		m.setStatus("no suitable targets")
 		return
 	}
-	m.picker = &pages.Picker{Title: "select clients", Hint: "space select  enter preview  esc cancel", Items: items, OnConfirm: func(selected []pages.PickerItem) {
+	if len(items) == 1 {
+		items[0].Checked = true
+	}
+	m.picker = &pages.Picker{Title: "select clients", OnCancel: m.cancelSkillInstall, Hint: "space select  enter preview  esc cancel", Items: items, OnConfirm: func(selected []pages.PickerItem) {
 		if len(selected) == 0 {
+			m.openMachineInstallTargets(request)
 			m.setStatus("no clients selected")
 			return
 		}
@@ -167,7 +218,18 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 		scope = "directories " + strings.Join(plan.Request.Directories, ", ")
 	}
 	prompt := fmt.Sprintf("Apply %d locations across %d directories (%s)?\nInstall %d · already installed %d · blocked %d", len(plan.Items), len(plan.Directories), scope, installable, counts["installed"], len(plan.Items)-installable-counts["installed"])
-	m.confirm = &pages.Confirm{Prompt: prompt, Diff: detail.String(), OnYes: func() {
+	declared := 0
+	for _, d := range plan.Declarations {
+		if !d.Exists {
+			declared++
+		}
+	}
+	if plan.Request.LocalOnly {
+		prompt += "\nLocal only · no declarations will be written"
+	} else {
+		prompt += fmt.Sprintf("\nNew installation declarations: %d", declared)
+	}
+	m.confirm = &pages.Confirm{Prompt: prompt, Diff: detail.String(), OnCancel: m.cancelSkillInstall, OnYes: func() {
 		if !m.machine.open || msg.sequence != m.machine.sequence {
 			return
 		}
@@ -179,6 +241,15 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 			return machineInstallDoneMsg{sequence: seq, result: result, err: err}
 		}
 	}}
+	if plan.Request.User {
+		m.confirm.OnToggleDeclaration = func() {
+			if m.machine.open && msg.sequence == m.machine.sequence {
+				request := plan.Request
+				request.LocalOnly = !request.LocalOnly
+				m.requestMachineInstallPlan(request)
+			}
+		}
+	}
 	if counts["unignored"] > 0 && !plan.Request.AllowUnignored {
 		m.confirm.Prompt += "\nSome links would appear in git status and are skipped."
 		m.confirm.OnIncludeGitVisible = func() {
@@ -212,6 +283,15 @@ func (m *model) planSelectedSkill() {
 	skill := m.svc.Repo.RelPath(m.filtered[m.cursor].Path)
 	m.openMachineDirectories()
 	m.machine.requestedSkill = skill
+	m.machine.installFromSkill = true
+}
+
+func (m *model) cancelSkillInstall() {
+	if m.machine.installFromSkill {
+		m.machine.open = false
+		m.machine.installFromSkill = false
+		m.machine.sequence++
+	}
 }
 
 func (m *model) acceptMachineInstallDone(msg machineInstallDoneMsg) tea.Cmd {
@@ -238,6 +318,14 @@ func (m *model) acceptMachineInstallDone(msg machineInstallDoneMsg) tea.Cmd {
 			partial = true
 		}
 		result.WriteByte('\n')
+	}
+	if m.machine.installFromSkill && !partial {
+		m.cancelSkillInstall()
+		m.setStatus(fmt.Sprintf("Installation complete · %d locations", len(msg.result.Items)))
+		if m.showDetail {
+			m.startMachineSkillScan()
+		}
+		return scanCmd(m.svc, scanAfterJob, 0)
 	}
 	m.machine.result = strings.TrimSpace(result.String())
 	retry := m.machine.retryPreview

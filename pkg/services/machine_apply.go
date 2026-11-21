@@ -31,6 +31,9 @@ func (s *Services) ApplyMachineBatch(ctx context.Context, selected MachineBatchP
 	if selected.Action != "add" || selected.Version != 1 || current.Digest != selected.Digest {
 		return nil, fmt.Errorf("installation plan is stale; create a new preview")
 	}
+	if len(current.Declarations) == 0 {
+		return s.executeMachineBatchItems(current, nil), nil
+	}
 	manifest, _, err := s.machineFiles()
 	if err != nil {
 		return nil, err

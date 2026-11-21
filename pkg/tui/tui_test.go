@@ -275,8 +275,8 @@ func TestModelSearchFilters(t *testing.T) {
 
 func TestModelInstallActionRefreshesStatus(t *testing.T) {
 	m := newTestModel(t)
-	// `i` opens the installs picker; checking a target requests installation.
-	_ = m.handleKey(runeKey('i'))
+	// Checking a target in the direct panel requests installation.
+	m.openInstallsPicker(m.filtered[m.cursor])
 	require.NotNil(t, m.picker, "installs opens a target picker")
 	require.Contains(t, m.picker.Title, "Installs")
 	for i := range m.picker.Items {
@@ -312,7 +312,7 @@ func TestInstallStatusMessageReportsActualChanges(t *testing.T) {
 func TestListFooterShowsInstallAndImportBindings(t *testing.T) {
 	m := newTestModel(t)
 	hint := m.listHint()
-	require.Contains(t, hint, "[i] user installs")
+	require.Contains(t, hint, "[i] install")
 	require.Contains(t, hint, "[m] import")
 	require.NotContains(t, hint, "[u] uninstall")
 }
@@ -333,7 +333,7 @@ func TestActionsMenuListsOnlyAvailableEntryActions(t *testing.T) {
 	for _, it := range m.picker.Items {
 		labels = append(labels, it.Label)
 	}
-	require.Contains(t, labels, "[i] user installs", "install is offered for an active entry with targets")
+	require.Contains(t, labels, "[i] install", "install is offered for an active entry with targets")
 	require.Contains(t, labels, "[a] archive", "archive is always offered")
 	require.Contains(t, labels, "[d] delete", "delete is always offered")
 	require.NotContains(t, labels, "[p] update", "update is not offered: the fixture entry has no origin")
@@ -350,15 +350,16 @@ func TestActionsMenuRunsSelectedAction(t *testing.T) {
 
 	idx := -1
 	for i, it := range m.picker.Items {
-		if it.Label == "[i] user installs" {
+		if it.Label == "[i] install" {
 			idx = i
 		}
 	}
 	require.GreaterOrEqual(t, idx, 0, "installs is offered")
 	m.picker.Cursor = idx
 	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
-	require.NotNil(t, m.picker, "choosing installs opens the installs picker, same as pressing i")
-	require.Contains(t, m.picker.Title, "Installs")
+	m.acceptMachineDirectories(m.machinePending().(machineDirectoriesMsg))
+	require.NotNil(t, m.picker)
+	require.Equal(t, "installation scope", m.picker.Title)
 }
 
 // TestActionsMenuOmitsDetailWhenAlreadyOpen: opening the menu from the detail
@@ -454,7 +455,7 @@ func TestInstallsPickerRemovesUncheckedManagedTarget(t *testing.T) {
 	m.runInstall("install", "skill-a", []string{"t"})
 	drainJob(t, &m)
 
-	_ = m.handleKey(runeKey('i'))
+	m.openInstallsPicker(m.filtered[m.cursor])
 	require.NotNil(t, m.picker)
 	for i := range m.picker.Items {
 		if m.picker.Items[i].Value == "t" {
@@ -552,7 +553,7 @@ func TestInstallsPickerLeavesConflictUntouchedUntilExplicitlyChanged(t *testing.
 	require.Equal(t, common.InstallConflict, m.svc.Installer.State(entry, target), "the foreign dir is a conflict")
 
 	m.cursor = 0
-	_ = m.handleKey(runeKey('i'))
+	m.openInstallsPicker(m.filtered[m.cursor])
 	require.NotNil(t, m.picker, "installs opens a target picker")
 	require.Contains(t, m.picker.Title, "Installs")
 	idx := -1
@@ -572,7 +573,7 @@ func TestInstallsPickerLeavesConflictUntouchedUntilExplicitlyChanged(t *testing.
 	require.DirExists(t, conflictDir, "an untouched conflict stays in place")
 
 	// Only an explicit unchecked state authorizes removal.
-	_ = m.handleKey(runeKey('i'))
+	m.openInstallsPicker(m.filtered[m.cursor])
 	m.picker.Cursor = idx
 	_ = m.handlePickerKey(runeKey(' '))
 	require.True(t, m.picker.Items[idx].Checked)

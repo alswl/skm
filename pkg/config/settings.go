@@ -27,6 +27,8 @@ type settings struct {
 	// Root is the repository root, equivalent to --root. Empty means
 	// "discover upward from cwd".
 	Root string `yaml:"root"`
+	// UserSkillInstallLocalOnly sets the default for TUI user-level Skill plans.
+	UserSkillInstallLocalOnly bool `yaml:"user_skill_install_local_only,omitempty"`
 	// PluginDirs are scanned *in addition to* the default plugin directory,
 	// which is always scanned first. The environment form is
 	// SKM_PLUGINS_DIR, an OS-path-list string.

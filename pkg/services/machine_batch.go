@@ -19,6 +19,7 @@ type MachineBatchRequest struct {
 	Tags           []string `json:"tags"`
 	Directories    []string `json:"directories,omitempty"`
 	User           bool     `json:"user,omitempty"`
+	LocalOnly      bool     `json:"local_only,omitempty"`
 	AllowUnignored bool     `json:"allow_unignored"`
 }
 
@@ -71,6 +72,9 @@ func (s *Services) PlanMachineBatch(request MachineBatchRequest) (*MachineBatchP
 	}
 	if len(request.Skills) == 0 || len(request.Targets) == 0 || scopes != 1 {
 		return nil, fmt.Errorf("select skills, targets and one scope type")
+	}
+	if request.LocalOnly && !request.User {
+		return nil, fmt.Errorf("local-only installation requires user scope")
 	}
 	plan := &MachineBatchPlan{Action: "add", Version: 1, Request: request}
 	var err error
@@ -133,6 +137,9 @@ func (s *Services) PlanMachineBatch(request MachineBatchRequest) (*MachineBatchP
 			return nil, err
 		}
 		plan.Sources = append(plan.Sources, machineBatchSource{Skill: ref, Path: entry.Path, Content: hash})
+		if request.LocalOnly {
+			continue
+		}
 		for _, target := range request.Targets {
 			scopes := make([]common.InstallationScope, 0, len(request.Tags)+len(request.Directories))
 			for _, tag := range request.Tags {

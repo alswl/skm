@@ -222,9 +222,9 @@ each directory, then save and apply `skm plan --json`. To record an existing lib
 link, use `skm plan --capture PATH --target codex --directory api --json` and apply
 that plan. Dropping a declaration with `--drop` leaves its link in place; use a separate
 `--unlink PATH --target codex --directory api` plan to remove a selected, uncovered link.
-In the TUI, press `M` from the skill list to open Directories. Press `I` on a skill
-to plan its installation or `i` to manage its existing user installs. In Directories,
-`a` discovers repositories, `i` starts a batch plan, and `x` shows scan and declaration actions.
+In the TUI, press `M` from the skill list to open Directories. Press `i` on a skill to select a user target, directory, or tag. In Directories, `i` brings the current directory or tag filter into the batch plan. Press `l` in skill detail to manage existing installations.
+
+User-level Skill installations write declarations by default. Set `user_skill_install_local_only: true` in `config.yaml` to default to a local-only install, or press `w` in the user-level preview to change just this plan.
 
 See the [TUI wireflows](docs/tui-wireflows.md) for screens and step-by-step actions.
 
