@@ -40,6 +40,15 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.normalizeSelected()
 	case key.Matches(msg, k.Claim):
 		m.claimAndRepairSelected()
+	case msg.String() == "G":
+		if m.cursor < len(m.filtered) {
+			tags := m.entryDirectoryTags(m.filtered[m.cursor])
+			if len(tags) == 0 {
+				m.setStatus("No tag declarations for this skill")
+				break
+			}
+			m.openTagManagement("", tags, nil)
+		}
 	case msg.String() == "l":
 		m.openDetailInstallations()
 	case key.Matches(msg, k.Install):
@@ -195,7 +204,8 @@ func (m model) listView() string {
 	var sb strings.Builder
 	sb.WriteString(components.FrameTop(inner, title) + "\n")
 	sb.WriteString("│" + components.FitCell(m.tabBarContent(), inner, lipgloss.NewStyle()) + "│\n")
-	sb.WriteString("│" + components.FitCell(rowGutter+installHeaderRow(m.installColumnTargets(), m.showGroupColumn()), inner, lipgloss.NewStyle()) + "│\n")
+	header, _, _ := m.catalogColumns(inner)
+	sb.WriteString("│" + components.FitCell(header, inner, lipgloss.NewStyle()) + "│\n")
 	for _, r := range m.renderMainArea(inner, rows) {
 		sb.WriteString("│" + r + "│\n")
 	}
@@ -310,7 +320,8 @@ func (m model) renderMainArea(inner, rows int) []string {
 	}
 	pageInfo := pagination.Page(len(m.rows), m.pageSize, m.page)
 	// Both are constant for the whole page, so decide once rather than per row.
-	groupCol, installCols := m.showGroupColumn(), m.showInstallColumns()
+	groupCol := m.showGroupColumn()
+	_, installCols, dirsWidth := m.catalogColumns(inner)
 	var out []string
 	for i := pageInfo.Offset; i < pageInfo.Offset+pageInfo.Count; i++ {
 		r := m.rows[i]
@@ -338,6 +349,9 @@ func (m model) renderMainArea(inner, rows int) []string {
 			}
 		}
 		row := renderEntryLine(e, m.providerIcon(e.ProviderIDValue()), groupCell, cells, hl)
+		if dirsWidth > 0 {
+			row += " " + fitDirectoryTags(m.entryDirectoryTags(e), dirsWidth)
+		}
 		if hl {
 			out = append(out, components.FitCell(cursorGutter+row, inner, components.StyleCursor))
 		} else {
@@ -345,6 +359,39 @@ func (m model) renderMainArea(inner, rows int) []string {
 		}
 	}
 	return components.PadLines(out, inner, rows)
+}
+
+func (m model) catalogColumns(inner int) (header string, installCols bool, dirsWidth int) {
+	targets := m.installColumnTargets()
+	header = rowGutter + installHeaderRow(targets, m.showGroupColumn())
+	dirsWidth = inner - lipgloss.Width(header) - 1
+	if dirsWidth < len("Dirs") {
+		return header, len(targets) > 0, 0
+	}
+	return header + " " + components.StyleDim.Render("Dirs"), len(targets) > 0, dirsWidth
+}
+
+func (m model) entryDirectoryTags(entry *common.Entry) []string {
+	if entry.Kind != common.KindSkill || entry.Status == common.StatusArchived {
+		return nil
+	}
+	return m.directoryTags[m.svc.MachineSkillReference(entry)]
+}
+
+func fitDirectoryTags(tags []string, width int) string {
+	for shown := len(tags); shown > 0; shown-- {
+		label := strings.Join(tags[:shown], ", ")
+		if shown < len(tags) {
+			label += fmt.Sprintf(" +%d", len(tags)-shown)
+		}
+		if lipgloss.Width(label) <= width {
+			return label
+		}
+	}
+	if len(tags) > 0 {
+		return fmt.Sprintf("+%d", len(tags))
+	}
+	return "—"
 }
 
 // rowGutter is the blank left margin every entry row carries; cursorGutter is
@@ -661,6 +708,7 @@ func (m model) detailBindings() []pages.HintItem {
 		{Keys: "j/k", Label: "scroll", Enabled: len(components.SplitLines(m.detail)) > rows},
 		{Keys: "esc/q", Label: "back", Enabled: true},
 		{Keys: "l", Label: "install locations", Enabled: e.Kind == common.KindSkill},
+		{Keys: "G", Label: "tags", Enabled: len(m.entryDirectoryTags(e)) > 0},
 		{Keys: "i", Label: "install", Enabled: e.Status == common.StatusActive && (e.Kind == common.KindSkill || m.detailTargets > 0)},
 		{Keys: "p", Label: "update", Enabled: m.svc.Updatable(e)},
 		{Keys: "a", Label: "archive", Enabled: true},
@@ -712,6 +760,14 @@ func (m model) buildDetail() string {
 	}
 
 	sb.WriteString(rule + "\n")
+	if m.directoryTagsErr != nil {
+		sb.WriteString("Dirs: unavailable\n")
+	} else if tags := m.entryDirectoryTags(e); len(tags) > 0 {
+		sb.WriteString(components.StyleDim.Render("Dirs") + "\n")
+		for _, tag := range tags {
+			sb.WriteString("  " + tag + "\n")
+		}
+	}
 	sb.WriteString(components.StyleDim.Render("install status") + "\n")
 	if e.Status == common.StatusArchived {
 		sb.WriteString("  (archived; not installed)\n")

@@ -31,6 +31,12 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 	switch {
+	case key.Matches(msg, m.keys.Backspace) && p.OnBack != nil:
+		m.picker = nil
+		p.OnBack()
+	case msg.String() == "t" && p.OnAlternate != nil:
+		m.picker = nil
+		p.OnAlternate()
 	case key.Matches(msg, m.keys.MoveUp):
 		p.MoveCursor(-1)
 	case key.Matches(msg, m.keys.MoveDown):
@@ -38,7 +44,7 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Toggle):
 		p.ToggleCurrent()
 	case key.Matches(msg, m.keys.Enter):
-		if p.Searchable && len(p.Items) == 0 {
+		if len(p.Items) == 0 && (p.Searchable || p.Single) {
 			return nil
 		}
 		sel := p.Selection()
@@ -66,6 +72,14 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 // handleConfirmKey drives the active confirmation modal.
 func (m *model) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
+	case key.Matches(msg, m.keys.Backspace) && m.confirm.OnBack != nil:
+		back := m.confirm.OnBack
+		m.confirm = nil
+		back()
+	case msg.String() == "p" && m.confirm.OnSetPath != nil:
+		setPath := m.confirm.OnSetPath
+		m.confirm = nil
+		setPath()
 	case msg.String() == "w" && m.confirm.OnToggleDeclaration != nil:
 		toggle := m.confirm.OnToggleDeclaration
 		m.confirm = nil

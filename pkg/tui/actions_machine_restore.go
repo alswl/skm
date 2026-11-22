@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/services"
@@ -48,6 +49,7 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 	plan := *msg.plan
 	seen := map[string]bool{}
 	var detail strings.Builder
+	var missing []string
 	count, blocked, gitVisible := 0, 0, 0
 	for _, batch := range plan.Plans {
 		for _, item := range batch.Items {
@@ -60,13 +62,20 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 			}
 			seen[key] = true
 			count++
+			if item.Status == "missing_path" && item.Directory != "" && !slices.Contains(missing, item.Directory) {
+				missing = append(missing, item.Directory)
+			}
 			if item.Status == "unignored" {
 				gitVisible++
 			}
 			if item.Status != "installed" && item.Status != "install" && (item.Status != "unignored" || !plan.Request.AllowUnignored) {
 				blocked++
 			}
-			fmt.Fprintf(&detail, "%s  %s  %s  %s\n", installationPreviewStatus(item.Status, plan.Request.AllowUnignored), item.Target, item.Skill, item.Path)
+			if item.Status == "missing_path" {
+				fmt.Fprintf(&detail, "missing_path  %s  %s  %s\n", item.Directory, item.Target, item.Skill)
+			} else {
+				fmt.Fprintf(&detail, "%s  %s  %s  %s\n", installationPreviewStatus(item.Status, plan.Request.AllowUnignored), item.Target, item.Skill, item.Path)
+			}
 		}
 	}
 	undeclared := 0
@@ -90,6 +99,25 @@ func (m *model) acceptMachineRestorePlan(msg machineRestorePlanMsg) {
 			return machineRestoreDoneMsg{sequence: seq, result: result, err: err}
 		}
 	}}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		m.confirm.Prompt += "\nSet local path for: " + strings.Join(missing, ", ")
+		m.confirm.OnSetPath = func() {
+			if !m.machine.open || msg.sequence != m.machine.sequence {
+				return
+			}
+			resume := func() { m.requestMachineRestore(plan.Request.AllowUnignored) }
+			options := make([]pages.PickerItem, 0, len(missing))
+			for _, dir := range missing {
+				options = append(options, pages.PickerItem{Label: dir, Value: dir})
+			}
+			m.picker = &pages.Picker{Title: "set local path", Single: true, Items: options, Hint: "enter select  esc back", OnCancel: resume, OnConfirm: func(items []pages.PickerItem) {
+				if len(items) > 0 {
+					m.beginMachinePath(items[0].Value, resume)
+				}
+			}}
+		}
+	}
 	if gitVisible > 0 && !plan.Request.AllowUnignored {
 		m.confirm.Prompt += "\nSome links would appear in git status and are skipped."
 		m.confirm.OnIncludeGitVisible = func() {

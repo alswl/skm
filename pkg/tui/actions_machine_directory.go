@@ -14,28 +14,35 @@ import (
 )
 
 type machineDirectoryState struct {
-	open             bool
-	sequence         uint64
-	loadingList      bool
-	directories      []services.MachineDirectoryInfo
-	allDirectories   []services.MachineDirectoryInfo
-	cursor           int
-	scanning         bool
-	items            []common.InstallationObservation
-	err              error
-	tagEditing       bool
-	tagInput         string
-	tagDirectories   []string
-	filterEditing    bool
-	filterInput      string
-	filter           string
-	pathEditing      string
-	pathInput        string
-	requestedScope   string
-	requestedSkill   string
-	installFromSkill bool
-	result           string
-	retryPreview     func()
+	open                bool
+	sequence            uint64
+	loadingList         bool
+	directories         []services.MachineDirectoryInfo
+	allDirectories      []services.MachineDirectoryInfo
+	cursor              int
+	resultFocused       bool
+	resultCursor        int
+	resultItem          common.InstallationObservation
+	scanning            bool
+	items               []common.InstallationObservation
+	err                 error
+	tagEditing          bool
+	tagInput            string
+	tagDirectories      []string
+	tagReturn           func()
+	installRegistration func()
+	filterEditing       bool
+	filterInput         string
+	filter              string
+	pathEditing         string
+	pathInput           string
+	pathDirectory       string
+	pathReturn          func()
+	requestedScope      string
+	requestedSkill      string
+	installFromSkill    bool
+	result              string
+	retryPreview        func()
 }
 
 type machineDirectoriesMsg struct {
@@ -77,6 +84,8 @@ func (m *model) openMachineDirectories() {
 	m.machine.retryPreview = nil
 	m.machine.sequence++
 	m.machine.loadingList = true
+	m.machine.resultFocused = false
+	m.machine.resultCursor = 0
 	m.machine.err = nil
 	seq, svc := m.machine.sequence, m.svc
 	m.machinePending = func() tea.Msg {
@@ -99,7 +108,8 @@ func (m *model) acceptMachineDirectories(msg machineDirectoriesMsg) tea.Cmd {
 	m.machine.allDirectories = msg.directories
 	m.machine.directories = filterMachineDirectories(msg.directories, m.machine.filter)
 	m.machine.cursor = 0
-	if m.machine.requestedScope != "" {
+	scope := m.machine.requestedScope
+	if scope != "" {
 		for i, directory := range m.machine.directories {
 			if directory.ID == m.machine.requestedScope {
 				m.machine.cursor = i + 1
@@ -109,6 +119,16 @@ func (m *model) acceptMachineDirectories(msg machineDirectoriesMsg) tea.Cmd {
 		m.machine.requestedScope = ""
 	}
 	scan := m.startMachineScan()
+	if resume := m.machine.tagReturn; resume != nil {
+		m.machine.tagReturn = nil
+		resume()
+	}
+	if resume := m.machine.installRegistration; resume != nil {
+		m.machine.installRegistration = nil
+		m.machine.tagDirectories = []string{scope}
+		m.machine.tagEditing, m.machine.tagInput = true, ""
+		m.machine.tagReturn = resume
+	}
 	if skill != "" {
 		m.openMachineInstallScope([]string{skill})
 	}
@@ -126,6 +146,9 @@ func (m *model) startMachineScan() tea.Cmd {
 	m.machine.sequence++
 	m.machine.retryPreview = nil
 	m.machine.scanning = true
+	if m.machine.resultCursor < len(m.machine.items) {
+		m.machine.resultItem = m.machine.items[m.machine.resultCursor]
+	}
 	m.machine.items = nil
 	m.machine.err = nil
 	seq, scope, svc := m.machine.sequence, m.machineScope(), m.svc
@@ -147,6 +170,7 @@ func (m *model) acceptMachineScan(msg machineScanMsg) {
 	}
 	m.machine.scanning = false
 	m.machine.items = msg.items
+	m.machine.resultCursor = locationResultIndex(msg.items, m.machine.resultItem, m.machine.resultCursor)
 	m.machine.err = msg.err
 }
 
@@ -178,6 +202,10 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 		switch {
 		case key.Matches(msg, m.keys.Esc):
 			m.machine.tagEditing = false
+			if resume := m.machine.tagReturn; resume != nil {
+				m.machine.tagReturn = nil
+				resume()
+			}
 		case key.Matches(msg, m.keys.Backspace):
 			runes := []rune(m.machine.tagInput)
 			if len(runes) > 0 {
@@ -187,6 +215,7 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 			tag := strings.TrimSpace(m.machine.tagInput)
 			m.machine.tagEditing = false
 			if tag == "" {
+				m.machine.tagEditing = true
 				m.setStatus("tag: empty input")
 				return nil
 			}
@@ -215,14 +244,24 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 		m.machine.open = false
 		m.machine.installFromSkill = false
 		m.machine.sequence++
+	case msg.Type == tea.KeyTab || msg.Type == tea.KeyShiftTab:
+		if !m.machine.loadingList {
+			m.machine.resultFocused = !m.machine.resultFocused
+		}
 	case key.Matches(msg, m.keys.MoveDown):
-		if !m.machine.loadingList && m.machine.cursor < len(m.machine.directories) {
+		if m.machine.resultFocused {
+			m.machine.resultCursor = min(m.machine.resultCursor+1, maxInt(0, len(m.machine.items)-1))
+		} else if !m.machine.loadingList && m.machine.cursor < len(m.machine.directories) {
 			m.machine.cursor++
+			m.machine.resultCursor = 0
 			return m.startMachineScan()
 		}
 	case key.Matches(msg, m.keys.MoveUp):
-		if !m.machine.loadingList && m.machine.cursor > 0 {
+		if m.machine.resultFocused {
+			m.machine.resultCursor = maxInt(0, m.machine.resultCursor-1)
+		} else if !m.machine.loadingList && m.machine.cursor > 0 {
 			m.machine.cursor--
+			m.machine.resultCursor = 0
 			return m.startMachineScan()
 		}
 	case msg.String() == "r":
@@ -230,6 +269,17 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 			return m.startMachineScan()
 		}
 	case key.Matches(msg, m.keys.Enter):
+		if !m.machine.loadingList && !m.machine.scanning {
+			if m.machine.cursor > 0 && m.machine.directories[m.machine.cursor-1].Path == "" {
+				m.beginMachinePath(m.machineScope(), nil)
+			} else if m.machine.resultFocused && m.machine.resultCursor < len(m.machine.items) {
+				item := m.machine.items[m.machine.resultCursor]
+				m.openLocation(&installationLocationState{item: item, refresh: m.startMachineScan})
+			} else {
+				m.machine.resultFocused = true
+			}
+		}
+	case msg.String() == "c":
 		if !m.machine.loadingList && !m.machine.scanning && m.machine.err == nil {
 			m.openMachineCapturePicker()
 		}
@@ -241,6 +291,16 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 	case msg.String() == "T":
 		if !m.machine.loadingList {
 			m.openMachineBatchTag()
+		}
+	case msg.String() == "G":
+		if !m.machine.loadingList {
+			m.openTagManagement(m.machine.filter, nil, func() {
+				scope := m.machineScope()
+				focused := m.machine.resultFocused
+				result := m.machine.resultCursor
+				m.openMachineDirectories()
+				m.machine.requestedScope, m.machine.resultFocused, m.machine.resultCursor = scope, focused, result
+			})
 		}
 	case msg.String() == "f":
 		if !m.machine.loadingList {
@@ -260,7 +320,7 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 		m.machine.pathEditing, m.machine.pathInput = "discover", ""
 	case msg.String() == "p":
 		if !m.machine.loadingList && m.machine.cursor > 0 {
-			m.machine.pathEditing, m.machine.pathInput = "path", ""
+			m.beginMachinePath(m.machineScope(), nil)
 		}
 	case msg.String() == "d":
 		if !m.machine.loadingList && !m.machine.scanning {
@@ -287,7 +347,7 @@ func (m model) machineView() string {
 		fmt.Fprintf(&body, "Filter tag (empty clears): %s\n", m.machine.filterInput)
 	}
 	if m.machine.pathEditing != "" {
-		label := "Local directory path"
+		label := "Local directory path · " + m.machine.pathDirectory
 		if m.machine.pathEditing == "discover" {
 			label = "Search for Git directories under"
 		}
@@ -315,6 +375,9 @@ func (m model) machineView() string {
 			marker := "  "
 			if i == m.machine.cursor {
 				marker = "› "
+				if m.machine.resultFocused {
+					marker = "· "
+				}
 			}
 			if i == 0 {
 				fmt.Fprintf(&body, "%suser\n", marker)
@@ -327,17 +390,29 @@ func (m model) machineView() string {
 			fmt.Fprintf(&body, "  … %d scopes total\n", count)
 		}
 		body.WriteString("\n")
+		scope := m.machineScope()
+		if scope == "" {
+			scope = "user"
+		}
+		fmt.Fprintf(&body, "Scan results · %s\n", scope)
 		if m.machine.scanning {
 			body.WriteString("Scanning…\n")
 		} else if m.machine.err != nil {
-			fmt.Fprintf(&body, "Error: %s\n", m.machine.err)
+			if m.machine.cursor > 0 && m.machine.directories[m.machine.cursor-1].Path == "" {
+				fmt.Fprintf(&body, "Missing local path · %s  [p/enter] set path\n", scope)
+			} else {
+				fmt.Fprintf(&body, "Error: %s\n[r] retry current scope\n", m.machine.err)
+			}
 			if m.machine.retryPreview != nil {
 				body.WriteString("Press v to preview again\n")
 			}
 		} else if len(m.machine.items) == 0 {
 			body.WriteString("No skills found\n")
 		} else {
-			for _, item := range m.machine.items {
+			shownRows := maxInt(1, m.height-6-(strings.Count(body.String(), "\n")))
+			start := maxInt(0, m.machine.resultCursor-shownRows+1)
+			for i := start; i < min(len(m.machine.items), start+shownRows); i++ {
+				item := m.machine.items[i]
 				declared := ""
 				if item.Skill != "" && !item.Declared {
 					declared = " (undeclared)"
@@ -346,7 +421,11 @@ func (m model) machineView() string {
 				if label == "" {
 					label = filepath.Base(item.Path)
 				}
-				fmt.Fprintf(&body, "%s  %s%s  %s\n", item.Target, item.Status, declared, label)
+				marker := "  "
+				if m.machine.resultFocused && i == m.machine.resultCursor {
+					marker = "› "
+				}
+				fmt.Fprintf(&body, "%s%s  %s%s  %s\n", marker, item.Target, item.Status, declared, label)
 			}
 		}
 	}
@@ -356,7 +435,7 @@ func (m model) machineView() string {
 	if m.machine.result != "" {
 		fmt.Fprintf(&body, "\n%s\n", m.machine.result)
 	}
-	return m.framedPage("directories", body.String(), "[j/k] select  [a] discover  [i] install  [x] actions  [esc] back")
+	return m.framedPage("directories", body.String(), "[tab] focus  [j/k] select  [enter] open  [r] scan  [i] install  [x] actions  [esc] back")
 }
 
 func filterMachineDirectories(all []services.MachineDirectoryInfo, tag string) []services.MachineDirectoryInfo {
@@ -400,7 +479,12 @@ func (m *model) acceptMachineTagDone(msg machineTagDoneMsg) tea.Cmd {
 	}
 	m.machine.scanning = false
 	if msg.err != nil {
-		m.machine.err = msg.err
+		if m.machine.tagReturn != nil {
+			m.machine.tagEditing = true
+			m.setStatus(msg.err.Error())
+		} else {
+			m.machine.err = msg.err
+		}
 		return nil
 	}
 	m.setStatus("tags updated")
@@ -486,6 +570,7 @@ func (m *model) acceptMachineCaptureDone(msg machineCaptureDoneMsg) tea.Cmd {
 func (m *model) openDirectoryActions() {
 	items := []pages.PickerItem{
 		{Label: "Filter by tag [f]", Value: "f"},
+		{Label: "Manage Tags [G]", Value: "G"},
 		{Label: "Tag directories [T]", Value: "T"},
 		{Label: "Refresh scan [r]", Value: "r"},
 	}
@@ -494,7 +579,7 @@ func (m *model) openDirectoryActions() {
 	}
 	if !m.machine.scanning {
 		if m.machine.err == nil && len(m.machine.items) > 0 {
-			items = append(items, pages.PickerItem{Label: "Capture existing installation [enter]", Value: "enter"}, pages.PickerItem{Label: "Unlink installation [u]", Value: "u"})
+			items = append(items, pages.PickerItem{Label: "Capture existing installation [c]", Value: "c"}, pages.PickerItem{Label: "Unlink installation [u]", Value: "u"})
 		}
 		items = append(items, pages.PickerItem{Label: "Restore from declarations [R]", Value: "R"}, pages.PickerItem{Label: "Drop declaration [d]", Value: "d"})
 		if m.machine.retryPreview != nil {

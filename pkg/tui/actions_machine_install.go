@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -24,10 +25,15 @@ type machineInstallDoneMsg struct {
 }
 
 func (m *model) openMachineInstallSkills() {
+	m.openMachineInstallSkillsWith(nil)
+}
+
+func (m *model) openMachineInstallSkillsWith(skills []string) {
 	items := []pages.PickerItem{}
 	for _, entry := range m.entries {
 		if entry.Kind == common.KindSkill && entry.Status == common.StatusActive {
-			items = append(items, pages.PickerItem{Label: entry.Name, Value: m.svc.Repo.RelPath(entry.Path)})
+			ref := m.svc.Repo.RelPath(entry.Path)
+			items = append(items, pages.PickerItem{Label: entry.Name, Value: ref, Checked: slices.Contains(skills, ref)})
 		}
 	}
 	if len(items) == 0 {
@@ -39,20 +45,18 @@ func (m *model) openMachineInstallSkills() {
 			m.setStatus("no skills selected")
 			return
 		}
-		m.openMachineInstallScope(pickerValues(selected))
+		skills := pickerValues(selected)
+		if m.machine.cursor > 0 || m.machine.filter != "" {
+			m.openMachineInstallTags(services.MachineBatchRequest{Skills: skills})
+		} else {
+			m.openMachineInstallScope(skills)
+		}
 	}}
 }
 
 func (m *model) openMachineInstallScope(skills []string) {
 	items := []pages.PickerItem{{Label: "user", Value: "user"}, {Label: "directory tags", Value: "tag"}}
 	cursor := 0
-	if m.machine.cursor > 0 {
-		items = append(items, pages.PickerItem{Label: "directory " + m.machineScope(), Value: "directory"})
-		cursor = 2
-	}
-	if len(m.machine.allDirectories) > 0 {
-		items = append(items, pages.PickerItem{Label: "choose directory", Value: "choose-directory"})
-	}
 	if m.machine.filter != "" && !m.machine.installFromSkill {
 		cursor = 1
 	}
@@ -73,11 +77,6 @@ func (m *model) openMachineInstallScope(skills []string) {
 		case "user":
 			request.User = true
 			request.LocalOnly = m.svc.Cfg.UserSkillInstallLocalOnly
-		case "directory":
-			request.Directories = []string{m.machineScope()}
-		case "choose-directory":
-			m.openInstallationDirectoryPicker(request)
-			return
 		case "custom":
 			entry := m.filtered[m.cursor]
 			m.cancelSkillInstall()
@@ -89,20 +88,6 @@ func (m *model) openMachineInstallScope(skills []string) {
 		default:
 			return
 		}
-		m.openMachineInstallTargets(request)
-	}}
-}
-
-func (m *model) openInstallationDirectoryPicker(request services.MachineBatchRequest) {
-	items := make([]pages.PickerItem, 0, len(m.machine.allDirectories))
-	for _, directory := range m.machine.allDirectories {
-		items = append(items, pages.PickerItem{Label: directory.ID + "  " + strings.Join(directory.Tags, ", "), Value: directory.ID})
-	}
-	m.picker = &pages.Picker{Title: "select directory", Searchable: true, Hint: "enter select  / search  esc cancel", Single: true, Items: items, OnCancel: m.cancelSkillInstall, OnConfirm: func(selected []pages.PickerItem) {
-		if len(selected) == 0 {
-			return
-		}
-		request.Directories = pickerValues(selected)
 		m.openMachineInstallTargets(request)
 	}}
 }
@@ -122,26 +107,34 @@ func (m *model) openMachineInstallTags(request services.MachineBatchRequest) {
 	items := make([]pages.PickerItem, 0, len(tags))
 	cursor := 0
 	for _, tag := range tags {
-		checked := !m.machine.installFromSkill && tag == m.machine.filter
+		checked := slices.Contains(request.Tags, tag) || (request.Tags == nil && !m.machine.installFromSkill && tag == m.machine.filter)
 		if checked {
 			cursor = len(items)
 		}
 		items = append(items, pages.PickerItem{Label: fmt.Sprintf("%s  (%d directories)", tag, counts[tag]), Value: tag, Checked: checked})
 	}
 	if len(items) == 0 {
-		m.openMachineInstallScope(request.Skills)
 		m.setStatus("no directory tags available")
-		return
 	}
-	m.picker = &pages.Picker{Title: "select tags", Hint: "space select  enter next  esc cancel", Items: items, Cursor: cursor, OnCancel: m.cancelSkillInstall, OnConfirm: func(selected []pages.PickerItem) {
-		if len(selected) == 0 {
-			m.openMachineInstallTags(request)
-			m.setStatus("no tags selected")
-			return
-		}
-		request.Tags = pickerValues(selected)
-		m.openMachineInstallTargets(request)
-	}}
+	m.picker = &pages.Picker{Title: "select tags", Hint: "space select  enter next  [t] tag directories  backspace previous  esc cancel", Items: items, Cursor: cursor, OnCancel: m.cancelSkillInstall,
+		OnBack: func() {
+			if m.machine.installFromSkill || (m.machine.cursor == 0 && m.machine.filter == "") {
+				m.openMachineInstallScope(request.Skills)
+			} else {
+				m.openMachineInstallSkillsWith(request.Skills)
+			}
+		},
+		OnAlternate: func() { m.openInstallTagEditor(request) },
+		OnConfirm: func(selected []pages.PickerItem) {
+			if len(selected) == 0 {
+				request.Tags = []string{}
+				m.openMachineInstallTags(request)
+				m.setStatus("no tags selected")
+				return
+			}
+			request.Tags = pickerValues(selected)
+			m.openMachineInstallTargets(request)
+		}}
 }
 
 func (m *model) openMachineInstallTargets(request services.MachineBatchRequest) {
@@ -161,18 +154,26 @@ func (m *model) openMachineInstallTargets(request services.MachineBatchRequest) 
 		m.setStatus("no suitable targets")
 		return
 	}
-	if len(items) == 1 {
-		items[0].Checked = true
+	for i, item := range items {
+		items[i].Checked = slices.Contains(request.Targets, item.Value) || (request.Targets == nil && len(items) == 1)
 	}
-	m.picker = &pages.Picker{Title: "select clients", OnCancel: m.cancelSkillInstall, Hint: "space select  enter preview  esc cancel", Items: items, OnConfirm: func(selected []pages.PickerItem) {
-		if len(selected) == 0 {
-			m.openMachineInstallTargets(request)
-			m.setStatus("no clients selected")
-			return
-		}
-		request.Targets = pickerValues(selected)
-		m.requestMachineInstallPlan(request)
-	}}
+	m.picker = &pages.Picker{Title: "select clients", OnCancel: m.cancelSkillInstall, Hint: "space select  enter preview  backspace previous  esc cancel", Items: items,
+		OnBack: func() {
+			if request.User {
+				m.openMachineInstallScope(request.Skills)
+			} else {
+				m.openMachineInstallTags(request)
+			}
+		},
+		OnConfirm: func(selected []pages.PickerItem) {
+			if len(selected) == 0 {
+				m.openMachineInstallTargets(request)
+				m.setStatus("no clients selected")
+				return
+			}
+			request.Targets = pickerValues(selected)
+			m.requestMachineInstallPlan(request)
+		}}
 }
 
 func (m *model) requestMachineInstallPlan(request services.MachineBatchRequest) {
@@ -199,6 +200,8 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 	plan := *msg.plan
 	if !plan.Request.User && len(plan.Directories) == 0 {
 		m.machine.err = fmt.Errorf("no directories match the selected scope")
+		m.openMachineInstallTags(plan.Request)
+		m.setStatus(m.machine.err.Error())
 		return
 	}
 	counts := map[string]int{}
@@ -229,18 +232,19 @@ func (m *model) acceptMachineInstallPlan(msg machineInstallPlanMsg) {
 	} else {
 		prompt += fmt.Sprintf("\nNew installation declarations: %d", declared)
 	}
-	m.confirm = &pages.Confirm{Prompt: prompt, Diff: detail.String(), OnCancel: m.cancelSkillInstall, OnYes: func() {
-		if !m.machine.open || msg.sequence != m.machine.sequence {
-			return
-		}
-		m.machine.sequence++
-		m.machine.scanning = true
-		seq, svc, ctx := m.machine.sequence, m.svc, m.ctx
-		m.machinePending = func() tea.Msg {
-			result, err := svc.ApplyMachineBatch(ctx, plan)
-			return machineInstallDoneMsg{sequence: seq, result: result, err: err}
-		}
-	}}
+	m.confirm = &pages.Confirm{Prompt: prompt, Diff: detail.String(), OnCancel: m.cancelSkillInstall,
+		OnBack: func() { m.openMachineInstallTargets(plan.Request) }, OnYes: func() {
+			if !m.machine.open || msg.sequence != m.machine.sequence {
+				return
+			}
+			m.machine.sequence++
+			m.machine.scanning = true
+			seq, svc, ctx := m.machine.sequence, m.svc, m.ctx
+			m.machinePending = func() tea.Msg {
+				result, err := svc.ApplyMachineBatch(ctx, plan)
+				return machineInstallDoneMsg{sequence: seq, result: result, err: err}
+			}
+		}}
 	if plan.Request.User {
 		m.confirm.OnToggleDeclaration = func() {
 			if m.machine.open && msg.sequence == m.machine.sequence {
@@ -287,6 +291,8 @@ func (m *model) planSelectedSkill() {
 }
 
 func (m *model) cancelSkillInstall() {
+	m.machine.installRegistration = nil
+	m.machine.tagReturn = nil
 	if m.machine.installFromSkill {
 		m.machine.open = false
 		m.machine.installFromSkill = false
@@ -334,5 +340,31 @@ func (m *model) acceptMachineInstallDone(msg machineInstallDoneMsg) tea.Cmd {
 		m.machine.retryPreview = retry
 		m.machine.result += "\nPress v to preview the remaining work again"
 	}
+	m.machinePending = scanCmd(m.svc, scanAfterJob, 0)
 	return cmd
+}
+
+func (m *model) openInstallTagEditor(request services.MachineBatchRequest) {
+	items := make([]pages.PickerItem, 0, len(m.machine.allDirectories))
+	for _, directory := range m.machine.allDirectories {
+		items = append(items, pages.PickerItem{Label: directory.ID, Value: directory.ID})
+	}
+	resume := func() { m.openMachineInstallTags(request) }
+	m.picker = &pages.Picker{Title: "tag directories for installation", Hint: "space select  enter edit  esc back",
+		Items: items, OnCancel: resume, OnConfirm: func(selected []pages.PickerItem) {
+			if len(selected) > 0 {
+				m.machine.tagDirectories = pickerValues(selected)
+				m.machine.tagEditing, m.machine.tagInput = true, ""
+				m.machine.tagReturn = resume
+			} else {
+				m.machine.installRegistration = resume
+				m.machine.pathEditing, m.machine.pathInput = "discover", ""
+			}
+		},
+	}
+	if len(items) == 0 {
+		m.picker = nil
+		m.machine.installRegistration = resume
+		m.machine.pathEditing, m.machine.pathInput = "discover", ""
+	}
 }

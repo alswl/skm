@@ -22,18 +22,21 @@ type PickerItem struct {
 // set, wires a secondary destructive action (discover delete) to the Delete
 // key. (FR-036/037/038)
 type Picker struct {
-	Title      string
-	Hint       string
-	Items      []PickerItem
-	Cursor     int
-	Single     bool
-	Searchable bool
-	Searching  bool
-	Query      string
-	allItems   []PickerItem
-	OnCancel   func()
-	OnConfirm  func(sel []PickerItem)
-	OnDelete   func(sel []PickerItem)
+	Title       string
+	Prelude     string
+	Hint        string
+	Items       []PickerItem
+	Cursor      int
+	Single      bool
+	Searchable  bool
+	Searching   bool
+	Query       string
+	allItems    []PickerItem
+	OnCancel    func()
+	OnBack      func()
+	OnAlternate func()
+	OnConfirm   func(sel []PickerItem)
+	OnDelete    func(sel []PickerItem)
 }
 
 func (p *Picker) Filter(query string) {
@@ -97,6 +100,8 @@ func (p *Picker) Selection() []PickerItem {
 type Confirm struct {
 	Prompt              string
 	OnIncludeGitVisible func()
+	OnSetPath           func()
+	OnBack              func()
 	OnToggleDeclaration func()
 	OnCancel            func()
 	OnYes               func()
@@ -110,6 +115,14 @@ func PickerView(width, height int, status string, p *Picker) string {
 	inner := maxInt(20, width) - 2
 	var body strings.Builder
 	rows := maxInt(1, maxInt(10, height)-6)
+	if p.Prelude != "" {
+		lines := components.SplitLines(lipgloss.NewStyle().Width(inner).Render(p.Prelude))
+		lines = lines[:minInt(len(lines), maxInt(0, rows-2))]
+		for _, line := range lines {
+			body.WriteString(components.FitCell(line, inner, lipgloss.NewStyle()) + "\n")
+		}
+		rows -= len(lines)
+	}
 	start := maxInt(0, p.Cursor-rows+1)
 	for i := start; i < minInt(len(p.Items), start+rows); i++ {
 		it := p.Items[i]
@@ -163,6 +176,12 @@ func ConfirmView(width, height int, status string, c *Confirm) string {
 	}
 	if c.OnIncludeGitVisible != nil {
 		hint += "  [g] include Git-visible links"
+	}
+	if c.OnBack != nil {
+		hint += "  [backspace] previous"
+	}
+	if c.OnSetPath != nil {
+		hint += "  [p] set local path"
 	}
 	return FramedPage(width, height, " skm · confirm ", body, status, hint)
 }

@@ -51,13 +51,15 @@ func isTerminalFile(f *os.File) bool {
 // model is the top-level Bubble Tea model: a paged list on the left and a
 // detail pane on the right (tui-contract.md).
 type model struct {
-	ctx      context.Context
-	svc      *services.Services
-	queue    *jobs.Queue
-	entries  []*common.Entry // full scan result
-	filtered []*common.Entry // after search filter, sorted by source
-	rows     []dispRow       // display rows: section headers interleaved with entries
-	entryRow []int           // entryRow[i] = index into rows for filtered[i]
+	ctx              context.Context
+	svc              *services.Services
+	queue            *jobs.Queue
+	directoryTags    map[string][]string
+	directoryTagsErr error
+	entries          []*common.Entry // full scan result
+	filtered         []*common.Entry // after search filter, sorted by source
+	rows             []dispRow       // display rows: section headers interleaved with entries
+	entryRow         []int           // entryRow[i] = index into rows for filtered[i]
 	// filteredHaveGroups is whether any currently-visible entry carries a
 	// group, cached alongside filtered because showGroupColumn asks it up to
 	// four times per frame from View (header row, entry rows, and twice more
@@ -106,11 +108,14 @@ type model struct {
 	forceRetries map[int64]forceRetry // job id -> force-retry offer, for jobs that failed needing --force
 
 	// 002-open-provider-target US2: Target configuration editor.
-	showTargets    bool          // target list/editor view (t)
-	targetsCursor  int           // cursor into svc.Cfg.Targets
-	targetWizard   *targetWizard // active add/edit text-entry step (nil when idle)
-	machine        machineDirectoryState
-	machinePending tea.Cmd
+	showTargets     bool          // target list/editor view (t)
+	targetsCursor   int           // cursor into svc.Cfg.Targets
+	targetWizard    *targetWizard // active add/edit text-entry step (nil when idle)
+	machine         machineDirectoryState
+	machinePending  tea.Cmd
+	location        *installationLocationState
+	locationRequest uint64
+	tagViewRequest  uint64
 
 	// Provider filter tabs (Tab/Shift+Tab): providerTabs[0] is always
 	// tabAll; providerTabs[providerTabIdx] is the active filter.
@@ -242,10 +247,12 @@ const (
 // scanDoneMsg carries a completed background scan and the install states
 // derived from it.
 type scanDoneMsg struct {
-	reason  scanReason
-	jobID   int64
-	entries []*common.Entry
-	cols    installStates
+	reason           scanReason
+	jobID            int64
+	entries          []*common.Entry
+	cols             installStates
+	directoryTags    map[string][]string
+	directoryTagsErr error
 }
 
 // scanCmd runs the potentially slow filesystem scan off the Bubble Tea event
@@ -257,7 +264,8 @@ type scanDoneMsg struct {
 func scanCmd(svc *services.Services, reason scanReason, jobID int64) tea.Cmd {
 	return func() tea.Msg {
 		entries := svc.Scan()
-		return scanDoneMsg{reason: reason, jobID: jobID, entries: entries, cols: scanInstallStates(svc, entries)}
+		tags, err := svc.CatalogDirectoryTags()
+		return scanDoneMsg{reason: reason, jobID: jobID, entries: entries, cols: scanInstallStates(svc, entries), directoryTags: tags, directoryTagsErr: err}
 	}
 }
 
@@ -324,20 +332,22 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case machineSkillScanMsg:
 		m.acceptMachineSkillScan(msg)
 		return m, nil
-	case detailUnlinkPreviewMsg:
-		m.acceptDetailUnlinkPreview(msg)
+	case tagCatalogMsg:
+		m.acceptTagCatalog(msg)
 		return m, nil
-	case detailUnlinkResultMsg:
-		if m.showDetail && m.detailMachineSequence == msg.sequence {
-			if msg.err != nil {
-				m.setStatus(msg.err.Error())
-			} else {
-				m.setStatus("link removed")
-			}
-			m.startMachineSkillScan()
-			return m, scanCmd(m.svc, scanAfterJob, 0)
-		}
+	case tagMutationMsg:
+		m.acceptTagMutation(msg)
 		return m, nil
+	case tagMutationDoneMsg:
+		return m, m.acceptTagMutationDone(msg)
+	case locationCoverageMsg:
+		m.acceptLocationCoverage(msg)
+		return m, nil
+	case locationPreviewMsg:
+		m.acceptLocationPreview(msg)
+		return m, nil
+	case locationAppliedMsg:
+		return m, m.acceptLocationApplied(msg)
 	case machineCapturePlanMsg:
 		m.acceptMachineCapturePlan(msg)
 		return m, nil
@@ -358,6 +368,8 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case machineDiscoverMsg:
 		m.acceptMachineDiscover(msg)
 		return m, nil
+	case machinePathDoneMsg:
+		return m, m.acceptMachinePathDone(msg)
 	case machineRegisterDoneMsg:
 		return m, m.acceptMachineRegisterDone(msg)
 	case machineDeclarationsMsg:
@@ -383,6 +395,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.reason == scanInitial {
 			m.loading = false
 		}
+		m.directoryTags, m.directoryTagsErr = msg.directoryTags, msg.directoryTagsErr
 		m.applyEntriesForJob(msg.entries, msg.cols, msg.jobID)
 		if m.showDetail && m.cursor < len(m.filtered) {
 			m.refreshDetail() // the entry may have moved/installed; show the new state

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -279,4 +280,23 @@ func (s *Services) SetDirectoryPath(ctx context.Context, id, path string) error 
 	}
 	paths.Paths[id] = canonical
 	return config.WriteYAMLAtomic(pathsPath, paths, 0o600)
+}
+
+// CatalogDirectoryTags returns the tags referenced by each skill's declarations.
+func (s *Services) CatalogDirectoryTags() (map[string][]string, error) {
+	doc, err := config.LoadInstallations(filepath.Join(s.Cfg.Root, config.InstallationsFile))
+	if err != nil {
+		return nil, err
+	}
+	tags := make(map[string][]string)
+	for _, install := range doc.Installs {
+		if install.Scope.Kind == "tag" {
+			tags[install.Skill] = append(tags[install.Skill], install.Scope.Name)
+		}
+	}
+	for skill, names := range tags {
+		sort.Strings(names)
+		tags[skill] = slices.Compact(names)
+	}
+	return tags, nil
 }

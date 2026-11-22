@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/engines"
@@ -98,34 +99,35 @@ func (s *Services) PlanMachineUnlink(directory, target, path string) (*MachineUn
 	return plan, nil
 }
 
-// checkMachineUnlinkCoverage inspects every declaration whose installation
-// name could identify the selected position. Unrelated skills do not prevent
-// unlink when their source or target is unavailable.
-func (s *Services) checkMachineUnlinkCoverage(path string) error {
+// MachineLocationCoverage returns every declaration that resolves to the
+// selected slot, along with any gaps in coverage verification.
+func (s *Services) MachineLocationCoverage(path string) ([]common.Installation, error) {
 	doc, err := config.LoadInstallations(filepath.Join(s.Cfg.Root, config.InstallationsFile))
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrMachineUnlinkCoverageUnknown, err)
+		return nil, fmt.Errorf("%w: %w", ErrMachineUnlinkCoverageUnknown, err)
 	}
 	directories, err := s.ListDirectories()
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrMachineUnlinkCoverageUnknown, err)
+		return nil, fmt.Errorf("%w: %w", ErrMachineUnlinkCoverageUnknown, err)
 	}
 	name := filepath.Base(path)
+	var matches []common.Installation
+	var gaps error
 	for _, declaration := range doc.Installs {
 		if filepath.Base(declaration.Skill) != name {
 			continue
 		}
 		entry, err := s.ResolveEntry(declaration.Skill)
 		if err != nil || entry == nil || entry.Name != name {
-			return fmt.Errorf("%w for %q", ErrMachineUnlinkCoverageUnknown, declaration.Skill)
+			gaps = errors.Join(gaps, fmt.Errorf("%w for %q", ErrMachineUnlinkCoverageUnknown, declaration.Skill))
+			continue
 		}
 		if declaration.Scope.Kind == "user" {
 			_, target, err := s.machineUserRoot(declaration.Target)
 			if err != nil {
-				return fmt.Errorf("%w for target %q: %w", ErrMachineUnlinkCoverageUnknown, declaration.Target, err)
-			}
-			if filepath.Join(target, name) == path {
-				return fmt.Errorf("%w: %s on user target %q", ErrMachineUnlinkCovered, declaration.Skill, declaration.Target)
+				gaps = errors.Join(gaps, fmt.Errorf("%w for target %q: %w", ErrMachineUnlinkCoverageUnknown, declaration.Target, err))
+			} else if filepath.Join(target, name) == path {
+				matches = append(matches, declaration)
 			}
 			continue
 		}
@@ -133,41 +135,64 @@ func (s *Services) checkMachineUnlinkCoverage(path string) error {
 		if declaration.Target == "claude" {
 			subdir = ".claude"
 		}
+		matched := false
 		for _, directory := range directories {
-			selected := declaration.Scope.Kind == "directory" && declaration.Scope.Name == directory.ID || declaration.Scope.Kind == "tag" && containsMachineTag(directory.Tags, declaration.Scope.Name)
+			selected := declaration.Scope.Kind == "directory" && declaration.Scope.Name == directory.ID ||
+				declaration.Scope.Kind == "tag" && containsMachineTag(directory.Tags, declaration.Scope.Name)
 			if !selected {
 				continue
 			}
 			if directory.Path == "" {
-				return fmt.Errorf("%w for directory %q: missing path", ErrMachineUnlinkCoverageUnknown, directory.ID)
+				gaps = errors.Join(gaps, fmt.Errorf("%w for directory %q: missing path", ErrMachineUnlinkCoverageUnknown, directory.ID))
+				continue
 			}
 			info, err := os.Stat(directory.Path)
 			if err != nil || !info.IsDir() {
-				return fmt.Errorf("%w for directory %q", ErrMachineUnlinkCoverageUnknown, directory.ID)
+				gaps = errors.Join(gaps, fmt.Errorf("%w for directory %q", ErrMachineUnlinkCoverageUnknown, directory.ID))
+				continue
 			}
 			candidate := filepath.Join(directory.Path, subdir, "skills", name)
 			parent, err := filepath.EvalSymlinks(filepath.Dir(candidate))
 			if err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("%w for directory %q: %w", ErrMachineUnlinkCoverageUnknown, directory.ID, err)
+				gaps = errors.Join(gaps, fmt.Errorf("%w for directory %q: %w", ErrMachineUnlinkCoverageUnknown, directory.ID, err))
+				continue
 			}
 			if err == nil {
 				candidate = filepath.Join(parent, name)
 			}
-			if candidate == path {
-				if declaration.Scope.Kind == "tag" {
-					count := 0
-					for _, dir := range directories {
-						if containsMachineTag(dir.Tags, declaration.Scope.Name) {
-							count++
-						}
-					}
-					return fmt.Errorf("%w: tag %q (%d matching directories), %s on %s", ErrMachineUnlinkCovered, declaration.Scope.Name, count, declaration.Skill, declaration.Target)
-				}
-				return fmt.Errorf("%w: %s on %s in directory %q", ErrMachineUnlinkCovered, declaration.Skill, declaration.Target, declaration.Scope.Name)
-			}
+			matched = matched || candidate == path
+		}
+		if matched {
+			matches = append(matches, declaration)
 		}
 	}
-	return nil
+	return matches, gaps
+}
+
+func (s *Services) checkMachineUnlinkCoverage(path string) error {
+	matches, err := s.MachineLocationCoverage(path)
+	if len(matches) == 0 {
+		return err
+	}
+	declaration := matches[0]
+	switch declaration.Scope.Kind {
+	case "user":
+		return fmt.Errorf("%w: %s on user target %q", ErrMachineUnlinkCovered, declaration.Skill, declaration.Target)
+	case "tag":
+		directories, listErr := s.ListDirectories()
+		if listErr != nil {
+			return fmt.Errorf("%w: tag %q, %s on %s", ErrMachineUnlinkCovered, declaration.Scope.Name, declaration.Skill, declaration.Target)
+		}
+		count := 0
+		for _, dir := range directories {
+			if containsMachineTag(dir.Tags, declaration.Scope.Name) {
+				count++
+			}
+		}
+		return fmt.Errorf("%w: tag %q (%d matching directories), %s on %s", ErrMachineUnlinkCovered, declaration.Scope.Name, count, declaration.Skill, declaration.Target)
+	default:
+		return fmt.Errorf("%w: %s on %s in directory %q", ErrMachineUnlinkCovered, declaration.Skill, declaration.Target, declaration.Scope.Name)
+	}
 }
 
 // ApplyMachineUnlink repeats all checks and removes only the seized object.
