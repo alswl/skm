@@ -10,7 +10,33 @@ import (
 // handlePickerKey drives the active picker modal.
 func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 	p := m.picker
+	if p.Searchable {
+		switch {
+		case !p.Searching && msg.String() == "/":
+			p.Searching = true
+			return nil
+		case p.Searching && key.Matches(msg, m.keys.Esc):
+			p.Filter("")
+			p.Searching = false
+			return nil
+		case p.Searching && key.Matches(msg, m.keys.Backspace):
+			runes := []rune(p.Query)
+			if len(runes) > 0 {
+				p.Filter(string(runes[:len(runes)-1]))
+			}
+			return nil
+		case p.Searching && msg.Type == tea.KeyRunes:
+			p.Filter(p.Query + string(msg.Runes))
+			return nil
+		}
+	}
 	switch {
+	case key.Matches(msg, m.keys.Backspace) && p.OnBack != nil:
+		m.picker = nil
+		p.OnBack()
+	case msg.String() == "t" && p.OnAlternate != nil:
+		m.picker = nil
+		p.OnAlternate()
 	case key.Matches(msg, m.keys.MoveUp):
 		p.MoveCursor(-1)
 	case key.Matches(msg, m.keys.MoveDown):
@@ -18,6 +44,9 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Toggle):
 		p.ToggleCurrent()
 	case key.Matches(msg, m.keys.Enter):
+		if len(p.Items) == 0 && (p.Searchable || p.Single) {
+			return nil
+		}
 		sel := p.Selection()
 		onConfirm := p.OnConfirm
 		m.picker = nil
@@ -33,6 +62,9 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	case key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Quit):
 		m.picker = nil
+		if p.OnCancel != nil {
+			p.OnCancel()
+		}
 	}
 	return nil
 }
@@ -40,6 +72,22 @@ func (m *model) handlePickerKey(msg tea.KeyMsg) tea.Cmd {
 // handleConfirmKey drives the active confirmation modal.
 func (m *model) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
+	case key.Matches(msg, m.keys.Backspace) && m.confirm.OnBack != nil:
+		back := m.confirm.OnBack
+		m.confirm = nil
+		back()
+	case msg.String() == "p" && m.confirm.OnSetPath != nil:
+		setPath := m.confirm.OnSetPath
+		m.confirm = nil
+		setPath()
+	case msg.String() == "w" && m.confirm.OnToggleDeclaration != nil:
+		toggle := m.confirm.OnToggleDeclaration
+		m.confirm = nil
+		toggle()
+	case msg.String() == "g" && m.confirm.OnIncludeGitVisible != nil:
+		include := m.confirm.OnIncludeGitVisible
+		m.confirm = nil
+		include()
 	case msg.String() == "d" && m.confirm.Diff != "":
 		m.confirm.ShowDiff = !m.confirm.ShowDiff
 		m.confirm.DiffOffset = 0
@@ -54,7 +102,11 @@ func (m *model) handleConfirmKey(msg tea.KeyMsg) tea.Cmd {
 			onYes()
 		}
 	case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Esc), key.Matches(msg, m.keys.Quit):
+		cancel := m.confirm.OnCancel
 		m.confirm = nil
+		if cancel != nil {
+			cancel()
+		}
 	}
 	return nil
 }

@@ -177,6 +177,42 @@ skm backup restore --force
 然后对这个仓库执行 `git init && git commit`，大功告成——你的技能现在被版本化、可迁移，并且已经装
 进了每一个工具。
 
+## 管理多个目录的 Skills
+
+`skm plan` 和 `skm apply` 通过技能库根目录的 `installations.yaml` 管理期望安装关系。目录 ID 和标签随技能库版本化；
+本机路径保存在 skm 配置目录，换机器或另一个 checkout 后需要重新设置。实际安装每次从磁盘扫描，
+不保存安装历史。
+
+```bash
+skm directory discover ~/src
+skm directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
+skm directory tag --directory web --add frontend
+skm directory list --tag backend
+
+# 检查技能、客户端和目标目录后再应用。
+skm plan --add code-review --target codex --target claude --tag backend --json > plan.json
+skm apply --plan plan.json
+skm scan --directory api --json
+```
+
+目录级客户端支持 Codex（`.agents/skills`）和 Claude Code（`.claude/skills`）；用户级安装使用
+`--user` 和已配置的目标名。预览会提示未被 Git 忽略的项目链接；明确接受后可加 `--allow-unignored`。
+已有占位和 Git 跟踪文件会受到保护。
+
+换机器后检出技能库，逐个执行 `skm directory path api ~/src/api` 设置本机路径，再保存并
+应用 `skm plan --json` 的结果。已有库链接可用 `skm plan --capture PATH --target
+codex --directory api --json` 生成收录计划。使用 `--drop` 撤回声明会保留链接；如需移除未被声明
+覆盖的链接，另行预览并应用 `--unlink PATH --target codex --directory api`。
+
+TUI 技能列表按 `M` 打开目录页。选中技能后按 `i`，可选用户级客户端、目录或标签。目录页按 `i` 会带入当前目录或标签筛选，再选择技能。技能详情按 `l` 管理已有安装。
+
+用户级 Skill 安装默认写入声明。在本机 `config.yaml` 中设置 `user_skill_install_local_only: true`，可默认只安装到本机。也可以在用户级预览按 `w` 切换本次是否写入声明。
+
+[查看 TUI 页面和逐步操作](docs/tui-wireflows.md)。
+
+卸载预览要求文件系统能确认支持排他重命名。Linux 内核 4.9 及以上支持识别 ext2/3/4、Btrfs、
+tmpfs 和 XFS；其他文件系统无法通过只读检查确认时，预览会阻止卸载。
+
 ## ⚙️ 配置
 
 配置项的优先级是 **命令行参数 > 环境变量 > 配置文件 > 默认值**，所以写进文件的任何设置，都仍然可以

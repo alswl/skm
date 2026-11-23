@@ -77,3 +77,7 @@ include hack/makefile-go/gen.mk
 .PHONY: version
 version: ## Print the computed version
 	@echo "$(VERSION) ($(COMMIT))"
+
+.PHONY: lint-cli-coverage
+lint-cli-coverage: build ## Check that every public CLI command has a TUI review disposition
+	python3 scripts/lint-cli-coverage.py --binary "$(OUTPUT_DIR)/skm"

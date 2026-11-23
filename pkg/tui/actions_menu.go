@@ -29,7 +29,7 @@ func (m *model) entryActions() []entryAction {
 		return nil
 	}
 	e := m.filtered[m.cursor]
-	install := e.Status == common.StatusActive && len(m.installs.forEntry(e.Path)) > 0
+	install := e.Status == common.StatusActive && (e.Kind == common.KindSkill || len(m.installs.forEntry(e.Path)) > 0)
 	update := m.svc.Updatable(e)
 	normalize := e.Status == common.StatusNonStandard || e.Status == common.StatusActive
 	claim := e.Kind == common.KindSkill && (e.Status == common.StatusError || e.Status == common.StatusNonStandard)
@@ -43,8 +43,11 @@ func (m *model) entryActions() []entryAction {
 	if !m.showDetail {
 		out = append(out, entryAction{Key: "enter", Label: "detail", Enabled: true, Run: m.openDetail})
 	}
+	if m.showDetail {
+		out = append(out, entryAction{Key: "l", Label: "installation locations", Enabled: e.Kind == common.KindSkill, Run: m.openDetailInstallations})
+	}
 	out = append(out,
-		entryAction{Key: "i", Label: "installs", Enabled: install, Run: m.installSelected},
+		entryAction{Key: "i", Label: "install", Enabled: install, Run: m.installSelected},
 		entryAction{Key: "p", Label: "update", Enabled: update, Run: m.updateSelected},
 		entryAction{Key: "n", Label: "normalize", Enabled: normalize, Run: m.normalizeSelected},
 		entryAction{Key: "c", Label: "claim → self-build", Enabled: claim, Run: m.claimAndRepairSelected},
@@ -74,10 +77,11 @@ func (m *model) globalActions() []entryAction {
 			m.openImportPrompt()
 		}},
 		{Key: "P", Label: "batch update", Enabled: true, Run: m.batchUpdate},
-		{Key: "t", Label: "targets", Enabled: true, Run: func() {
+		{Key: "t", Label: "user target settings", Enabled: true, Run: func() {
 			m.showTargets = true
 			m.targetsCursor = 0
 		}},
+		{Key: "M", Label: "directories", Enabled: true, Run: m.openMachineDirectories},
 		{Key: "J", Label: "job queue", Enabled: true, Run: func() {
 			m.showTasks = true
 			m.tasksCursor = 0

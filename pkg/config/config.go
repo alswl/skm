@@ -25,7 +25,8 @@ type Config struct {
 	// PluginDirs are the base plugin directories scanned at startup. Each
 	// contains a "providers" subdir (Provider plugins) and a "targets"
 	// subdir (Target plugins), scanned separately by their own Discover*.
-	PluginDirs []string
+	PluginDirs                []string
+	UserSkillInstallLocalOnly bool
 }
 
 // Paths used when nothing overrides them. These are literal XDG-style paths
@@ -92,11 +93,12 @@ func Load(rootFlag, configDir string) (*Config, error) {
 	targets, invalid := loadConfiguredTargets(set.Targets)
 	plugins := pluginDirsFrom(set)
 	return &Config{
-		Root:           root,
-		ConfigDir:      configDir,
-		Targets:        targets,
-		InvalidTargets: invalid,
-		PluginDirs:     plugins,
+		Root:                      root,
+		ConfigDir:                 configDir,
+		Targets:                   targets,
+		InvalidTargets:            invalid,
+		PluginDirs:                plugins,
+		UserSkillInstallLocalOnly: set.UserSkillInstallLocalOnly,
 	}, nil
 }
 

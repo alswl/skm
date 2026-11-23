@@ -140,7 +140,7 @@ func TestStartupNeverFreezesTheLoadingScreen(t *testing.T) {
 	const entries = 10
 	m := slowInstallStateModel(t, entries)
 	out := &timedBuffer{}
-	ch := make(chan model, 512)
+	ch := make(chan probeSnapshot, 512)
 	prog := tea.NewProgram(probeModel{model: m, snap: ch},
 		tea.WithInput(blockingInput{}),
 		tea.WithOutput(out),
@@ -164,8 +164,8 @@ func TestStartupNeverFreezesTheLoadingScreen(t *testing.T) {
 	deadline := time.After(10 * time.Second)
 	for done := false; !done; {
 		select {
-		case s := <-ch:
-			if !s.loading && len(s.filtered) == entries {
+		case snapshot := <-ch:
+			if !snapshot.state.loading && len(snapshot.state.filtered) == entries {
 				done = true
 			}
 		case <-deadline:

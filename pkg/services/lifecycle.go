@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/config"
 	"github.com/alswl/skm/skm/pkg/dal"
 	"github.com/alswl/skm/skm/pkg/engines"
 )
@@ -23,6 +25,21 @@ type LifecycleResult struct {
 // Archive moves an active entry into the archived tree. CLI archive only
 // changes the repository; the TUI uninstalls first (FR-013).
 func (s *Services) Archive(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
+	return s.archive(ctx, name, opts, false)
+}
+
+// ArchiveWithUninstall atomically checks declarations before removing links and archiving.
+func (s *Services) ArchiveWithUninstall(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
+	return s.archive(ctx, name, opts, true)
+}
+
+func (s *Services) archive(ctx context.Context, name string, opts engines.LifecycleOptions, uninstall bool) (*LifecycleResult, error) {
+	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	ctx = lock.Context(ctx)
 	entry, err := s.ResolveEntry(name)
 	if err != nil {
 		return nil, fmt.Errorf("archive: %w", err)
@@ -32,6 +49,14 @@ func (s *Services) Archive(ctx context.Context, name string, opts engines.Lifecy
 	}
 	if err := rejectForked("archive", entry); err != nil {
 		return nil, err
+	}
+	if err := s.rejectDeclaredSkill("archive", entry); err != nil {
+		return nil, err
+	}
+	if uninstall && !opts.DryRun {
+		if _, err := s.Uninstall(ctx, name, InstallOptions{}); err != nil {
+			return nil, err
+		}
 	}
 	newPath, err := s.Repo.Archive(ctx, entry, opts)
 	if err != nil {
@@ -61,6 +86,12 @@ func (s *Services) Unarchive(ctx context.Context, name string, opts engines.Life
 
 // Delete permanently removes an entry (requires --force).
 func (s *Services) Delete(ctx context.Context, name string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
+	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	ctx = lock.Context(ctx)
 	entry, err := s.ResolveEntry(name)
 	if err != nil {
 		return nil, fmt.Errorf("delete: %w", err)
@@ -69,6 +100,9 @@ func (s *Services) Delete(ctx context.Context, name string, opts engines.Lifecyc
 		return nil, notFound("delete", name)
 	}
 	if err := rejectForked("delete", entry); err != nil {
+		return nil, err
+	}
+	if err := s.rejectDeclaredSkill("delete", entry); err != nil {
 		return nil, err
 	}
 	if err := s.Repo.Delete(ctx, entry, opts); err != nil {
@@ -84,6 +118,12 @@ func (s *Services) Delete(ctx context.Context, name string, opts engines.Lifecyc
 // moving it relinks them to the new location (uninstall -> move -> reinstall),
 // like Convert. DryRun previews the destination without writing.
 func (s *Services) Normalize(ctx context.Context, name, provider string, opts engines.LifecycleOptions) (*LifecycleResult, error) {
+	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	ctx = lock.Context(ctx)
 	entry, err := s.ResolveEntry(name)
 	if err != nil {
 		return nil, fmt.Errorf("normalize: %w", err)
@@ -92,6 +132,9 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 		return nil, notFound("normalize", name)
 	}
 	if err := rejectForked("normalize", entry); err != nil {
+		return nil, err
+	}
+	if err := s.rejectDeclaredSkill("normalize", entry); err != nil {
 		return nil, err
 	}
 	relink := entry.Status == common.StatusActive && !opts.DryRun
@@ -125,6 +168,12 @@ func (s *Services) Normalize(ctx context.Context, name, provider string, opts en
 // Convert flips a directory entry's kind, cleaning old-kind links and
 // reinstalling under the new kind (FR-026).
 func (s *Services) Convert(ctx context.Context, name string, targetKind common.EntryKind, opts engines.LifecycleOptions) (*LifecycleResult, error) {
+	lock, err := dal.AcquireLock(ctx, s.Cfg.Root)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	ctx = lock.Context(ctx)
 	entry, err := s.ResolveEntry(name)
 	if err != nil {
 		return nil, fmt.Errorf("convert: %w", err)
@@ -133,6 +182,9 @@ func (s *Services) Convert(ctx context.Context, name string, targetKind common.E
 		return nil, notFound("convert", name)
 	}
 	if err := rejectForked("convert", entry); err != nil {
+		return nil, err
+	}
+	if err := s.rejectDeclaredSkill("convert", entry); err != nil {
 		return nil, err
 	}
 
@@ -154,6 +206,27 @@ func (s *Services) Convert(ctx context.Context, name string, targetKind common.E
 	// 3. Reinstall under the new kind.
 	s.installLinks(newEntry)
 	return &LifecycleResult{Action: "convert", Name: name, Path: newEntry.Path, Type: &targetKind, Success: true}, nil
+}
+
+func (s *Services) rejectDeclaredSkill(action string, entry *common.Entry) error {
+	if entry.Kind != common.KindSkill {
+		return nil
+	}
+	doc, err := config.LoadInstallations(filepath.Join(s.Cfg.Root, config.InstallationsFile))
+	if err != nil {
+		return fmt.Errorf("%s: read installation declarations: %w", action, err)
+	}
+	ref := s.Repo.RelPath(entry.Path)
+	upstream := ""
+	if entry.UpstreamPath != "" {
+		upstream = s.Repo.RelPath(entry.UpstreamPath)
+	}
+	for _, install := range doc.Installs {
+		if install.Skill == ref || (upstream != "" && install.Skill == upstream) {
+			return common.WithExitCode(fmt.Errorf("%s: skill %q is referenced by installation declarations; remove them first", action, ref), common.ExitObject)
+		}
+	}
+	return nil
 }
 
 func (s *Services) uninstallLinks(entry *common.Entry) {

@@ -193,6 +193,45 @@ that — and `--force` lets the reinstall overwrite whatever occupies an install
 Then `git init && git commit` the repository and you're done — your skills are now versioned,
 portable, and installed in every tool at once.
 
+## Manage skills across directories
+
+`skm plan` and `skm apply` manage desired installations in `installations.yaml` at the skills library root.
+Directory IDs and tags travel with the library; local paths live in the skm configuration
+directory and must be set again for another checkout or machine. Actual installations are
+scanned from disk, not saved as installation history.
+
+```bash
+skm directory discover ~/src
+skm directory add "api=$HOME/src/api" "web=$HOME/src/web" --tag backend
+skm directory tag --directory web --add frontend
+skm directory list --tag backend
+
+# Review the selected skills, clients and directories before applying.
+skm plan --add code-review --target codex --target claude --tag backend --json > plan.json
+skm apply --plan plan.json
+skm scan --directory api --json
+```
+
+Directory targets are Codex (`.agents/skills`) and Claude Code (`.claude/skills`); use
+`--user` and configured target names for user-level installations. The preview flags
+unignored project links; add `--allow-unignored` when you explicitly accept them. Existing
+objects and tracked files remain protected.
+
+On a new machine, check out the library, use `skm directory path api ~/src/api` for
+each directory, then save and apply `skm plan --json`. To record an existing library
+link, use `skm plan --capture PATH --target codex --directory api --json` and apply
+that plan. Dropping a declaration with `--drop` leaves its link in place; use a separate
+`--unlink PATH --target codex --directory api` plan to remove a selected, uncovered link.
+In the TUI, press `M` from the skill list to open Directories. Press `i` on a skill to select a user target, directory, or tag. In Directories, `i` brings the current directory or tag filter into the batch plan. Press `l` in skill detail to manage existing installations.
+
+User-level Skill installations write declarations by default. Set `user_skill_install_local_only: true` in `config.yaml` to default to a local-only install, or press `w` in the user-level preview to change just this plan.
+
+See the [TUI wireflows](docs/tui-wireflows.md) for screens and step-by-step actions.
+
+Unlink previews require a filesystem with verified exclusive rename support. On Linux,
+skm recognizes ext2/3/4, Btrfs, tmpfs and XFS on kernel 4.9 or later; other filesystem
+types are blocked because their support cannot be established without modifying the filesystem.
+
 ## ⚙️ Configuration
 
 Settings resolve **flag > environment variable > settings file > default**, so anything you can put

@@ -28,6 +28,7 @@ type KeyMap struct {
 	Discover    key.Binding
 	Import      key.Binding
 	Targets     key.Binding
+	Directories key.Binding
 	TargetAdd   key.Binding
 	Normalize   key.Binding
 	Claim       key.Binding
@@ -70,7 +71,7 @@ func DefaultKeys() KeyMap {
 		ShowArchived: key.NewBinding(key.WithKeys("."), key.WithHelp(".", "toggle archived")),
 		TabNext:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next provider tab")),
 		TabPrev:      key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev provider tab")),
-		Install:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "installs")),
+		Install:      key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "install")),
 		Update:       key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "update")),
 		BatchUpdate:  key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "batch update")),
 		Archive:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "archive")),
@@ -78,6 +79,7 @@ func DefaultKeys() KeyMap {
 		Discover:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "discover")),
 		Import:       key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "import")),
 		Targets:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "targets")),
+		Directories:  key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "directories")),
 		TargetAdd:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add target")),
 		Normalize:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "normalize")),
 		Claim:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claim skill")),
@@ -106,7 +108,7 @@ func DefaultKeys() KeyMap {
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.MoveDown, k.MoveUp, k.PagePrev, k.PageNext, k.First, k.Last, k.Search, k.ClearSearch, k.ShowArchived, k.TabNext, k.TabPrev},
-		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Normalize, k.Claim, k.Fix, k.Fork, k.ActionsMenu, k.Refresh},
+		{k.Detail, k.Install, k.Update, k.BatchUpdate, k.Archive, k.Delete, k.Discover, k.Import, k.Targets, k.Directories, k.Normalize, k.Claim, k.Fix, k.Fork, k.ActionsMenu, k.Refresh},
 		{k.Queue, k.Cancel, k.Help, k.Quit},
 	}
 }

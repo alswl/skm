@@ -51,13 +51,15 @@ func isTerminalFile(f *os.File) bool {
 // model is the top-level Bubble Tea model: a paged list on the left and a
 // detail pane on the right (tui-contract.md).
 type model struct {
-	ctx      context.Context
-	svc      *services.Services
-	queue    *jobs.Queue
-	entries  []*common.Entry // full scan result
-	filtered []*common.Entry // after search filter, sorted by source
-	rows     []dispRow       // display rows: section headers interleaved with entries
-	entryRow []int           // entryRow[i] = index into rows for filtered[i]
+	ctx              context.Context
+	svc              *services.Services
+	queue            *jobs.Queue
+	directoryTags    map[string][]string
+	directoryTagsErr error
+	entries          []*common.Entry // full scan result
+	filtered         []*common.Entry // after search filter, sorted by source
+	rows             []dispRow       // display rows: section headers interleaved with entries
+	entryRow         []int           // entryRow[i] = index into rows for filtered[i]
 	// filteredHaveGroups is whether any currently-visible entry carries a
 	// group, cached alongside filtered because showGroupColumn asks it up to
 	// four times per frame from View (header row, entry rows, and twice more
@@ -87,11 +89,16 @@ type model struct {
 	spinner  spinner.Model
 	spinning bool // true while a spinner.Tick loop is in flight; keeps exactly one loop running
 
-	showDetail      bool   // true renders the full-screen detail page (Enter/v)
-	detail          string // detail page content, built lazily in openDetail
-	detailOffset    int    // scroll offset (lines) into the detail content; j/k scroll it
-	detailTargets   int    // number of kind-matching targets (cached in Update; View must stay pure)
-	detailInstalled bool   // whether the entry is installed in any matching target (cached in Update)
+	showDetail                 bool   // true renders the full-screen detail page (Enter/v)
+	detail                     string // detail page content, built lazily in openDetail
+	detailOffset               int    // scroll offset (lines) into the detail content; j/k scroll it
+	detailTargets              int    // number of kind-matching targets (cached in Update; View must stay pure)
+	detailInstalled            bool   // whether the entry is installed in any matching target (cached in Update)
+	detailMachineSequence      uint64
+	detailMachineLoading       bool
+	detailOpenLocationsPending bool
+	detailMachineItems         []common.InstallationObservation
+	detailMachineError         error
 
 	// req-2 §1 modals and task center.
 	picker       *pages.Picker        // active multi/single-select modal (nil when closed)
@@ -102,9 +109,14 @@ type model struct {
 	forceRetries map[int64]forceRetry // job id -> force-retry offer, for jobs that failed needing --force
 
 	// 002-open-provider-target US2: Target configuration editor.
-	showTargets   bool          // target list/editor view (t)
-	targetsCursor int           // cursor into svc.Cfg.Targets
-	targetWizard  *targetWizard // active add/edit text-entry step (nil when idle)
+	showTargets     bool          // target list/editor view (t)
+	targetsCursor   int           // cursor into svc.Cfg.Targets
+	targetWizard    *targetWizard // active add/edit text-entry step (nil when idle)
+	machine         machineDirectoryState
+	machinePending  tea.Cmd
+	location        *installationLocationState
+	locationRequest uint64
+	tagViewRequest  uint64
 
 	// Provider filter tabs (Tab/Shift+Tab): providerTabs[0] is always
 	// tabAll; providerTabs[providerTabIdx] is the active filter.
@@ -236,10 +248,12 @@ const (
 // scanDoneMsg carries a completed background scan and the install states
 // derived from it.
 type scanDoneMsg struct {
-	reason  scanReason
-	jobID   int64
-	entries []*common.Entry
-	cols    installStates
+	reason           scanReason
+	jobID            int64
+	entries          []*common.Entry
+	cols             installStates
+	directoryTags    map[string][]string
+	directoryTagsErr error
 }
 
 // scanCmd runs the potentially slow filesystem scan off the Bubble Tea event
@@ -251,7 +265,8 @@ type scanDoneMsg struct {
 func scanCmd(svc *services.Services, reason scanReason, jobID int64) tea.Cmd {
 	return func() tea.Msg {
 		entries := svc.Scan()
-		return scanDoneMsg{reason: reason, jobID: jobID, entries: entries, cols: scanInstallStates(svc, entries)}
+		tags, err := svc.CatalogDirectoryTags()
+		return scanDoneMsg{reason: reason, jobID: jobID, entries: entries, cols: scanInstallStates(svc, entries), directoryTags: tags, directoryTagsErr: err}
 	}
 }
 
@@ -274,7 +289,9 @@ func (m *model) Init() tea.Cmd {
 // spin for every background task, not just the startup scan.
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	model, cmd := m.update(msg)
-	return model, tea.Batch(cmd, m.spinnerCmd())
+	pending := m.machinePending
+	m.machinePending = nil
+	return model, tea.Batch(cmd, pending, m.spinnerCmd())
 }
 
 // spinnerActive reports whether anything the user is waiting on is in flight.
@@ -308,6 +325,67 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		cmd := m.handleKey(msg)
 		return m, cmd
+	case machineDirectoriesMsg:
+		return m, m.acceptMachineDirectories(msg)
+	case machineScanMsg:
+		m.acceptMachineScan(msg)
+		return m, nil
+	case machineSkillScanMsg:
+		m.acceptMachineSkillScan(msg)
+		return m, nil
+	case tagCatalogMsg:
+		m.acceptTagCatalog(msg)
+		return m, nil
+	case tagMutationMsg:
+		m.acceptTagMutation(msg)
+		return m, nil
+	case tagMutationDoneMsg:
+		return m, m.acceptTagMutationDone(msg)
+	case locationCoverageMsg:
+		m.acceptLocationCoverage(msg)
+		return m, nil
+	case locationPreviewMsg:
+		m.acceptLocationPreview(msg)
+		return m, nil
+	case locationAppliedMsg:
+		return m, m.acceptLocationApplied(msg)
+	case machineCapturePlanMsg:
+		m.acceptMachineCapturePlan(msg)
+		return m, nil
+	case machineCaptureDoneMsg:
+		return m, m.acceptMachineCaptureDone(msg)
+	case machineTagDoneMsg:
+		return m, m.acceptMachineTagDone(msg)
+	case machineInstallPlanMsg:
+		m.acceptMachineInstallPlan(msg)
+		return m, nil
+	case machineInstallDoneMsg:
+		return m, m.acceptMachineInstallDone(msg)
+	case machineUnlinkPlanMsg:
+		m.acceptMachineUnlinkPlan(msg)
+		return m, nil
+	case machineUnlinkDoneMsg:
+		return m, m.acceptMachineUnlinkDone(msg)
+	case machineDiscoverMsg:
+		m.acceptMachineDiscover(msg)
+		return m, nil
+	case machinePathDoneMsg:
+		return m, m.acceptMachinePathDone(msg)
+	case machineRegisterDoneMsg:
+		return m, m.acceptMachineRegisterDone(msg)
+	case machineDeclarationsMsg:
+		m.acceptMachineDeclarations(msg)
+		return m, nil
+	case machineDropPlanMsg:
+		m.acceptMachineDropPlan(msg)
+		return m, nil
+	case machineDropDoneMsg:
+		return m, m.acceptMachineDropDone(msg)
+	case machineRestorePlanMsg:
+		m.acceptMachineRestorePlan(msg)
+		return m, nil
+	case machineRestoreDoneMsg:
+		return m, m.acceptMachineRestoreDone(msg)
 	case jobDoneMsg:
 		// handleJobDone only returns the follow-up rescan (or nil); this is
 		// the one place that re-arms the queue's result listener, so each job
@@ -318,6 +396,7 @@ func (m *model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.reason == scanInitial {
 			m.loading = false
 		}
+		m.directoryTags, m.directoryTagsErr = msg.directoryTags, msg.directoryTagsErr
 		m.applyEntriesForJob(msg.entries, msg.cols, msg.jobID)
 		if m.showDetail && m.cursor < len(m.filtered) {
 			m.refreshDetail() // the entry may have moved/installed; show the new state
@@ -378,6 +457,9 @@ func (m *model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	if m.showTargets {
 		return m.handleTargetsKey(msg)
 	}
+	if m.machine.open {
+		return m.handleMachineKey(msg)
+	}
 	if m.showDetail {
 		return m.handleDetailKey(msg)
 	}
@@ -394,8 +476,7 @@ func (m *model) clearSearch() {
 	}
 }
 
-// installSelected opens one installs picker. Its checked state is the desired
-// state for each target: checked means installed; unchecked means removed.
+// installSelected starts installation for the highlighted entry.
 func (m *model) installSelected() {
 	if m.cursor >= len(m.filtered) {
 		return
@@ -403,6 +484,10 @@ func (m *model) installSelected() {
 	entry := m.filtered[m.cursor]
 	if entry.Status != common.StatusActive {
 		m.setStatus(fmt.Sprintf("%s is %s; only active entries can be installed", entry.Name, entry.Status))
+		return
+	}
+	if entry.Kind == common.KindSkill {
+		m.planSelectedSkill()
 		return
 	}
 	m.openInstallsPicker(entry)
@@ -435,7 +520,7 @@ func (m *model) openInstallsPicker(entry *common.Entry) {
 	name := entry.Name
 	ref := m.svc.Repo.RelPath(entry.Path)
 	m.picker = &pages.Picker{
-		Title: "Installs · " + name,
+		Title: "User Installs · " + name,
 		Hint:  "[space] cycle state  [enter] apply  [esc/q] cancel",
 		Items: items,
 		OnConfirm: func(sel []pages.PickerItem) {

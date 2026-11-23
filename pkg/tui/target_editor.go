@@ -56,6 +56,9 @@ func (w *targetWizard) prompt() string {
 func (m *model) handleTargetsKey(msg tea.KeyMsg) tea.Cmd {
 	targets := m.svc.Cfg.Targets
 	switch {
+	case msg.String() == "M":
+		m.showTargets = false
+		m.openMachineDirectories()
 	case key.Matches(msg, m.keys.MoveDown):
 		if m.targetsCursor < len(targets)-1 {
 			m.targetsCursor++
@@ -95,6 +98,7 @@ func (m *model) handleTargetsKey(msg tea.KeyMsg) tea.Cmd {
 func (m model) targetsBindings() []pages.HintItem {
 	selected := m.targetsCursor < len(m.svc.Cfg.Targets)
 	return []pages.HintItem{
+		{Keys: "M", Label: "directories", Enabled: true},
 		{Keys: "a", Label: "add", Enabled: true},
 		{Keys: "enter", Label: "edit path", Enabled: selected},
 		{Keys: "d", Label: "remove", Enabled: selected},

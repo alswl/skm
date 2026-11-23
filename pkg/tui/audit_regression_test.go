@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alswl/skm/skm/pkg/common"
+	"github.com/alswl/skm/skm/pkg/tui/components"
 )
 
 // T045/T046: §1 audit found the TUI surface (target/provider/kind pickers,
@@ -382,7 +383,7 @@ func TestNormalizeProviderPickerAlwaysOffersSelfBuild(t *testing.T) {
 // top-level list's q is the app-wide quit (nnn convention).
 func TestQBacksOutOfPickerAndConfirm(t *testing.T) {
 	m := newTestModel(t)
-	_ = m.handleKey(runeKey('i')) // install opens a target picker
+	m.openInstallsPicker(m.filtered[m.cursor]) // exercise generic picker cancellation
 	require.NotNil(t, m.picker)
 	cmd := m.handlePickerKey(runeKey('q'))
 	require.Nil(t, cmd, "q does not quit from an open picker")
@@ -498,7 +499,7 @@ func TestDetailViewScrollsWithJK(t *testing.T) {
 	require.True(t, strings.HasPrefix(strings.Split(m.detailView(), "\n")[1], "│line 0"), "k scrolls back up")
 
 	// Clamp at the bottom: scrolling past the last window stops there.
-	maxOffset := len(long) - (m.height - 4)
+	maxOffset := len(components.SplitLines(m.detailContent())) - (m.height - 4)
 	for i := 0; i < maxOffset+5; i++ {
 		_ = m.handleKey(runeKey('j'))
 	}
@@ -553,19 +554,14 @@ func TestDetailHintDisablesUnavailableActions(t *testing.T) {
 // doesn't have to back out to act.
 func TestDetailPageOffersInstallAndOtherActions(t *testing.T) {
 	m := newTestModel(t)
-	_ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter}) // open detail for skill-a
+	m.openDetail()
 	require.True(t, m.showDetail)
-
-	_ = m.handleKey(runeKey('i')) // install, from the detail page
-	require.NotNil(t, m.picker, "install opens a target picker even from the detail page")
-	require.Contains(t, m.picker.Title, "Installs")
-	for i := range m.picker.Items {
-		m.picker.Items[i].Checked = true
-	}
-	_ = m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEnter})
-	drainJob(t, &m)
-	require.Contains(t, m.status, "installed")
-	require.True(t, m.showDetail, "the detail page stays open across the action")
+	m.handleKey(runeKey('i'))
+	m.acceptMachineDirectories(m.machinePending().(machineDirectoriesMsg))
+	require.Equal(t, "installation scope", m.picker.Title)
+	m.handlePickerKey(tea.KeyMsg{Type: tea.KeyEsc})
+	require.True(t, m.showDetail)
+	require.False(t, m.machine.open)
 }
 
 // TestNormalizeAppliesForStandardActiveEntry: "n" on an already-standard
@@ -757,5 +753,5 @@ func TestTUILabelsMatchCLIVerbNames(t *testing.T) {
 			"TUI label %q must match CLI verb %q", c.tuiLabel, c.cliVerb)
 	}
 
-	require.Equal(t, "installs", m.keys.Install.Help().Desc)
+	require.Equal(t, "install", m.keys.Install.Help().Desc)
 }
