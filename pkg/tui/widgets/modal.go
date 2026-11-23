@@ -159,7 +159,7 @@ func ConfirmView(width, height int, status string, c *Confirm) string {
 		hint += "   [d] diff"
 	}
 	if c.ShowDiff {
-		lines := components.SplitLines(c.Diff)
+		lines := components.SplitLines(lipgloss.NewStyle().Width(maxInt(20, width) - 2).Render(c.Diff))
 		rows := maxInt(1, maxInt(10, height)-6)
 		offset := c.DiffOffset
 		if offset < 0 {
