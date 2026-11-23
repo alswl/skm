@@ -1,0 +1,320 @@
+{
+  "pages": {
+    "catalog": "技能列表",
+    "detail": "技能详情",
+    "directories": "目录页",
+    "scan": "扫描结果区",
+    "discovery": "发现、登记与打标",
+    "tag-manage": "Tag 管理",
+    "catalog-actions": "技能库动作",
+    "transfer": "导入、部署与分享",
+    "settings": "客户端、提供方与插件",
+    "maintenance": "仓库维护",
+    "install-scope": "安装目的地",
+    "install-preview": "安装预览",
+    "location": "安装位置",
+    "local-path": "设置本机路径"
+  },
+  "commands": [
+    {
+      "command": "list",
+      "status": "existing",
+      "note": "技能库列表、搜索和归档筛选。",
+      "page": "catalog"
+    },
+    {
+      "command": "info",
+      "status": "existing",
+      "note": "查看条目元数据和文件。",
+      "page": "detail"
+    },
+    {
+      "command": "status",
+      "status": "partial",
+      "note": "详情显示健康状态。CLI 可单独读取并输出 JSON。",
+      "page": "detail"
+    },
+    {
+      "command": "import",
+      "status": "existing",
+      "note": "列表 m 发起导入。命令选项见帮助。",
+      "page": "transfer"
+    },
+    {
+      "command": "update",
+      "status": "existing",
+      "note": "条目动作 p 从来源更新。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "batch-update",
+      "status": "existing",
+      "note": "全库动作 P 批量更新。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "archive",
+      "status": "existing",
+      "note": "条目动作 a 归档。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "unarchive",
+      "status": "existing",
+      "note": "显示归档条目后用归档动作恢复。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "delete",
+      "status": "existing",
+      "note": "条目动作 d，确认永久删除。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "normalize",
+      "status": "existing",
+      "note": "条目动作 n 归位。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "fork",
+      "status": "existing",
+      "note": "技能详情 F，符合条件时创建可编辑副本。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "to-command",
+      "status": "proposed",
+      "note": "条目转换入口纳入评审。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "to-skill",
+      "status": "proposed",
+      "note": "条目转换入口纳入评审。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "install",
+      "status": "partial",
+      "note": "统一 i。CLI 直接安装到客户端；项目 Tag 声明安装走 plan --add。",
+      "page": "install-scope"
+    },
+    {
+      "command": "uninstall",
+      "status": "partial",
+      "note": "TUI 按实际位置处理。CLI 按条目及目标，覆盖范围见帮助。",
+      "page": "location"
+    },
+    {
+      "command": "directory list",
+      "status": "existing",
+      "note": "M 打开目录，f 筛选 Tag。",
+      "page": "directories"
+    },
+    {
+      "command": "directory discover",
+      "status": "existing",
+      "note": "目录页 a 搜索 Git 目录。",
+      "page": "discovery"
+    },
+    {
+      "command": "directory add",
+      "status": "existing",
+      "note": "发现结果选择后登记，支持批量。",
+      "page": "discovery"
+    },
+    {
+      "command": "directory tag",
+      "status": "partial",
+      "note": "目录页 t / T 支持编辑；按 Tag 查看成员及引用是拟议入口。",
+      "page": "tag-manage"
+    },
+    {
+      "command": "directory path",
+      "status": "existing",
+      "note": "目录页 p 设置路径；缺路径自动回流属于拟议动线。",
+      "page": "local-path"
+    },
+    {
+      "command": "scan",
+      "status": "partial",
+      "note": "当前 TUI 按用户或已登记 Dir 扫描。CLI 还可扫描全机、未登记路径和按技能过滤。",
+      "page": "scan"
+    },
+    {
+      "command": "plan",
+      "status": "partial",
+      "note": "TUI 有多类预览。展开能力分支表核对范围。",
+      "page": "install-preview"
+    },
+    {
+      "command": "apply",
+      "status": "partial",
+      "note": "TUI 在各自预览中确认。读入已保存的计划文件由 CLI 使用。",
+      "page": "install-preview"
+    },
+    {
+      "command": "discover",
+      "status": "partial",
+      "note": "全库动作 o 发现外部技能；指定 --source 由 CLI 使用。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "adopt",
+      "status": "existing",
+      "note": "外部技能列表选中并收纳。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "delete-external",
+      "status": "existing",
+      "note": "外部技能列表选中并确认删除。",
+      "page": "catalog-actions"
+    },
+    {
+      "command": "deploy",
+      "status": "proposed",
+      "note": "向已有库、新库或直接向目标部署。",
+      "page": "transfer"
+    },
+    {
+      "command": "export",
+      "status": "proposed",
+      "note": "输出可复用的 deploy 命令。",
+      "page": "transfer"
+    },
+    {
+      "command": "share create",
+      "status": "proposed",
+      "note": "生成只含来源地址的分享信息。",
+      "page": "transfer"
+    },
+    {
+      "command": "share apply",
+      "status": "proposed",
+      "note": "用分享信息导入并安装。",
+      "page": "transfer"
+    },
+    {
+      "command": "target add",
+      "status": "existing",
+      "note": "目标设置 t 后用 a 添加。",
+      "page": "settings"
+    },
+    {
+      "command": "target list",
+      "status": "existing",
+      "note": "目标设置 t 查看已配目标。",
+      "page": "settings"
+    },
+    {
+      "command": "target remove",
+      "status": "existing",
+      "note": "从目标列表选择并移除。",
+      "page": "settings"
+    },
+    {
+      "command": "target update",
+      "status": "partial",
+      "note": "目标列表 Enter 编辑路径；平台、类型、策略改动列入评审。",
+      "page": "settings"
+    },
+    {
+      "command": "target validate",
+      "status": "proposed",
+      "note": "逐个目标显示验证结果。",
+      "page": "settings"
+    },
+    {
+      "command": "target plugin list",
+      "status": "proposed",
+      "note": "列出发现的目标插件。",
+      "page": "settings"
+    },
+    {
+      "command": "provider list",
+      "status": "proposed",
+      "note": "查看提供方和解析顺序。",
+      "page": "settings"
+    },
+    {
+      "command": "provider validate",
+      "status": "proposed",
+      "note": "查看提供方校验结果。",
+      "page": "settings"
+    },
+    {
+      "command": "plugin list",
+      "status": "proposed",
+      "note": "列出已链接的插件。",
+      "page": "settings"
+    },
+    {
+      "command": "plugin add",
+      "status": "proposed",
+      "note": "链接本地插件可执行文件。",
+      "page": "settings"
+    },
+    {
+      "command": "plugin remove",
+      "status": "proposed",
+      "note": "移除插件链接。",
+      "page": "settings"
+    },
+    {
+      "command": "init",
+      "status": "proposed",
+      "note": "初始化空库。",
+      "page": "maintenance"
+    },
+    {
+      "command": "verify",
+      "status": "proposed",
+      "note": "检查库一致性，CLI 参数形式为 verify repo。",
+      "page": "maintenance"
+    },
+    {
+      "command": "backup create",
+      "status": "proposed",
+      "note": "创建本地快照。",
+      "page": "maintenance"
+    },
+    {
+      "command": "backup restore",
+      "status": "proposed",
+      "note": "从快照恢复仓库状态，与声明恢复分开。",
+      "page": "maintenance"
+    },
+    {
+      "command": "help",
+      "status": "cli-only",
+      "note": "命令帮助，TUI 键位帮助范围独立。"
+    },
+    {
+      "command": "version",
+      "status": "cli-only",
+      "note": "打印版本供排查和脚本读取。"
+    },
+    {
+      "command": "completion bash",
+      "status": "cli-only",
+      "note": "生成对应 shell 的补全脚本。"
+    },
+    {
+      "command": "completion fish",
+      "status": "cli-only",
+      "note": "生成对应 shell 的补全脚本。"
+    },
+    {
+      "command": "completion powershell",
+      "status": "cli-only",
+      "note": "生成对应 shell 的补全脚本。"
+    },
+    {
+      "command": "completion zsh",
+      "status": "cli-only",
+      "note": "生成对应 shell 的补全脚本。"
+    }
+  ]
+}
