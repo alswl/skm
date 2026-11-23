@@ -27,6 +27,7 @@ func (m *model) openDetail() {
 
 func (m *model) startMachineSkillScan() {
 	m.detailMachineSequence++
+	m.detailOpenLocationsPending = false
 	m.detailMachineItems = nil
 	m.detailMachineError = nil
 	if m.cursor >= len(m.filtered) || m.filtered[m.cursor].Kind != common.KindSkill {
@@ -52,6 +53,10 @@ func (m *model) acceptMachineSkillScan(msg machineSkillScanMsg) {
 	}
 	m.detailMachineLoading = false
 	m.detailMachineItems, m.detailMachineError = msg.items, msg.err
+	if m.detailOpenLocationsPending {
+		m.detailOpenLocationsPending = false
+		m.openDetailInstallations()
+	}
 }
 
 func (m model) detailContent() string {

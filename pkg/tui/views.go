@@ -28,6 +28,7 @@ func (m *model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	k := m.keys
 	switch {
 	case key.Matches(msg, k.ClearSearch), key.Matches(msg, k.Quit):
+		m.detailOpenLocationsPending = false
 		m.showDetail = false // Esc/q back to the list (Enter does not close detail)
 		m.detailMachineSequence++
 	case key.Matches(msg, k.MoveDown):

@@ -22,6 +22,7 @@ func (m *model) openDetailInstallations() {
 		return
 	}
 	if m.detailMachineLoading {
+		m.detailOpenLocationsPending = true
 		m.setStatus("Scanning installations…")
 		return
 	}

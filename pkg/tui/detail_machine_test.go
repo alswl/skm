@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/alswl/skm/skm/pkg/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,4 +58,20 @@ func TestMachineSkillDetailFindsDirectoryAfterTagRemoval(t *testing.T) {
 	require.NoError(t, result.err)
 	_, err = os.Lstat(link)
 	require.True(t, os.IsNotExist(err))
+}
+
+func TestDetailLocationsRequestedDuringScanOpenWhenReady(t *testing.T) {
+	m := newTestModel(t)
+	m.openDetail()
+	require.True(t, m.detailMachineLoading)
+	m.openDetailInstallations()
+	require.True(t, m.detailOpenLocationsPending)
+	msg := m.machinePending().(machineSkillScanMsg)
+	require.NoError(t, msg.err)
+	msg.items = []common.InstallationObservation{{Directory: "project", Target: "codex", Status: "installed"}}
+	m.acceptMachineSkillScan(msg)
+	require.False(t, m.detailOpenLocationsPending)
+	require.False(t, m.detailMachineLoading)
+	require.NotNil(t, m.picker)
+	require.Equal(t, "project / codex · installed", m.picker.Items[0].Label)
 }

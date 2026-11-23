@@ -89,15 +89,16 @@ type model struct {
 	spinner  spinner.Model
 	spinning bool // true while a spinner.Tick loop is in flight; keeps exactly one loop running
 
-	showDetail            bool   // true renders the full-screen detail page (Enter/v)
-	detail                string // detail page content, built lazily in openDetail
-	detailOffset          int    // scroll offset (lines) into the detail content; j/k scroll it
-	detailTargets         int    // number of kind-matching targets (cached in Update; View must stay pure)
-	detailInstalled       bool   // whether the entry is installed in any matching target (cached in Update)
-	detailMachineSequence uint64
-	detailMachineLoading  bool
-	detailMachineItems    []common.InstallationObservation
-	detailMachineError    error
+	showDetail                 bool   // true renders the full-screen detail page (Enter/v)
+	detail                     string // detail page content, built lazily in openDetail
+	detailOffset               int    // scroll offset (lines) into the detail content; j/k scroll it
+	detailTargets              int    // number of kind-matching targets (cached in Update; View must stay pure)
+	detailInstalled            bool   // whether the entry is installed in any matching target (cached in Update)
+	detailMachineSequence      uint64
+	detailMachineLoading       bool
+	detailOpenLocationsPending bool
+	detailMachineItems         []common.InstallationObservation
+	detailMachineError         error
 
 	// req-2 §1 modals and task center.
 	picker       *pages.Picker        // active multi/single-select modal (nil when closed)
