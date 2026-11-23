@@ -219,3 +219,15 @@
 - `6ca5bb6` 已在 80 列 PTY 验证从技能发起按标签安装、用 `g` 重新预览、实际创建链接，并打开恢复预览。
 - [my-tests 的逐步画面](https://github.com/alswl/issues/issues/87#issuecomment-7061545808) 来自较早的 `79d12c3`，覆盖进入目录、扫描、收录和打标。该版本的入口和预览布局与此处有差异。
 - 最新版 TUI 撤回和卸载在这里按当前实现记录，尚缺同版本逐步实操证据。
+
+## CLI 能力对照
+
+CLI 命令的评审归属维护在 [覆盖清单](tui-cli-coverage.json)。`make lint-cli-coverage` 构建当前 skm，再从实际的 `--help` 递归收集公开末级命令。CI 执行同一目标。
+
+新增命令时登记完整命令路径。关联现有 Page ID，或填写 `cli-only` 和理由。命令改名或删除时同步更新清单，避免留下失效项。`proposed` 表示评审稿中的拟议入口。
+
+HTML 评审可用以下命令生成对照表片段。嵌入时使用清单中的 Page ID 作为对应画面的 `screen-<page-id>` 锚点。
+
+```sh
+python3 scripts/lint-cli-coverage.py --binary bin/skm --html
+```
