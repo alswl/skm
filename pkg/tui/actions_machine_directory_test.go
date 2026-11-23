@@ -183,3 +183,18 @@ func TestMachineDirectoryCaptureUser(t *testing.T) {
 	require.Equal(t, "user", doc.Installs[0].Scope.Kind)
 	require.FileExists(t, link)
 }
+
+func TestMachineRepreviewRequestedWhileScanning(t *testing.T) {
+	m := newTestModel(t)
+	m.openMachineDirectories()
+	scan := m.acceptMachineDirectories(m.machinePending().(machineDirectoriesMsg))
+	require.NotNil(t, scan)
+	called := false
+	m.machine.retryPreview = func() { called = true }
+	m.handleMachineKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+	require.True(t, m.machine.retryPreviewPending)
+	require.False(t, called)
+	m.acceptMachineScan(scan().(machineScanMsg))
+	require.True(t, called)
+	require.False(t, m.machine.retryPreviewPending)
+}

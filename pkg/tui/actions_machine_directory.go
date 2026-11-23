@@ -43,6 +43,7 @@ type machineDirectoryState struct {
 	installFromSkill    bool
 	result              string
 	retryPreview        func()
+	retryPreviewPending bool
 }
 
 type machineDirectoriesMsg struct {
@@ -82,6 +83,7 @@ func (m *model) openMachineDirectories() {
 	m.machine.installFromSkill = false
 	m.machine.requestedSkill = ""
 	m.machine.retryPreview = nil
+	m.machine.retryPreviewPending = false
 	m.machine.sequence++
 	m.machine.loadingList = true
 	m.machine.resultFocused = false
@@ -145,6 +147,7 @@ func (m *model) machineScope() string {
 func (m *model) startMachineScan() tea.Cmd {
 	m.machine.sequence++
 	m.machine.retryPreview = nil
+	m.machine.retryPreviewPending = false
 	m.machine.scanning = true
 	if m.machine.resultCursor < len(m.machine.items) {
 		m.machine.resultItem = m.machine.items[m.machine.resultCursor]
@@ -172,6 +175,12 @@ func (m *model) acceptMachineScan(msg machineScanMsg) {
 	m.machine.items = msg.items
 	m.machine.resultCursor = locationResultIndex(msg.items, m.machine.resultItem, m.machine.resultCursor)
 	m.machine.err = msg.err
+	if m.machine.retryPreviewPending {
+		m.machine.retryPreviewPending = false
+		if retry := m.machine.retryPreview; retry != nil {
+			retry()
+		}
+	}
 }
 
 func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
@@ -331,8 +340,12 @@ func (m *model) handleMachineKey(msg tea.KeyMsg) tea.Cmd {
 			m.openMachineRestore()
 		}
 	case msg.String() == "v":
-		if m.machine.retryPreview != nil && !m.machine.scanning {
-			m.machine.retryPreview()
+		if m.machine.retryPreview != nil {
+			if m.machine.scanning {
+				m.machine.retryPreviewPending = true
+			} else {
+				m.machine.retryPreview()
+			}
 		}
 	}
 	return nil
